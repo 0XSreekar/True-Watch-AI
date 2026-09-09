@@ -8,6 +8,15 @@ incrementally.
 > **Project status:** active prototype. Authentication, persistence, and video
 > intelligence are represented by safe demo flows and mock services.
 
+## Automation concept
+
+![TrueWatch AI node-based automation flow: camera feeds enter a trigger, are evaluated by AI, then create an alert, evidence record, and operator-console update.](docs/images/truewatch-automation-flow.png)
+
+The intended experience follows an **n8n-style, node-based automation flow**:
+camera events enter a trigger, pass through AI evaluation, then create an alert,
+preserve evidence, and update the operator console. This is a visual direction
+for the product; an n8n integration has not been connected yet.
+
 ## Highlights
 
 - Public product site, sign-in/sign-up journeys, and an operator console
