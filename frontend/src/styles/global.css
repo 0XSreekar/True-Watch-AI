@@ -1,0 +1,180 @@
+/* Global shell + keyframes, carried over verbatim from the original prototype. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #e9e3d6;
+}
+
+body {
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  color: #2b2521;
+  -webkit-font-smoothing: antialiased;
+  text-wrap: pretty;
+}
+
+a {
+  color: #8a6a22;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #a32e24;
+}
+
+::selection {
+  background: rgba(169, 129, 47, 0.25);
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(43, 37, 33, 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(43, 37, 33, 0.26);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+input,
+select,
+button,
+textarea {
+  font-family: inherit;
+}
+
+/* Hover states the prototype expressed with style-hover="…" */
+.tw-ghost-btn:hover {
+  background: rgba(43, 37, 33, 0.06) !important;
+  border-color: #2b2521 !important;
+}
+
+.tw-solid-btn:hover {
+  box-shadow: 5px 5px 0 rgba(169, 129, 47, 0.75) !important;
+  transform: translate(-1px, -1px);
+}
+
+.tw-solid-btn-lg:hover {
+  box-shadow: 7px 7px 0 rgba(169, 129, 47, 0.8) !important;
+  transform: translate(-2px, -2px);
+}
+
+@keyframes sdPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes sdRing {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+@keyframes sdScroll {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(13px);
+    opacity: 0;
+  }
+}
+
+@keyframes sdPacket {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  5% {
+    opacity: 1;
+  }
+  95% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes sdSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sdRise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sdShake {
+  10%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  80% {
+    transform: translateX(3px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-5px);
+  }
+  40%,
+  60% {
+    transform: translateX(5px);
+  }
+}
+
+@keyframes sdSweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,19 @@
+# Dependencies
+**/node_modules/
+
+# Local configuration and secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# Generated output
+**/dist/
+**/coverage/
+**/.vite/
+**/var/
+
+# Logs and local tooling
+*.log
+.DS_Store
+.eslintcache
+*.tsbuildinfo

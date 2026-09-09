@@ -1,0 +1,31 @@
+{
+  "name": "truewatch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Edge-first video analytics prototype with an operator console and API.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0XSreekar/True-Watch-AI.git"
+  },
+  "homepage": "https://github.com/0XSreekar/True-Watch-AI#readme",
+  "bugs": {
+    "url": "https://github.com/0XSreekar/True-Watch-AI/issues"
+  },
+  "workspaces": ["frontend", "backend"],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev --workspace backend",
+    "dev:web": "npm run dev --workspace frontend",
+    "start:api": "npm run start --workspace backend",
+    "build": "npm run build --workspace frontend",
+    "preview": "npm run preview --workspace frontend",
+    "setup": "npm install && node scripts/setup-env.mjs",
+    "check": "npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
