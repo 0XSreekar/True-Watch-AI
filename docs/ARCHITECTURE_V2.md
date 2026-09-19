@@ -379,7 +379,7 @@ truewatch/
 ├── package.json                                  [exists] workspaces: frontend, backend
 ├── README.md                                     [exists] latency wording updated in [11]
 ├── CONTRIBUTING.md                               [exists]
-├── LICENSE                                       [1] see Open Question 3
+├── LICENSE                                       [1] AGPL-3.0, verbatim from gnu.org
 ├── .env.example                                  — per workspace, see below
 │
 ├── docs/
@@ -392,7 +392,9 @@ truewatch/
 ├── edge/                                         Python 3.11 · FastAPI
 │   ├── __init__.py                               [0]
 │   ├── app.py                                    [1] FastAPI app, /healthz, /pipeline/start
-│   ├── config.py                                 [1] env only, no literals
+│   ├── config.py                                 [1] env only, no literals; refuses to
+│   │                                                 start in production without a secret
+│   ├── pytest.ini                                [1]
 │   ├── requirements.txt                          [0]
 │   ├── Dockerfile                                [0] HF Spaces target
 │   ├── README.md                                 [0]
@@ -423,8 +425,13 @@ truewatch/
 │   │   ├── __init__.py                           [0]
 │   │   ├── registry.py                           [2] resolves weights by id; no weights in git
 │   │   └── .gitignore                            [0] ignores *.onnx, *.pt, *.engine
+│   ├── tools/
+│   │   ├── __init__.py                           [1]
+│   │   └── make_sample_clip.py                   [1] synthetic clip for offline ingest runs
 │   └── tests/
 │       ├── __init__.py                           [0]
+│       ├── test_config.py                        [1]
+│       ├── test_ingest.py                        [1] one decode path, both sources
 │       ├── test_fusion.py                        [4]
 │       ├── test_rules.py                         [5] reproduces MEASUREMENTS §2 byte-for-byte
 │       ├── test_chain.py                         [9] tamper test: one byte → non-zero exit
@@ -437,7 +444,7 @@ truewatch/
 │   └── notebooks/kaggle_finetune.ipynb           [2]
 │
 ├── datasets/                                     scripts only — no data, ever
-│   ├── README.md                                 [1]
+│   ├── README.md                                 [1] per-dataset licence notes
 │   ├── fetch_kaist.py                            [1]
 │   ├── fetch_llvip.py                            [1]
 │   ├── fetch_idd.py                              [1]
@@ -886,9 +893,12 @@ weights location — block Phase 2.
    in Phase 0. Every honesty claim in §7 and in `PHASE_MINUS1_SCOPE` §5.1 now points at a file a
    judge can open. Its header gained a cross-reference to §7 and to the measured-versus-target
    split; **no number in it was altered.**
-3. **Licence.** `PHASE_MINUS1_SCOPE` risk 1 and open question 4 are still open: Ultralytics
-   YOLO11 is AGPL-3.0 and this repository is public. The decision is needed **before the first
-   commit that imports Ultralytics**, which is Phase 2. No `LICENSE` file exists today.
+3. **RESOLVED — the whole repository is AGPL-3.0.** `PHASE_MINUS1_SCOPE` risk 1 and open
+   question 4 are closed. `LICENSE` at the root carries the verbatim AGPL-3.0 text from gnu.org.
+   Option 1 of three was chosen because the deployment is network-served from a public
+   repository, which makes compliance a matter of keeping the repository public rather than an
+   added obligation. Datasets fetched by `datasets/` keep their own terms and are not
+   relicensed. Re-examine if the Ultralytics licence changes.
 4. **Where fine-tuned weights live.** `PHASE_MINUS1_SCOPE` open question 5. §5 assumes a Hugging
    Face model repo referenced by id, with `edge/models/.gitignore` excluding `*.onnx`, `*.pt` and
    `*.engine`. Confirm.
