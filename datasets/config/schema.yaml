@@ -1,0 +1,40 @@
+# Unified detection taxonomy. DATASET_SPEC.md section 1.1.
+# These names are the exact strings ARCHITECTURE_V2 section 4.2 freezes on the wire;
+# backend/src/services/ingest.service.js maps them. Do not rename.
+
+classes:
+  - id: 0
+    name: person
+    definition: >-
+      One human body, standing, walking, running, sitting or lying, including a human riding
+      or pushing any vehicle. The box bounds the human alone where the source separates it,
+      and the human with the machine where the source annotates them jointly.
+  - id: 1
+    name: two_wheeler
+    definition: >-
+      A two- or three-wheeled road vehicle: motorcycle, scooter, moped, bicycle, autorickshaw.
+      The box bounds the machine, not its rider.
+  - id: 2
+    name: car
+    definition: >-
+      A passenger road vehicle up to and including a van or minibus.
+  - id: 3
+    name: truck
+    definition: >-
+      A goods or heavy passenger vehicle on four or more wheels: lorry, tipper, tanker,
+      full-size bus, caravan, trailer.
+  - id: 4
+    name: cart
+    definition: >-
+      A non-motorised load-carrying vehicle: animal-drawn cart, hand cart, load rickshaw.
+      Conditional on the hand-verification gate in DATASET_SPEC.md section 1.5.
+
+# Section 1.5: class 4 ships only if hand-verified instances reach this count.
+cart_gate:
+  min_verified_instances: 300
+  on_failure: withdraw_class_4
+
+# Section 1.6.
+box:
+  format: yolo_normalised_cxcywh
+  min_area_px2: 16

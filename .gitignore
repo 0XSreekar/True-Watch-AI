@@ -28,3 +28,26 @@
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Dataset artefacts. Scripts and manifests are committed; data never is.
+datasets/raw/
+datasets/processed/
+datasets/reports/*
+!datasets/reports/.gitkeep
+datasets/plates/out/
+datasets/plates/labels/*
+!datasets/plates/labels/.gitkeep
+datasets/plates/fonts/*.ttf
+datasets/plates/fonts/*.otf
+datasets/plates/labels/*.txt
+datasets/plates/labels/*.json
+!datasets/plates/labels/.gitkeep
+datasets/**/*.jpg
+datasets/**/*.jpeg
+datasets/**/*.png
+datasets/**/*.mp4
+datasets/**/*.zip
+datasets/**/*.tar
+datasets/**/*.tar.gz
+datasets/**/*.pt
+datasets/**/*.onnx

@@ -1,0 +1,63 @@
+# Split assignment. DATASET_SPEC.md section 2.
+# Splitting happens at the SEQUENCE level and nowhere else. This file maps
+# sequence_key -> split. No code path assigns a split to an image directly.
+
+proportions:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  tolerance: 0.03
+
+# Section 2.4. Checked per split by gate G8.
+day_night:
+  visible_share_min: 0.55
+  visible_share_max: 0.70
+
+# Section 2.2. KAIST sets, explicit. Lighting is DECLARED here and VERIFIED at
+# conversion time (OQ-1); 02_convert_kaist.py fails if a set contradicts its declaration.
+kaist:
+  sets:
+    set00: {split: train, lighting: day}
+    set01: {split: train, lighting: day}
+    set02: {split: train, lighting: day}
+    set03: {split: train, lighting: night}
+    set04: {split: train, lighting: night}
+    set05: {split: train, lighting: night}
+    set06: {split: val,   lighting: day}
+    set07: {split: test,  lighting: day}
+    set08: {split: test,  lighting: day}
+    set09: {split: val,   lighting: night}
+    set10: {split: test,  lighting: night}
+    set11: {split: test,  lighting: night}
+  note: >-
+    MEASUREMENTS.md sections 1, 2 and 3 were produced on set00/V007, which is in train.
+    Harmless: every one of those numbers came from a pretrained, not fine-tuned model,
+    so no fine-tuned figure is ever reported on data the fine-tune saw.
+
+# Section 2.3. LLVIP ships an official partition; its official test goes to our test
+# untouched, and our val is carved from its train by scene key, never by random frame.
+llvip:
+  official_test_to: test
+  val_share_of_official_train: 0.18
+  scene_key:
+    strategy: filename_prefix       # OQ-3
+    prefix_length: 2
+    fallback: phash_adjacency       # pseudo-sequences, Hamming <= 6 on a 64-bit pHash
+    fallback_hamming: 6
+
+# Section 2.3. IDD train -> our train; IDD val split by drive folder into our val and test.
+# IDD test is unused: the public partition has no released labels.
+idd:
+  official_train_to: train
+  official_val_split: {val: 0.5, test: 0.5}
+  official_test: unused
+  sequence_key: drive_folder
+
+# Section 2.6. Regression gate set, drawn only from val, never from test.
+hard_set:
+  total: 280
+  buckets:
+    tiny_objects:   {count: 80, rule: median_person_height_px_max, value: 19}
+    heavy_infrared: {count: 80, rule: lwir_intensity_variance_decile_max, value: 1}
+    crowds:         {count: 60, rule: person_instances_min, value: 8}
+    occlusion:      {count: 60, rule: occluded_person_share_min, value: 0.30, iou: 0.3}
