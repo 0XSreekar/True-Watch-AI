@@ -17,3 +17,8 @@
 .DS_Store
 .eslintcache
 *.tsbuildinfo
+
+# Local working material, never pushed
+Claude outputs/
+*.local.md
+.scratch/
