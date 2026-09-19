@@ -19,6 +19,6 @@
 *.tsbuildinfo
 
 # Local working material, never pushed
-Claude outputs/
+*outputs/
 *.local.md
 .scratch/
