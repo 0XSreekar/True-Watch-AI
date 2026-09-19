@@ -9,9 +9,9 @@ It reaches the rest of the system through exactly one call —
 `POST /api/ingest/event` on the Express backend, authenticated with a shared
 secret. It never talks to the browser.
 
-> **Phase 0 scaffolding.** This folder currently contains package markers,
-> dependency and container definitions, and this file. There is no pipeline
-> code yet. `app.py` arrives in Phase 1.
+> **Phase 1.** The service shell and the ingest path are in. The appearance and
+> motion channels, fusion, tracking, the rule engine, ANPR, face, the
+> explanation model and evidence hashing arrive in Phases 2 through 9.
 
 ## Where this fits
 
@@ -27,17 +27,55 @@ See [`docs/ARCHITECTURE_V2.md`](../docs/ARCHITECTURE_V2.md):
 
 ## Local development
 
+Python 3.11 or newer. The container pins 3.11; 3.12+ works locally.
+
 ```bash
 cd edge
-python3.11 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # then fill in TRUEWATCH_INGEST_KEY
+cp .env.example .env        # TRUEWATCH_INGEST_KEY may stay empty in development
+```
+
+Generate a clip to run against, then start the service:
+
+```bash
+python tools/make_sample_clip.py --out ./var/samples/sample.mp4
+uvicorn app:app --reload --port 8000
+```
+
+```bash
+curl localhost:8000/healthz          # what this instance is pointed at
+curl localhost:8000/pipeline/probe   # open the source, read one frame, report it
+curl -X POST localhost:8000/pipeline/start
+curl localhost:8000/pipeline/status  # frames_seen climbs at TARGET_FPS
+curl -X POST localhost:8000/pipeline/stop
+```
+
+Tests:
+
+```bash
+python -m pytest            # generates its own clips; no dataset needed
 ```
 
 The root `npm run dev` starts the console and the API only. This service is
 started separately, and the console works without it — `apiClient.withFallback`
 keeps the operator console watchable when nothing upstream is running.
+
+## The two sources take one decode path
+
+A live ONVIF/RTSP pull and a replayed file differ only in the string handed to
+OpenCV, so the substitution recorded in `docs/PHASE_MINUS1_SCOPE.md` section 6 is
+a configuration change rather than a second code path. They differ in how the
+frame rate is reduced, because they have different clocks:
+
+- A **file** is decimated against its own declared rate — keep every Nth frame.
+  Dropping by wall-clock would empty a short clip on a fast machine.
+- A **live pull** drops any frame arriving inside the target interval, because on
+  a live source a stale frame is worse than a missing one.
+
+Every frame and every event carries `source` (`rtsp` or `file`), so nothing
+downstream can present a replay as a live camera.
 
 ## Rules for this folder
 
