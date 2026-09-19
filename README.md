@@ -76,7 +76,7 @@ npm run build      # Build the frontend for production
 └── .gitignore                 Shared repository exclusions
 ```
 
-For how the frontend and API fit together, see [the architecture guide](docs/ARCHITECTURE.md).
+For how the frontend and API fit together, see [the architecture guide](docs/ARCHITECTURE_V2.md).
 
 ## Application routes
 
