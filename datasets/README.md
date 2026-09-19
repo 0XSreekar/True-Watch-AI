@@ -14,11 +14,17 @@ this directory emits Ultralytics *format*, which is just directories and text fi
 
 ```
 config/     schema, sources, splits, augmentation - the parameters, in one place
-scripts/    00..11, run in order
+scripts/    00..11, run in order, plus _lib.py
 plates/     synthetic Nepali plate corpus for the ANPR fine-tune
 manifests/  committed: file lists, hashes, split membership. Never the data.
 reports/    generated: stats, histograms, the manual spot check. Git-ignored.
 ```
+
+`scripts/_lib.py` is the one file that is not a numbered step. It holds what all twelve
+scripts share: the structured log format, the argparse shape, the counter discipline that
+makes a skipped file a named, printed number rather than a silent loss, the index merge
+that makes a resumed run safe, and the label geometry helpers. It exists so that a change
+to any of those happens once instead of twelve times.
 
 ## Setup
 

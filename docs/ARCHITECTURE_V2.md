@@ -443,12 +443,19 @@ truewatch/
 │   ├── export_onnx.py                            [2]
 │   └── notebooks/kaggle_finetune.ipynb           [2]
 │
-├── datasets/                                     scripts only — no data, ever
-│   ├── README.md                                 [1] per-dataset licence notes
-│   ├── fetch_kaist.py                            [1]
-│   ├── fetch_llvip.py                            [1]
-│   ├── fetch_idd.py                              [1]
-│   └── make_synthetic_plates.py                  [7] the ≥20-plate synthetic set
+├── datasets/                                     scripts and manifests only — no data, ever
+│   ├── README.md                                 [1] how to run the pipeline end to end
+│   ├── requirements.txt                          [1] pinned, CPU-only, six packages
+│   ├── config/                                   [1] schema, sources, splits, augment
+│   ├── scripts/00_fetch.py                       [1] all three sources; supersedes the
+│   │                                                 three per-dataset fetch scripts
+│   ├── scripts/01..04_convert*, ir_to_3ch        [1] native formats → unified YOLO
+│   ├── scripts/05..09_dedupe..build_yolo_ds      [1] dedupe, split, negatives, tiles, build
+│   ├── scripts/10_validate.py                    [1] the gate: 19 checks, non-zero on failure
+│   ├── scripts/11_stats.py                       [1] histograms, ratios, the manual spot check
+│   ├── scripts/_lib.py                           [1] shared logging, manifests, label parsing
+│   ├── plates/gen_plates.py  degrade.py          [1] ≥20,000 synthetic Nepali plates
+│   └── manifests/                                [1] committed file lists and hashes
 │
 ├── backend/
 │   ├── .env.example                              [exists] extended [0]
