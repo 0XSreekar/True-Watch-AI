@@ -1,0 +1,32 @@
+# TRUEWATCH edge service — Phase 0 scaffolding.
+# Versions are pinned as each phase introduces the dependency it needs.
+# Nothing here is installed by `npm run setup`; the edge service has its own
+# virtual environment (see edge/README.md).
+
+# --- Service (Phase 1) ---
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+httpx
+
+# --- Decode and classical vision (Phases 1, 3) ---
+opencv-python-headless
+numpy
+
+# --- Appearance channel (Phase 2) ---
+# Inference runs on the exported ONNX model, so onnxruntime is the runtime
+# dependency. Ultralytics is a TRAINING dependency and is declared in
+# training/, not here — see training/README.md for the licence note.
+onnxruntime
+
+# --- Tracking and tiling (Phases 5, 6) ---
+# lap / scipy for ByteTrack association, sahi for tiled far-field inference.
+
+# --- ANPR, face, explanation, search (Phase 7) ---
+# paddleocr / paddlepaddle for PP-OCRv5 Devanagari.
+# YuNet ships with OpenCV's model zoo.
+# transformers + torch for Moondream 2 and SigLIP.
+
+# --- Tests (Phase 4 onward) ---
+pytest

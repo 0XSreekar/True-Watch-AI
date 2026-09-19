@@ -1,0 +1,7 @@
+# Model weights are referenced by id and resolved at runtime. None are committed.
+*.onnx
+*.pt
+*.pth
+*.engine
+*.bin
+*.safetensors
