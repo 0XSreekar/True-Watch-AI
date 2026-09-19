@@ -115,6 +115,37 @@ time:
 - Connect the evidence service to durable hashes and object storage before
   treating it as an auditable chain.
 
+## Performance figures
+
+The ~30 ms detector figure is the YOLO11-s INT8 inference budget at 640 px on a
+Jetson Orin Nano Super 8 GB, as stated on slide 3 of the submission deck. It is a
+**design target on hardware this project does not own**, and it is **not**
+end-to-end latency. The ~3 s explanation figure is likewise a target, and the
+explanation is asynchronous — the operator sees the provisional alert before it
+arrives.
+
+Every number this repository presents as measured was produced on the host named
+beside it, on public datasets, and is recorded in
+[docs/MEASUREMENTS.md](docs/MEASUREMENTS.md). No measurement in this repository
+was taken on a Jetson. See
+[docs/ARCHITECTURE_V2.md](docs/ARCHITECTURE_V2.md) section 7 for the full
+measured-versus-target split.
+
+## Licence
+
+This project is licensed under the **GNU Affero General Public License v3.0** —
+see [LICENSE](LICENSE).
+
+The detector is [Ultralytics YOLO11](https://github.com/ultralytics/ultralytics),
+which is AGPL-3.0. The AGPL's network clause extends source-availability
+obligations to software made available over a network, not only to software
+distributed as a binary. Because this repository is public and the deployed
+service is network-served, licensing the whole project AGPL-3.0 is the route
+that is compliant by construction.
+
+Datasets fetched by `datasets/` are **not** covered by this licence. Each carries
+its own terms; see [datasets/README.md](datasets/README.md).
+
 ## Contributing
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Keep
