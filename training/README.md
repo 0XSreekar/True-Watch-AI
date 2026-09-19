@@ -29,18 +29,17 @@ under **AGPL-3.0**. The AGPL's network clause extends source-availability
 obligations to software made available over a network, not only to software
 distributed as a binary. This repository is public.
 
-**This is unresolved and blocks Phase 2.** `docs/PHASE_MINUS1_SCOPE.md` risk 1
-and open question 4 set out the three options:
+**RESOLVED in Phase 1: the whole repository is AGPL-3.0.** `LICENSE` at the
+repository root carries the verbatim text from gnu.org. This was option 1 of the
+three in `docs/PHASE_MINUS1_SCOPE.md` risk 1, chosen because the deployment is
+network-served from a public repository, which makes AGPL compliance a matter of
+keeping the repository public rather than an added obligation. Isolating
+Ultralytics in a second repository would have cost a second artefact to manage
+mid-build; swapping the detector would have invalidated every YOLO11-s number in
+`docs/MEASUREMENTS.md`.
 
-1. License the whole repository AGPL-3.0 and add the notice.
-2. Keep every Ultralytics import isolated in a separately licensed repository
-   or submodule, leaving the console repository untouched.
-3. Swap the detector for a permissively licensed one — which invalidates every
-   YOLO11-s number in `MEASUREMENTS.md`, and is therefore the last resort.
-
-No file in this folder may import Ultralytics until that decision is recorded
-and a `LICENSE` file exists at the repository root. Verify the current licence
-text at source rather than relying on this note.
+Verify the current Ultralytics licence text at source rather than relying on this
+note; if it has changed, the decision is reopened.
 
 ## Weights
 
