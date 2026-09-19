@@ -6,7 +6,7 @@ PS Category Software · Team ID 130977 · Team Name Future Bytes ·
 Organization Ministry of Home Affairs; Sashastra Seema Bal (SSB), Police II Division. *(Slide 1)*
 
 **Authority.** `SIH26187_TRUEWATCH_final-1.pdf` is the single source of truth for every technical
-decision in this document; the slide is quoted wherever a decision rests on it. `MEASUREMENTS.md`
+decision in this document; the slide is quoted wherever a decision rests on it. `docs/MEASUREMENTS.md`
 is the single source of truth for any number described as measured.
 `docs/PHASE_MINUS1_SCOPE.md` fixes what is in and out of scope. Where the PDF is silent or
 ambiguous, the point is recorded under **Open Questions** (§11) rather than guessed.
@@ -385,7 +385,7 @@ truewatch/
 ├── docs/
 │   ├── ARCHITECTURE_V2.md                        [0] this file
 │   ├── PHASE_MINUS1_SCOPE.md                     [-1]
-│   ├── MEASUREMENTS.md                           [1] moved into the repo, see Open Question 2
+│   ├── MEASUREMENTS.md                           [0] the measured record; see §7
 │   ├── THREAT_MODEL.md                           [9] expands §9 below
 │   └── images/truewatch-automation-flow.png      [exists]
 │
@@ -869,32 +869,35 @@ shipping baseline so a lost run costs nothing already promised.
 
 ## 11. Open questions
 
-1. **Three endpoints were missing from the frozen list.** `GET /api/alerts/budget`,
-   `GET /api/cameras/sectors` and `GET /api/cameras/:id` are live in `backend/src/routes/` but
-   absent from the Phase 0 brief's frozen inventory. §3.1 treats them as frozen. Confirm.
-   Related: `fetchAlerts`, `fetchSectors` and `fetchTrafficSample`'s siblings exist in
+Four of the eight below are resolved. They are kept on the record rather than deleted, so each
+decision and its reason stay visible. Four remain open, and two of those — the licence and the
+weights location — block Phase 2.
+
+1. **RESOLVED — the three endpoints missing from the frozen list are frozen too.**
+   `GET /api/alerts/budget`, `GET /api/cameras/sectors` and `GET /api/cameras/:id` are live in
+   `backend/src/routes/` but were absent from the Phase 0 brief's frozen inventory. They are
+   frozen on the same terms as the rest, and §3.1 is the inventory of record.
+   **Still open:** `fetchAlerts`, `fetchSectors` and `fetchTrafficSample`'s siblings exist in
    `frontend/src/services/` with no component consuming them, and `GET /api/alerts` is therefore
    dead in the UI today — `useConsole` builds its queue from `POST /api/alerts/simulate` only.
    Confirm whether Phase 10 should switch the console to `GET /api/alerts` + SSE, which would be
    a `useConsole` change and so is **outside** the "frontend unchanged" rule as written.
-2. **`MEASUREMENTS.md` is not in the repository.** It lives outside the working tree and the
-   brief attaches it, but no committed file carries those numbers. Every honesty claim in §7 and
-   in `PHASE_MINUS1_SCOPE` §5.1 points at a file a judge cannot open. Phase 1 should commit it to
-   `docs/MEASUREMENTS.md`. Confirm.
+2. **RESOLVED — the measured record is in the repository** at `docs/MEASUREMENTS.md`, committed
+   in Phase 0. Every honesty claim in §7 and in `PHASE_MINUS1_SCOPE` §5.1 now points at a file a
+   judge can open. Its header gained a cross-reference to §7 and to the measured-versus-target
+   split; **no number in it was altered.**
 3. **Licence.** `PHASE_MINUS1_SCOPE` risk 1 and open question 4 are still open: Ultralytics
    YOLO11 is AGPL-3.0 and this repository is public. The decision is needed **before the first
    commit that imports Ultralytics**, which is Phase 2. No `LICENSE` file exists today.
 4. **Where fine-tuned weights live.** `PHASE_MINUS1_SCOPE` open question 5. §5 assumes a Hugging
    Face model repo referenced by id, with `edge/models/.gitignore` excluding `*.onnx`, `*.pt` and
    `*.engine`. Confirm.
-5. **Phase names 1–12.** The brief names Phase 8 and Phase 12 but no list of phases was supplied.
-   §10 proposes one and every "Phase N" annotation in this document keys off it. Confirm or
-   correct before Phase 1, because §5's per-file phase column depends on it.
-6. **Phase -1 is not merged into `main`.** The brief states it is. `docs/PHASE_MINUS1_SCOPE.md`
-   exists only on the branch `chore/phase-minus1-scope-lock`, which is not an ancestor of `main`.
-   This Phase 0 branch was cut from `main`, so the two merge independently and without conflict —
-   but the Phase 0 verification step as written (`git checkout main && git pull`) will not find
-   the scope document. Merge `chore/phase-minus1-scope-lock` first.
+5. **RESOLVED — the Phase 1–12 sequence in §10 is adopted as the plan of record.** The brief
+   named Phase 8 and Phase 12 but supplied no list. Every "Phase N" annotation in §3.3, §5 and §9
+   keys off §10. Re-scoping a phase later means updating §5's per-file column in the same commit.
+6. **RESOLVED — Phase -1 is merged.** `chore/phase-minus1-scope-lock` was merged into `main`
+   ahead of this branch, so `docs/PHASE_MINUS1_SCOPE.md` is on `main` and every reference to it
+   from this document resolves.
 7. **`PHASE_MINUS1_SCOPE` open questions 1, 2, 3 and 6 are still unanswered** — the "cart" class,
    the two capabilities with no console surface, which border the demo claims, and the
    8-cameras-versus-6-cameras figure. §7 of that document assumes option (i) for the console
