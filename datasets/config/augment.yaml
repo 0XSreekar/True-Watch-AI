@@ -1,0 +1,65 @@
+# Augmentation policy. DATASET_SPEC.md section 4.
+# This file is the contract between datasets/ and training/. datasets/ applies only the
+# offline members (downscale_upscale, jpeg, motion_blur and the infrared block, when
+# 08_tile_farfield.py and 07_negatives.py materialise variants). Everything else is read
+# by training/ and passed to the trainer. Values are here so both sides cannot drift.
+
+always_on:
+  mosaic: 1.0
+  mosaic_close_epochs: 10        # disabled for the final 10 epochs
+  scale: 0.5
+  translate: 0.1
+  fliplr: 0.5
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  downscale_upscale:
+    p: 0.25
+    factor_min: 2.0
+    factor_max: 4.0
+  jpeg:
+    p: 0.30
+    quality_min: 40
+    quality_max: 90
+  motion_blur:
+    p: 0.15
+    kernel_min: 3
+    kernel_max: 9
+
+infrared_only:
+  clahe:
+    p: 0.5
+    clip_min: 1.5
+    clip_max: 3.0
+    tile_grid: 8
+  gaussian_noise:
+    p: 1.0
+    sigma_min: 2
+    sigma_max: 8
+  brightness_contrast:
+    p: 1.0
+    brightness: 0.25
+    contrast: 0.25
+  thermal_washout:
+    p: 0.2
+    range_min: 0.40
+    range_max: 0.70
+
+# Section 4.3. Asserted by training/ at start-up; any non-zero value here is a bug.
+forbidden:
+  flipud: 0.0
+  degrees: 0.0                   # rotation beyond +/- 10 degrees is forbidden outright
+  degrees_hard_max: 10.0
+  perspective: 0.0               # fixed per camera; the Phase 6 homography depends on it
+  mixup: 0.0
+  copy_paste: 0.0
+  channel_shuffle: 0.0
+  false_colour: 0.0
+  erase_max_box_fraction: 0.25
+
+# Section 3.4. Not an augmentation: the conversion invariant for LWIR.
+infrared_conversion:
+  clahe_clip: 2.0
+  clahe_tile_grid: 8
+  replicate_channels: 3
+  false_colour: false            # MEASUREMENTS.md section 1: false-colour thermal AP@50 = 0.133

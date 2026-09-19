@@ -1,0 +1,45 @@
+# Source datasets. DATASET_SPEC.md sections 7 and 8.
+# Licence strings marked open_question are READ AT FETCH TIME and written into
+# reports/licences/. Nothing here paraphrases a licence from memory.
+
+sources:
+  kaist:
+    kind: huggingface
+    repo_id: richidubey/KAIST-Multispectral-Pedestrian-Detection-Dataset
+    repo_type: dataset
+    expected_file_count: 23210        # MEASUREMENTS.md, verified availability
+    count_tolerance: 0.02
+    licence: open_question            # OQ-5, read from the Hub dataset card at fetch time
+    redistribution: assume_forbidden
+    modalities: [visible, lwir]
+    default_dest: var/datasets/kaist
+    sha256: null                      # upstream publishes no archive digest
+
+  llvip:
+    kind: huggingface
+    repo_id: jsonhash/LLVIP
+    repo_type: dataset
+    expected_file_count: null         # OQ-5, verified against the actual listing at fetch time
+    count_tolerance: 0.05
+    licence: open_question
+    redistribution: assume_forbidden
+    modalities: [visible, lwir]
+    default_dest: var/datasets/llvip
+    sha256: null
+
+  idd:
+    kind: manual_registration
+    registration_url: https://idd.insaan.iiit.ac.in/
+    expected_image_count: 46588       # 31569 / 10225 / 4794, MEASUREMENTS.md
+    count_tolerance: 0.02
+    licence: open_question            # OQ-4, quoted from the click-through agreement at fetch time
+    redistribution: assume_forbidden
+    modalities: [visible]
+    default_dest: var/datasets/idd
+    expected_archives:
+      - IDD_Detection.tar.gz
+    sha256: null
+    note: >-
+      Gated behind registration and a licence agreement. 00_fetch.py never scrapes this source.
+      It prints the registration URL, verifies a manually placed archive and extracts it.
+      This is a deliberate refusal to bypass a licence gate.

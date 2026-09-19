@@ -1,0 +1,8 @@
+# Dataset pipeline dependencies. CPU only; runs unchanged on Apple Silicon and on Kaggle.
+# Ultralytics is deliberately absent: it is AGPL-3.0 and belongs only in training/.
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+PyYAML==6.0.2
+huggingface_hub==0.24.6
+tqdm==4.66.5
