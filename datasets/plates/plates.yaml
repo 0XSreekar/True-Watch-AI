@@ -1,0 +1,53 @@
+# Nepali plate composition. DATASET_SPEC.md section 6.1.
+#
+# Everything under `open_questions` below is OQ-7 to OQ-10: it is a CONFIGURATION value,
+# never a hard-coded constant, precisely because this spec is not certain of it. Correcting
+# any of it is a YAML edit and a regeneration, not a code change.
+#
+# The one composition confirmed by a primary source is MEASUREMENTS.md section 4:
+#   बा १२ प १२३४  ->  zone BA, lot 12, class PA, serial 1234
+
+digits: ["०", "१", "२", "३", "४", "५", "६", "७", "८", "९"]
+
+# OQ-8. Only "बा" is confirmed (MEASUREMENTS.md section 4). The rest are the fourteen
+# administrative zones the series is built on; their exact orthography is unverified.
+zones:
+  confirmed: ["बा"]
+  unverified: ["मे", "को", "सा", "ज", "ना", "ग", "धौ", "लु", "रा", "भे", "से", "म", "क"]
+
+# OQ-9. Only "प" is confirmed (MEASUREMENTS.md section 4).
+vehicle_classes:
+  confirmed: ["प"]
+  unverified: ["च", "स", "ह", "ब", "ज", "य"]
+
+# OQ-10. Colour-to-ownership mapping is NOT asserted. These are rendering variants only;
+# the `name` is a rendering label, not a claim about which ownership class it denotes.
+colour_series:
+  - {name: series_a, background: [235, 235, 235], text: [20, 20, 20], weight: 0.45}
+  - {name: series_b, background: [30, 30, 190], text: [245, 245, 245], weight: 0.20}
+  - {name: series_c, background: [20, 120, 30], text: [245, 245, 245], weight: 0.15}
+  - {name: series_d, background: [40, 190, 235], text: [20, 20, 20], weight: 0.12}
+  - {name: series_e, background: [25, 25, 25], text: [235, 235, 235], weight: 0.08}
+
+layout:
+  lines: 2                 # OQ-7
+  plate_width_px: 520
+  plate_height_px: 300
+  margin_px: 22
+  line_gap_px: 14
+  corner_radius_px: 16
+  border_px: 5
+  render_supersample: 4    # render at 4x then INTER_AREA down
+  emboss_offset_px: [1, 2]
+  rivets: true
+
+lot_number:
+  min: 1
+  max: 99
+
+serial:
+  digits: 4
+
+split:
+  val_share: 0.10
+  by: serial               # no serial appears in both files

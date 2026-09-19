@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+"""Synthetic Nepali plate generator. DATASET_SPEC.md section 6.
+
+MEASUREMENTS.md section 4 records that pretrained PP-OCRv5 Devanagari read about half the
+characters on a real Nepali plate, so slide 5's 85% recognition target needs a fine-tune.
+This produces the corpus for it: >= 20,000 samples with PaddleOCR recognition labels.
+
+Every uncertain detail of the plate format - geometry, zone orthography, vehicle-class
+letters, colour series - lives in plates.yaml and is marked OQ-7 to OQ-10 in the spec.
+Nothing about the format is hard-coded here, because being wrong in a config file costs
+thirty seconds and being wrong in code costs a rewrite.
+
+Deterministic: one random.Random(seed) drives composition and degradation, and samples are
+emitted in index order, so --seed 42 reproduces the corpus byte for byte.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import degrade as degrade_module  # noqa: E402
+
+FONT_HINTS = ("NotoSansDevanagari", "NotoSerifDevanagari")
+SYSTEM_FONT_DIRS = (
+    Path("/System/Library/Fonts"),
+    Path("/Library/Fonts"),
+    Path.home() / "Library/Fonts",
+    Path("/usr/share/fonts"),
+    Path("/usr/local/share/fonts"),
+)
+
+
+def log(level: str, message: str, **fields) -> None:
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+    extra = " ".join(f"{k}={v}" for k, v in fields.items())
+    line = f"{stamp} {level:<5} gen_plates        {message}"
+    if extra:
+        line = f"{line} | {extra}"
+    print(line, file=sys.stderr if level in ("ERROR", "FATAL") else sys.stdout, flush=True)
+
+
+def find_font(explicit: str | None) -> Path | None:
+    if explicit:
+        path = Path(explicit)
+        return path if path.exists() else None
+    local = sorted(HERE.glob("fonts/*.ttf")) + sorted(HERE.glob("fonts/**/*.ttf"))
+    for path in local:
+        if any(hint.lower() in path.name.lower() for hint in FONT_HINTS):
+            return path
+    if local:
+        return local[0]
+    for directory in SYSTEM_FONT_DIRS:
+        if not directory.exists():
+            continue
+        for path in directory.rglob("*.ttf"):
+            if any(hint.lower() in path.name.lower() for hint in FONT_HINTS):
+                return path
+    return None
+
+
+def load_config(path: Path) -> dict:
+    import yaml
+
+    with path.open(encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+def weighted_choice(rng: random.Random, options: list[dict]) -> dict:
+    total = sum(float(o.get("weight", 1.0)) for o in options)
+    point = rng.uniform(0, total)
+    running = 0.0
+    for option in options:
+        running += float(option.get("weight", 1.0))
+        if point <= running:
+            return option
+    return options[-1]
+
+
+def to_devanagari(number: int, digits: list[str], width: int) -> str:
+    text = str(number).zfill(width)
+    return "".join(digits[int(ch)] for ch in text)
+
+
+def compose(rng: random.Random, config: dict) -> dict:
+    digits = config["digits"]
+    zones = config["zones"]["confirmed"] + config["zones"]["unverified"]
+    classes = config["vehicle_classes"]["confirmed"] + config["vehicle_classes"]["unverified"]
+
+    zone = rng.choice(zones)
+    vehicle_class = rng.choice(classes)
+    lot = rng.randint(int(config["lot_number"]["min"]), int(config["lot_number"]["max"]))
+    serial_width = int(config["serial"]["digits"])
+    serial = rng.randint(0, 10**serial_width - 1)
+
+    lot_text = to_devanagari(lot, digits, 2)
+    serial_text = to_devanagari(serial, digits, serial_width)
+
+    return {
+        "zone": zone,
+        "lot": lot_text,
+        "vehicle_class": vehicle_class,
+        "serial": serial_text,
+        "serial_int": serial,
+        "line1": f"{zone} {lot_text}",
+        "line2": f"{vehicle_class} {serial_text}",
+        "text": f"{zone}{lot_text}{vehicle_class}{serial_text}",
+    }
+
+
+def render_plate(fields: dict, colours: dict, layout: dict, font_path: Path, rng: random.Random):
+    from PIL import Image, ImageDraw, ImageFont
+    import numpy as np
+
+    supersample = int(layout.get("render_supersample", 4))
+    width = int(layout["plate_width_px"]) * supersample
+    height = int(layout["plate_height_px"]) * supersample
+    margin = int(layout["margin_px"]) * supersample
+    radius = int(layout["corner_radius_px"]) * supersample
+    border = int(layout["border_px"]) * supersample
+    gap = int(layout["line_gap_px"]) * supersample
+
+    background = tuple(int(c) for c in colours["background"])
+    text_colour = tuple(int(c) for c in colours["text"])
+
+    image = Image.new("RGB", (width, height), background)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle(
+        [(border // 2, border // 2), (width - border // 2, height - border // 2)],
+        radius=radius,
+        outline=text_colour,
+        width=border,
+    )
+
+    usable_height = (height - 2 * margin - gap) // 2
+    size = max(12, int(usable_height * 0.82))
+    try:
+        font = ImageFont.truetype(str(font_path), size)
+    except OSError:
+        return None
+
+    offsets = layout.get("emboss_offset_px", [1, 2])
+    emboss = int(rng.choice(offsets)) * supersample
+
+    for index, line in enumerate((fields["line1"], fields["line2"])):
+        box = draw.textbbox((0, 0), line, font=font)
+        text_width = box[2] - box[0]
+        text_height = box[3] - box[1]
+        x = (width - text_width) // 2 - box[0]
+        y = margin + index * (usable_height + gap) + (usable_height - text_height) // 2 - box[1]
+
+        # Emboss: a dark copy and a light copy under the flat glyph. This is what makes a
+        # synthetic plate look pressed rather than printed, and printed-looking plates are
+        # why naive synthetic corpora fail on real photographs.
+        draw.text((x + emboss, y + emboss), line, font=font, fill=(0, 0, 0))
+        draw.text((x - emboss, y - emboss), line, font=font, fill=(255, 255, 255))
+        draw.text((x, y), line, font=font, fill=text_colour)
+
+    if layout.get("rivets"):
+        rivet_radius = max(2, int(6 * supersample * 0.6))
+        for cx, cy in (
+            (margin, height // 2),
+            (width - margin, height // 2),
+        ):
+            draw.ellipse(
+                [(cx - rivet_radius, cy - rivet_radius), (cx + rivet_radius, cy + rivet_radius)],
+                fill=tuple(max(0, c - 60) for c in background),
+            )
+
+    import cv2
+
+    array = np.array(image)[:, :, ::-1]
+    return cv2.resize(
+        array,
+        (int(layout["plate_width_px"]), int(layout["plate_height_px"])),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
+def check_font(font_path: Path | None) -> int:
+    if font_path is None:
+        log("ERROR", "no Devanagari font found", fix="see datasets/plates/fonts/README.md")
+        return 2
+    try:
+        from PIL import ImageFont
+
+        ImageFont.truetype(str(font_path), 48)
+    except Exception as exc:
+        log("ERROR", "font could not be loaded", font=str(font_path), detail=str(exc)[:160])
+        return 2
+    log("INFO", "font ok", font=str(font_path))
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    ap.add_argument("--count", type=int, default=20000, help="samples to generate")
+    ap.add_argument("--out", default=str(HERE / "out"), help="output directory")
+    ap.add_argument("--config", default=str(HERE / "plates.yaml"), help="plate composition config")
+    ap.add_argument("--font", default=None, help="explicit path to a Devanagari ttf")
+    ap.add_argument(
+        "--labels",
+        default=str(HERE / "labels"),
+        help="where the PaddleOCR recognition labels are written; move it with --out when "
+        "generating a throwaway corpus, or the two corpora share one label file",
+    )
+    ap.add_argument("--seed", type=int, default=42, help="seed for every random operation")
+    ap.add_argument("--dry-run", action="store_true", help="plan the work, write nothing")
+    ap.add_argument("--force", action="store_true", help="regenerate samples that already exist")
+    ap.add_argument("--check-font", action="store_true", help="resolve and load the font, then exit")
+    ap.add_argument("--clean", action="store_true", help="render 500 undegraded plates as well")
+    args = ap.parse_args()
+
+    font_path = find_font(args.font)
+    if args.check_font:
+        return check_font(font_path)
+    if font_path is None:
+        log("ERROR", "no Devanagari font found", fix="see datasets/plates/fonts/README.md")
+        return 2
+    log("INFO", "font resolved", font=str(font_path))
+
+    config = load_config(Path(args.config))
+    layout = config["layout"]
+    out_root = Path(args.out).resolve()
+    images_dir = out_root / "images"
+    clean_dir = out_root / "clean"
+    labels_dir = Path(args.labels).resolve()
+
+    rng = random.Random(args.seed)
+    counts = {"written": 0, "skipped": 0, "failed": 0}
+    rows: list[tuple[str, str, int]] = []
+    charset: set[str] = set()
+    stage_counter: dict[str, int] = {}
+
+    if args.dry_run:
+        log("INFO", "dry-run", would_generate=args.count, out=str(out_root))
+        sample = compose(rng, config)
+        log("INFO", "example composition", text=sample["text"], line1=sample["line1"], line2=sample["line2"])
+        return 0
+
+    images_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    if args.clean:
+        clean_dir.mkdir(parents=True, exist_ok=True)
+
+    import cv2
+
+    for index in range(args.count):
+        name = f"{index:06d}.jpg"
+        target = images_dir / name
+        fields = compose(rng, config)
+        charset.update(fields["text"])
+
+        if target.exists() and not args.force:
+            counts["skipped"] += 1
+            rows.append((f"out/images/{name}", fields["text"], fields["serial_int"]))
+            continue
+
+        colours = weighted_choice(rng, config["colour_series"])
+        plate = render_plate(fields, colours, layout, font_path, rng)
+        if plate is None:
+            counts["failed"] += 1
+            log("ERROR", "render failed", index=index)
+            continue
+
+        if args.clean and index < 500:
+            cv2.imwrite(str(clean_dir / name), plate)
+
+        degraded, applied = degrade_module.degrade(plate, rng)
+        for stage in applied:
+            stage_counter[stage] = stage_counter.get(stage, 0) + 1
+
+        if not cv2.imwrite(str(target), degraded, [int(cv2.IMWRITE_JPEG_QUALITY), 92]):
+            counts["failed"] += 1
+            log("ERROR", "write failed", path=str(target))
+            continue
+
+        rows.append((f"out/images/{name}", fields["text"], fields["serial_int"]))
+        counts["written"] += 1
+
+        if counts["written"] and counts["written"] % 2000 == 0:
+            log("INFO", "progress", written=counts["written"], target=args.count)
+
+    # Split by serial so no serial appears in both files (section 6.4).
+    val_share = float(config["split"]["val_share"])
+    serials = sorted({serial for _p, _t, serial in rows})
+    rng_split = random.Random(args.seed)
+    rng_split.shuffle(serials)
+    val_serials = set(serials[: int(round(len(serials) * val_share))])
+
+    train_lines = [f"{p}\t{t}" for p, t, s in rows if s not in val_serials]
+    val_lines = [f"{p}\t{t}" for p, t, s in rows if s in val_serials]
+
+    (labels_dir / "rec_gt_train.txt").write_text("\n".join(train_lines) + "\n", encoding="utf-8")
+    (labels_dir / "rec_gt_val.txt").write_text("\n".join(val_lines) + "\n", encoding="utf-8")
+    (labels_dir / "charset.txt").write_text("\n".join(sorted(charset)) + "\n", encoding="utf-8")
+
+    summary = {
+        "generated": counts["written"],
+        "skipped_existing": counts["skipped"],
+        "failed": counts["failed"],
+        "total_labelled": len(rows),
+        "train": len(train_lines),
+        "val": len(val_lines),
+        "charset_size": len(charset),
+        "seed": args.seed,
+        "degradation_stages": dict(sorted(stage_counter.items())),
+    }
+    (labels_dir / "summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    log("INFO", "labels written", train=len(train_lines), val=len(val_lines), charset=len(charset))
+    log(
+        "INFO",
+        "done",
+        generated=counts["written"],
+        skipped=counts["skipped"],
+        failed=counts["failed"],
+        out=str(out_root),
+    )
+    if counts["failed"]:
+        return 1
+    if len(rows) < 20000:
+        log("WARN", "corpus is below the 20,000 gate G17 requires", have=len(rows))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
