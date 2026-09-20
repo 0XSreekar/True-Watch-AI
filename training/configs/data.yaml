@@ -1,0 +1,26 @@
+# Dataset definition for training. It points at the Phase 1 output, not at a copy of it.
+#
+# `path` is relative to THIS file: training/configs -> ../../datasets/processed/yolo is the directory
+# datasets/scripts/09_build_yolo_ds.py writes. Ultralytics resolves a relative `path` against its own
+# datasets directory (settings.json "datasets_dir"), NOT against this file or the working directory,
+# so a file used as-is would silently look in the wrong place. train.py therefore never hands this
+# file to Ultralytics: it resolves `path` to an absolute directory (or takes --data-root, for Kaggle),
+# points `train` at the balanced epoch list it writes into the run dir, and writes the result as
+# <run-dir>/data_resolved.yaml. That resolved file is what Ultralytics reads.
+#
+# There is deliberately NO `test` key. The test split is sealed until Phase 11 (DATASET_SPEC 2.5) and
+# a trainer must not be able to address it by accident. train.py asserts that the resolved file has
+# none and that these names equal datasets/config/schema.yaml, the taxonomy every other component
+# freezes.
+
+path: ../../datasets/processed/yolo
+train: images/train   # replaced at run time by <run-dir>/train_list.txt (balanced list, duplicates allowed)
+val: images/val       # Phase 2 measures on val only
+
+nc: 5                 # class id 4 (cart) is always reserved, even if the class is withdrawn (DATASET_SPEC 1.5)
+names:
+  0: person
+  1: two_wheeler
+  2: car
+  3: truck
+  4: cart
