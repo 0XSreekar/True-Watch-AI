@@ -51,3 +51,15 @@ datasets/**/*.tar
 datasets/**/*.tar.gz
 datasets/**/*.pt
 datasets/**/*.onnx
+
+# Model artefacts. Weights are hosted on the Hugging Face Hub and referenced by id; none is ever
+# committed. Only metrics and the model URL live in git (training/results/).
+*.pt
+*.pth
+*.onnx
+*.engine
+*.safetensors
+training/weights/
+training/runs/
+**/runs/
+training/results/cache/
