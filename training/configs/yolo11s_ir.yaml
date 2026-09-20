@@ -1,0 +1,67 @@
+# Stage 2 ("ir") of the ONE detector: the IR-emphasis polish. It is NOT a separate IR model.
+# The ONE-vs-TWO-model justification is at the top of yolo11s_day.yaml (slide 4 "IR replicated to 3 channels", one ONNX graph, the 6-day budget).
+#
+# Same corpus, same 5-class head, same architecture as stage 1. Only sampling and learning rate change: LWIR images appear twice in the
+# epoch list and the LR is 5x lower, so the smaller domain, which carries the harder 0.75 target, gets a second look without retraining
+# the shared features from scratch. Weights start from stage 1 best.pt as a NEW run (weights only, not a resume): the optimiser state,
+# schedule and early-stopping counter all restart. See train.py --model; by default the init is <run-dir parent>/day/weights/best.pt.
+#
+# Time is an ESTIMATE, not a measurement: stage 1 plus this stage is about 8 GPU-hours, 38 epochs at an assumed ~12 min/epoch on one T4.
+# train_log.csv records epoch_s, so replace the estimate with the measured figure after the first epoch.
+#
+# Augmentation is injected from datasets/config/augment.yaml exactly as in stage 1, with ONE deliberate exception: close_mosaic_epochs below.
+# augment.yaml's mosaic_close_epochs (10) is defined for the 30-epoch stage; against an 8-epoch stage it would close mosaic before epoch 0 and
+# this stage would never see a mosaic. 3 keeps the same last-third proportion (10 of 30). Every forbidden-block assertion still applies.
+#
+# The per-epoch validation numbers are computed over the whole val set, day and IR together. They select checkpoints and stop the run;
+# they are not reported results. evaluate.py reports day and IR separately, on val, with the host recorded.
+
+stage: ir
+model: null              # null = initialise from stage 1 best.pt (or --model PATH); never COCO, that would discard stage 1
+
+close_mosaic_epochs: 3   # the one exception to "augmentation comes only from augment.yaml": mosaic off for the last 3 of 8 epochs (see header)
+
+schedule:
+  unfreeze_epoch: null   # nothing is frozen in stage 2, so there is nothing to release
+
+sampling:                # how train_list.txt is built (DATASET_SPEC 3.1: image repeats only, never loss reweighting)
+  rare_classes: [3, 4]   # truck and cart: the classes an image is repeated for
+  rare_repeat: 2         # an image holding a rare class enters the epoch list twice
+  lwir_repeat: 2         # the point of this stage: every LWIR image appears twice in the epoch list
+  max_repeat: 2          # cap: no image is seen more than twice per epoch, so an LWIR truck frame is still 2, not 3
+
+train:                   # passed to Ultralytics; every line carries the reason for its value
+  epochs: 8              # a short polish on top of a converged stage 1, not a second full schedule
+  imgsz: 640             # must equal stage 1: the edge latency TARGET (YOLO11-s INT8, Jetson hardware not owned) is defined at 640
+  batch: 32              # same as stage 1: fits a 16 GB T4 with AMP at 640
+  nbs: 64                # same as stage 1: nominal batch size for loss and weight-decay scaling
+  workers: 4             # Kaggle provides 4 vCPU
+  optimizer: SGD         # explicit, as in stage 1, so nothing is auto-selected differently between stages
+  momentum: 0.937        # same as stage 1
+  weight_decay: 0.0005   # same as stage 1
+  lr0: 0.001             # 5x lower than stage 1: this stage nudges converged weights, it must not undo them
+  lrf: 0.1               # decay to 10% of lr0 (a higher floor than stage 1) because the schedule is short
+  cos_lr: true           # cosine decay, as in stage 1
+  warmup_epochs: 1       # the head is already trained, so one epoch to re-warm the fresh optimiser is enough
+  warmup_momentum: 0.8   # Ultralytics default warmup momentum
+  warmup_bias_lr: 0.1    # Ultralytics default warmup bias LR
+  amp: true              # mixed precision on the GPU; ignored on CPU
+  deterministic: false   # bitwise reproducibility costs about 15% speed; the seed is still recorded
+  seed: 42               # recorded in args.yaml and used for the --fraction subsample
+  patience: 5            # tighter than stage 1 (8): eight epochs leave little room to wait
+  freeze: null           # nothing frozen: the head and backbone are both already fitted to this corpus
+  pretrained: true       # load the stage 1 weights named by --model
+  cls_remap: true        # harmless here: names and order already match stage 1, so Ultralytics copies the head directly
+  cls_pw: 0.0            # no class-weighted loss: DATASET_SPEC 3.1 rules out loss reweighting
+  box: 7.5               # Ultralytics default box gain, unchanged from stage 1
+  cls: 0.5               # Ultralytics default classification gain, unchanged from stage 1
+  dfl: 1.5               # Ultralytics default distribution-focal gain, unchanged from stage 1
+  cache: false           # about 60k images do not fit in RAM
+  plots: false           # training plots cost I/O and time; evaluate.py produces the reported figures
+  val: true              # validate every epoch: it drives best.pt, early stopping and the logged metrics
+  save_period: 5         # extra rollback points; last.pt is written every epoch and rolled to last_good.pt by train.py
+
+# Notes that belong beside the numbers:
+#  * EMA: Ultralytics always keeps an exponential moving average of the weights; last.pt and best.pt hold the EMA weights. There is no switch.
+#  * Fitness: in the installed Ultralytics 8.4.155 a detection model's fitness is class-mean mAP50-95 alone, not the older
+#    0.1*mAP50 + 0.9*mAP50-95. It stays the checkpoint criterion so the vehicle classes cannot be sacrificed for person AP.

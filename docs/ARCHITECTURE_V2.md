@@ -438,10 +438,19 @@ truewatch/
 │       └── test_event_contract.py                [8] schema round-trip against §4.2
 │
 ├── training/                                     runs on Kaggle, not in CI
-│   ├── README.md                                 [0] AGPL-3.0 note for Ultralytics
-│   ├── finetune_yolo11s.py                       [2] IDD / LLVIP / KAIST
-│   ├── export_onnx.py                            [2]
-│   └── notebooks/kaggle_finetune.ipynb           [2]
+│   ├── README.md                                 [0,2] AGPL-3.0 notice; why Ultralytics is isolated from edge/
+│   ├── requirements.txt                          [2] Ultralytics is declared here and nowhere else
+│   ├── configs/yolo11s_day.yaml  yolo11s_ir.yaml [2] two stages of one mixed model, every value justified
+│   ├── configs/data.yaml                         [2] points at datasets/processed/yolo; no test key
+│   ├── notebooks/kaggle_train.ipynb              [2] end-to-end Kaggle notebook, resumes across sessions
+│   ├── scripts/train.py                          [2] --resume, atomic last_good.pt, CSV log
+│   ├── scripts/evaluate.py  eval_hardset.py      [2] day and IR separately, size buckets, hard-set gate
+│   ├── scripts/sweep_conf.py                     [2] F1-optimal and false-alert-budget operating points
+│   ├── scripts/export_onnx.py                    [2] opset 17, dynamic batch, torch-vs-onnxruntime parity
+│   ├── scripts/benchmark_cpu.py                  [2] p50/p95 CPU latency; numpy + onnxruntime only
+│   ├── scripts/make_metrics.py  smoke_test.py    [2] METRICS.md against slide-5 targets; preflight
+│   ├── tests/                                    [2] GPU-free
+│   └── results/                                  [2] metrics json/csv/md committed; weights never
 │
 ├── datasets/                                     scripts and manifests only — no data, ever
 │   ├── README.md                                 [1] how to run the pipeline end to end
@@ -884,8 +893,9 @@ shipping baseline so a lost run costs nothing already promised.
 ## 11. Open questions
 
 Four of the eight below are resolved. They are kept on the record rather than deleted, so each
-decision and its reason stay visible. Four remain open, and two of those — the licence and the
-weights location — block Phase 2.
+decision and its reason stay visible. The others stay open (item 7 and 8, and the open part of
+item 1), but the two that blocked Phase 2, the licence and the weights location, are both resolved
+(items 3 and 4).
 
 1. **RESOLVED — the three endpoints missing from the frozen list are frozen too.**
    `GET /api/alerts/budget`, `GET /api/cameras/sectors` and `GET /api/cameras/:id` are live in
@@ -906,9 +916,12 @@ weights location — block Phase 2.
    repository, which makes compliance a matter of keeping the repository public rather than an
    added obligation. Datasets fetched by `datasets/` keep their own terms and are not
    relicensed. Re-examine if the Ultralytics licence changes.
-4. **Where fine-tuned weights live.** `PHASE_MINUS1_SCOPE` open question 5. §5 assumes a Hugging
-   Face model repo referenced by id, with `edge/models/.gitignore` excluding `*.onnx`, `*.pt` and
-   `*.engine`. Confirm.
+4. **RESOLVED — fine-tuned weights live on the Hugging Face Hub**, in a free public model
+   repository referenced by id (`PHASE_MINUS1_SCOPE` open question 5; confirmed in the Phase 2 brief).
+   `edge/` downloads the ONNX file by URL at boot; the repository root and `edge/models/` both ignore
+   `*.onnx`, `*.pt` and `*.engine`, and only metrics and the model URL are committed. The upload is
+   `training/scripts/export_onnx.py --push-to-hub`; the edge-side loader (`edge/models/registry.py`)
+   is not part of Phase 2's training deliverables.
 5. **RESOLVED — the Phase 1–12 sequence in §10 is adopted as the plan of record.** The brief
    named Phase 8 and Phase 12 but supplied no list. Every "Phase N" annotation in §3.3, §5 and §9
    keys off §10. Re-scoping a phase later means updating §5's per-file column in the same commit.

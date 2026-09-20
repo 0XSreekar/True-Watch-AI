@@ -1,0 +1,82 @@
+{
+  "caveat": "FP32 on CPU through onnxruntime at batch 1; not INT8 and not the Jetson Orin Nano Super. The ~30 ms TARGET on slide 3 (YOLO11-s INT8 inference at 640 px on that board, hardware this project does not own) is a design budget, not a measurement, and is not comparable to any number in this file. pipeline_ms covers the detector stage only (letterbox, inference, decode, class-aware NMS in numpy) and is not end-to-end. Latency follows the graph and the host, not the weights, except that NMS cost grows with the number of candidate boxes; see pipeline_detail.",
+  "config": {
+    "batch": 1,
+    "imgsz": 640,
+    "input_shape": [
+      "batch",
+      3,
+      640,
+      640
+    ],
+    "onnxruntime": "1.30.0",
+    "provider": "CPUExecutionProvider",
+    "providers_available": [
+      "CoreMLExecutionProvider",
+      "AzureExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "runs": 200,
+    "threads": 0,
+    "threads_meaning": "0 = onnxruntime default pool sized from the visible cores, not from a cgroup quota",
+    "warmup": 20
+  },
+  "created": "2026-09-20T05:23:48+00:00",
+  "host": {
+    "cgroup_cpu_limit": null,
+    "cpu": "Apple M5",
+    "cpu_count_logical": 10,
+    "cpu_count_usable": 10,
+    "effective_cpus": 10.0,
+    "machine": "arm64",
+    "numpy": "2.4.6",
+    "onnxruntime": "1.30.0",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.11.15",
+    "torch": null
+  },
+  "inference_ms": {
+    "max": 80.7701,
+    "mean": 42.5035,
+    "min": 34.5918,
+    "n": 200,
+    "p50": 41.9226,
+    "p95": 49.7407,
+    "std": 4.9959
+  },
+  "label": "mac-apple-m5-cpu",
+  "model": {
+    "file": "yolo11s-random.onnx",
+    "opset": 17,
+    "precision": "fp32",
+    "sha256": "c8f390b8249026c49d80dffb0c37687143a41f6c37c902203c770336fde3749a",
+    "size_bytes": 37948447,
+    "weights_provenance": "randomly initialised YOLO11-s, 5 classes: latency depends on the graph, not the weights; not a trained model"
+  },
+  "pipeline_detail": {
+    "candidates_max": 8400,
+    "candidates_mean": 8400.0,
+    "conf": 0.25,
+    "detections_mean": 300.0,
+    "frame_hw": [
+      720,
+      1280
+    ],
+    "frame_source": "synthetic uint8 noise, seed 0",
+    "letterbox": "numpy bilinear resize onto 114-grey padding",
+    "max_det": 300,
+    "nms": "class-aware, greedy, numpy",
+    "nms_iou": 0.45,
+    "pre_nms_topk": 3000
+  },
+  "pipeline_ms": {
+    "max": 74.9741,
+    "mean": 61.6845,
+    "min": 53.501,
+    "n": 200,
+    "p50": 61.4749,
+    "p95": 68.6554,
+    "std": 3.5596
+  },
+  "schema": "truewatch.benchmark.v1"
+}
