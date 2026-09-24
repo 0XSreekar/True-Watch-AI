@@ -423,8 +423,8 @@ truewatch/
 │   │   └── merkle.py                             [9] daily root
 │   ├── models/
 │   │   ├── __init__.py                           [0]
-│   │   ├── registry.py                           [2] resolves weights by id; no weights in git
-│   │   └── .gitignore                            [0] ignores *.onnx, *.pt, *.engine
+│   │   ├── detector_weights.py                   [2] downloads + SHA-256-verifies the detector; no weights in git
+│   │   └── .gitignore                            [0] ignores *.onnx, *.pt, *.engine and cache/
 │   ├── tools/
 │   │   ├── __init__.py                           [1]
 │   │   └── make_sample_clip.py                   [1] synthetic clip for offline ingest runs
@@ -749,8 +749,12 @@ RTSP_URL=
 REPLAY_FILE_PATH=./var/samples/kaist_set00_v007.mp4
 TARGET_FPS=8
 
-# --- Models (Phase 2). Ids only; weights are never committed. ---
-YOLO_MODEL_ID=
+# --- Models (Phase 2). Weights are never committed; the detector is downloaded at boot. ---
+# Empty URL and SHA-256 = use the committed manifest training/results/hf_model.json.
+YOLO_MODEL_URL=
+YOLO_MODEL_SHA256=
+YOLO_MODEL_MANIFEST=../training/results/hf_model.json
+MODEL_CACHE_DIR=./models/cache
 YOLO_IMG_SIZE=640
 ONNX_PROVIDER=CPUExecutionProvider
 OCR_MODEL_ID=
@@ -788,8 +792,9 @@ No new frontend variable is introduced. The SSE endpoint is reached through the 
   them empty in `NODE_ENV=production` must refuse to start rather than fall back to a default.
   The current `config/index.js` default `'dev-only-insecure-secret'` is acceptable in development
   and must be made fatal in production in Phase 8.
-- `HF_TOKEN` is read from the environment only. Model weights are referenced by id and never
-  committed — see Open Question 4.
+- `HF_TOKEN` is read from the environment only, and only by the training-side upload. The edge
+  downloads the detector without a token from a commit-pinned public URL and checks its SHA-256;
+  weights are never committed — see Open Question 4.
 
 ---
 
@@ -892,10 +897,10 @@ shipping baseline so a lost run costs nothing already promised.
 
 ## 11. Open questions
 
-Four of the eight below are resolved. They are kept on the record rather than deleted, so each
-decision and its reason stay visible. The others stay open (item 7 and 8, and the open part of
-item 1), but the two that blocked Phase 2, the licence and the weights location, are both resolved
-(items 3 and 4).
+Six of the eight below are resolved (items 1 to 6; item 1 keeps an open part). They are kept on
+the record rather than deleted, so each decision and its reason stay visible. Items 7 and 8 and the
+open part of item 1 remain open. The two that blocked Phase 2, the licence and the weights
+location, are both resolved (items 3 and 4).
 
 1. **RESOLVED — the three endpoints missing from the frozen list are frozen too.**
    `GET /api/alerts/budget`, `GET /api/cameras/sectors` and `GET /api/cameras/:id` are live in
@@ -917,11 +922,16 @@ item 1), but the two that blocked Phase 2, the licence and the weights location,
    added obligation. Datasets fetched by `datasets/` keep their own terms and are not
    relicensed. Re-examine if the Ultralytics licence changes.
 4. **RESOLVED — fine-tuned weights live on the Hugging Face Hub**, in a free public model
-   repository referenced by id (`PHASE_MINUS1_SCOPE` open question 5; confirmed in the Phase 2 brief).
-   `edge/` downloads the ONNX file by URL at boot; the repository root and `edge/models/` both ignore
-   `*.onnx`, `*.pt` and `*.engine`, and only metrics and the model URL are committed. The upload is
-   `training/scripts/export_onnx.py --push-to-hub`; the edge-side loader (`edge/models/registry.py`)
-   is not part of Phase 2's training deliverables.
+   repository (`PHASE_MINUS1_SCOPE` open question 5; confirmed in the Phase 2 brief). The upload is
+   `training/scripts/export_onnx.py --push-to-hub`, which refuses a private repository and writes
+   `training/results/hf_model.json`: the repository, the commit sha of the upload, a `resolve` URL
+   pinned to that commit, and the file's SHA-256 and size. That JSON is the only model artefact in
+   git; the repository root and `edge/models/` ignore `*.onnx`, `*.pt` and `*.engine`.
+   `edge/models/detector_weights.py` reads it at boot (or `YOLO_MODEL_URL` + `YOLO_MODEL_SHA256`,
+   which a container built from `edge/` alone must set), downloads the file over plain HTTPS with no
+   token into `edge/models/cache/`, verifies the SHA-256 before an atomic rename, and opens it with
+   onnxruntime; no Ultralytics code is imported in `edge/`. Until the first push, no manifest
+   exists and the edge starts with the appearance channel off and says so in its log.
 5. **RESOLVED — the Phase 1–12 sequence in §10 is adopted as the plan of record.** The brief
    named Phase 8 and Phase 12 but supplied no list. Every "Phase N" annotation in §3.3, §5 and §9
    keys off §10. Re-scoping a phase later means updating §5's per-file column in the same commit.

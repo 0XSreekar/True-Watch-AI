@@ -61,5 +61,9 @@ datasets/**/*.onnx
 *.safetensors
 training/weights/
 training/runs/
-**/runs/
+# Ultralytics run folders stay inside training/. A bare **/runs/ also matched unrelated folders such as a
+# future frontend/src/runs/ or backend/runs/, so it is scoped. /runs/ is the folder Ultralytics creates in
+# the working directory when a training command is started from the repository root.
+training/**/runs/
+/runs/
 training/results/cache/
