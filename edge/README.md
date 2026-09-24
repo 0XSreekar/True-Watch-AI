@@ -79,8 +79,13 @@ downstream can present a replay as a live camera.
 
 ## Rules for this folder
 
-- **No model weights in git.** Weights are referenced by id and resolved at
-  runtime; `models/.gitignore` enforces it.
+- **No model weights in git.** The detector is downloaded at boot by
+  `models/detector_weights.py` from the commit-pinned URL in
+  `training/results/hf_model.json` (or `YOLO_MODEL_URL` + `YOLO_MODEL_SHA256`),
+  over plain HTTPS with no token, and its SHA-256 is checked before the file is
+  used. `models/.gitignore` keeps the downloaded copy out of git.
+- **No Ultralytics here.** The serving path runs the exported ONNX graph with
+  onnxruntime only; Ultralytics (AGPL-3.0) stays inside `training/`.
 - **No secrets in git.** Every value comes from the environment. `.env.example`
   carries names and safe defaults only.
 - **No dataset files in git.** `datasets/` holds fetch scripts, never data.
