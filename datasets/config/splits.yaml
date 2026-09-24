@@ -1,20 +1,36 @@
-# Split assignment. DATASET_SPEC.md section 2.
+# Split assignment and corpus composition. DATASET_SPEC.md sections 2, 3.5 and 3.3.
 # Splitting happens at the SEQUENCE level and nowhere else. This file maps
 # sequence_key -> split. No code path assigns a split to an image directly.
 
+# Section 2.4. Gate G14, counted over UNTILED frames: a far-field tile is a derived view of a
+# train frame, not a new sample, and counting it would make the proportions a function of the
+# tile budget.
 proportions:
   train: 0.70
   val: 0.15
   test: 0.15
   tolerance: 0.03
 
-# Section 2.4. Checked per split by gate G8.
+# Section 2.4. Checked per split by gate G8 over every image in the split, tiles and
+# negatives included.
 day_night:
   visible_share_min: 0.55
   visible_share_max: 0.70
 
-# Section 2.2. KAIST sets, explicit. Lighting is DECLARED here and VERIFIED at
-# conversion time (OQ-1); 02_convert_kaist.py fails if a set contradicts its declaration.
+# Section 2.7. Modality balancing, applied by 06_split.py after the source assignment.
+# If a split's visible share is above its target, whole visible-only SEQUENCES of the listed
+# sources are dropped, in a seeded order, until it is not. Infrared is never dropped. If a
+# split is below visible_share_min nothing is dropped and gate G8 reports it.
+# Train's target sits lower than val/test's because 07_negatives.py adds ~10% negatives to
+# train afterwards and those are mostly visible (infrared empty frames are scarce); the
+# projection in DATASET_SPEC.md section 2.7 lands train near 0.66 after they are added.
+balance:
+  target_visible_share: {train: 0.63, val: 0.65, test: 0.65}
+  subsample_sources: [idd]          # visible-only sources, in the order they are thinned
+  dropped_manifest: balance_dropped.txt
+
+# Section 2.2. KAIST is DISABLED in sources.yaml (replaced by FLIR ADAS v2). The table stays
+# so 02_convert_kaist.py remains runnable if the labels ever become available.
 kaist:
   sets:
     set00: {split: train, lighting: day}
@@ -29,35 +45,65 @@ kaist:
     set09: {split: val,   lighting: night}
     set10: {split: test,  lighting: night}
     set11: {split: test,  lighting: night}
-  note: >-
-    MEASUREMENTS.md sections 1, 2 and 3 were produced on set00/V007, which is in train.
-    Harmless: every one of those numbers came from a pretrained, not fine-tuned model,
-    so no fine-tuned figure is ever reported on data the fine-tune saw.
+
+# Section 2.3. FLIR ADAS v2: the official partition is kept. sequence_key = flir/<videoId>.
+# 06_split.py asserts that no videoId appears in two official splits; if one ever does, every
+# frame of that video is moved to the split holding most of its frames (ties: test, val,
+# train) and the move is logged and counted. The video test set is 8 videos at a high frame
+# rate; every Nth frame is kept (temporal decimation within a sequence cannot leak) so that
+# test does not swamp the 15% target.
+flir:
+  official_train_to: train
+  official_val_to: val
+  official_test_to: test
+  test_decimation: 3
 
 # Section 2.3. LLVIP ships an official partition; its official test goes to our test
 # untouched, and our val is carved from its train by scene key, never by random frame.
+# The carve is frame-weighted: scenes are taken in a seeded order until they hold the share.
 llvip:
   official_test_to: test
-  val_share_of_official_train: 0.18
+  val_share_of_official_train: 0.25
   scene_key:
-    strategy: filename_prefix       # OQ-3
+    strategy: filename_prefix       # OQ-3, resolved: 19 train and 7 test two-digit prefixes
     prefix_length: 2
     fallback: phash_adjacency       # pseudo-sequences, Hamming <= 6 on a 64-bit pHash
     fallback_hamming: 6
 
-# Section 2.3. IDD train -> our train; IDD val split by drive folder into our val and test.
-# IDD test is unused: the public partition has no released labels.
+# Section 2.3. IDD train -> our train; IDD val split by drive folder (frame-weighted) into
+# our val and test. IDD test is unused: the public partition has no released labels.
 idd:
   official_train_to: train
-  official_val_split: {val: 0.5, test: 0.5}
+  official_val_split: {val: 0.6, test: 0.4}
   official_test: unused
   sequence_key: drive_folder
 
+# Sections 3.3 and 3.5. Read by 07_negatives.py and 08_tile_farfield.py through
+# _lib.plan_object_tiles, so both see the same tile plan.
+composition:
+  negatives:
+    ratio: 0.10                     # share of TRAIN images (tiles included) with no objects
+    # When whole empty frames run short, empty far-field tiles fill the pool: 640x640 native
+    # crops of the upper strip that no annotated box of ANY native class touches. They are
+    # exactly what the edge tiler feeds the detector on an empty approach road.
+    farfield_tile_fallback: true
+    farfield_tiles_per_frame: 2
+  tiles:
+    size: 640
+    overlap: 0.20
+    strip_top: 0.0
+    strip_bottom: 0.40
+    min_box_area_retained: 0.30
+    max_tiles: 6000                 # object tiles; gate G13 needs >= 2000
+    lwir_share: 0.35
+    small_object_px: 27             # tiles holding an object this small (native px) go first
+
 # Section 2.6. Regression gate set, drawn only from val, never from test.
+# Heights are measured at the detector input (long side 640), like MEASUREMENTS.md section 3.
 hard_set:
   total: 280
   buckets:
     tiny_objects:   {count: 80, rule: median_person_height_px_max, value: 19}
-    heavy_infrared: {count: 80, rule: lwir_intensity_variance_decile_max, value: 1}
+    heavy_infrared: {count: 80, rule: lwir_intensity_std_decile_max, value: 1}
     crowds:         {count: 60, rule: person_instances_min, value: 8}
     occlusion:      {count: 60, rule: occluded_person_share_min, value: 0.30, iou: 0.3}

@@ -8,6 +8,11 @@ Two hazards handled here:
   * LLVIP frames contain UNLABELLED vehicles. An unlabelled car teaches the model
     that cars are background, so every LLVIP record is flagged person_only=true and
     09_build_yolo_ds.py excludes them from the vehicle-class loss accounting.
+  * Layout (verified 2026-09 on the Kaggle mirror afradhossain/llvip-dataset and on the
+    upstream LLVIP.zip): Annotations/<id>.xml, visible/{train,test}/<id>.jpg,
+    infrared/{train,test}/<id>.jpg; 12,025 train and 3,463 test pairs. A visible frame and its
+    infrared partner share the id; the final file names differ by the _visible/_lwir suffix.
+    The record points at the source file itself, so the root may be read-only.
   * Scene grouping (OQ-3). The filename prefix is tried first; if it does not
     partition the corpus usefully the record carries scene_key=null and 06_split.py
     falls back to perceptual-hash pseudo-sequences.
@@ -34,6 +39,7 @@ from _lib import (  # noqa: E402
     load_state,
     merge_jsonl,
     require_dirs,
+    resolve_source_root,
     run,
     save_state,
     write_json,
@@ -104,25 +110,24 @@ def parse_voc(path: Path, counters: Counters, log: Logger):
 
 def main() -> int:
     ap = base_parser(__doc__)
-    ap.add_argument("--source", default=None, help="LLVIP root (default: <raw>/llvip)")
+    ap.add_argument("--source", default=None, help="LLVIP root, or any directory above it")
     args = ap.parse_args()
     log = Logger(SCRIPT)
     counters = Counters()
 
-    root = Path(args.source).resolve() if args.source else Path(args.raw).resolve() / "llvip"
+    root = resolve_source_root("llvip", args, log)
+    if root is None:
+        log.error("LLVIP root not found - run 00_fetch.py or pass --source")
+        return 1
     processed = Path(args.processed).resolve()
     out_labels = processed / "labels" / "llvip"
     out_index = processed / "index" / "llvip.jsonl"
-
-    if not root.exists():
-        log.error("source root does not exist - run 00_fetch.py first", root=str(root))
-        return 1
 
     ids = class_ids()
     config = load_splits_config()["llvip"]
     prefix_length = int(config["scene_key"].get("prefix_length", 2))
 
-    annotations = sorted(root.rglob("*.xml"))
+    annotations = sorted((root / "Annotations").glob("*.xml")) or sorted(root.rglob("*.xml"))
     if not annotations:
         log.error("no VOC annotations found", root=str(root))
         return 1
@@ -131,8 +136,8 @@ def main() -> int:
     log.info("annotations found", annotations=len(annotations))
 
     image_index: dict[str, list[Path]] = {}
-    for path in root.rglob("*"):
-        if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES and "Annotations" not in path.parts:
             image_index.setdefault(path.stem, []).append(path)
     log.info("image index built", stems=len(image_index))
 
@@ -147,6 +152,9 @@ def main() -> int:
 
     for annotation in annotations:
         key = annotation.as_posix()
+        scene = scene_key_from_name(annotation.stem, prefix_length)
+        if scene:
+            scene_keys.add(scene)
         if key in done:
             counters.bump("annotation.already_done")
             continue
@@ -169,10 +177,6 @@ def main() -> int:
                 counters.bump(f"native.UNKNOWN.{name}")
                 continue
             geometry_rows.append((LLVIP_MAP[name], coords))
-
-        scene = scene_key_from_name(annotation.stem, prefix_length)
-        if scene:
-            scene_keys.add(scene)
 
         for image in sorted(partners):
             modality = modality_of(image)
@@ -209,11 +213,13 @@ def main() -> int:
                         "modality": modality,
                         "sequence_key": f"llvip/{scene}" if scene else None,
                         "pair_id": f"llvip/{annotation.stem}",
-                        "official_split": official_split_of(image),
+                        "official_split": official_split_of(image.relative_to(root)),
                         "img_w": int(image_width),
                         "img_h": int(image_height),
                         "objects": len(lines),
                         "person_only": True,
+                        "lighting": "night",
+                        "nonschema_boxes": [],
                         "negative_worthy": False,
                     },
                     sort_keys=True,

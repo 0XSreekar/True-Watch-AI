@@ -1,45 +1,98 @@
-# Source datasets. DATASET_SPEC.md sections 7 and 8.
-# Licence strings marked open_question are READ AT FETCH TIME and written into
-# reports/licences/. Nothing here paraphrases a licence from memory.
+# Source datasets. DATASET_SPEC.md sections 1, 7 and 8.
+#
+# Three enabled sources: IDD Detection (visible), Teledyne FLIR ADAS v2 (visible + thermal) and
+# LLVIP (registered visible + infrared pairs). KAIST is kept but disabled: see its entry.
+#
+# Every enabled source is a THIRD-PARTY KAGGLE MIRROR of the original release. The mirror refs
+# are recorded so the build is reproducible; the licence is the ORIGINAL publisher's, never the
+# mirror uploader's label (Kaggle shows "other" / "unknown" for these three). Nothing here
+# paraphrases a licence from memory; see docs/DATASET_CARD.md.
+#
+# `marker` lists paths that must exist inside a source root. 00_fetch.py and the converters find
+# the root by searching for the marker, so a root can be a download under --raw or a read-only
+# mount such as /kaggle/input/<slug> or /kaggle/input/datasets/<owner>/<slug>.
+# `expected` counts are verified by 00_fetch.py; a mismatch is logged and counted, never hidden.
 
 sources:
-  kaist:
-    kind: huggingface
-    repo_id: richidubey/KAIST-Multispectral-Pedestrian-Detection-Dataset
-    repo_type: dataset
-    expected_file_count: 23210        # MEASUREMENTS.md, verified availability
-    count_tolerance: 0.02
-    licence: open_question            # OQ-5, read from the Hub dataset card at fetch time
-    redistribution: assume_forbidden
-    modalities: [visible, lwir]
-    default_dest: var/datasets/kaist
-    sha256: null                      # upstream publishes no archive digest
-
-  llvip:
-    kind: huggingface
-    repo_id: jsonhash/LLVIP
-    repo_type: dataset
-    expected_file_count: null         # OQ-5, verified against the actual listing at fetch time
-    count_tolerance: 0.05
-    licence: open_question
-    redistribution: assume_forbidden
-    modalities: [visible, lwir]
-    default_dest: var/datasets/llvip
-    sha256: null
-
   idd:
-    kind: manual_registration
-    registration_url: https://idd.insaan.iiit.ac.in/
-    expected_image_count: 46588       # 31569 / 10225 / 4794, MEASUREMENTS.md
+    enabled: true
+    kind: kaggle
+    kaggle_ref: vinayak21574/idd-detection
+    mirror_of: "IDD Detection, IIIT Hyderabad / Intel (https://idd.insaan.iiit.ac.in/)"
+    third_party_mirror: true
+    marker: [Annotations, JPEGImages, train.txt, val.txt]
+    expected:
+      train_list: 31569          # lines in train.txt, verified 2026-09 against the mirror
+      val_list: 10225
+      test_list: 4794            # IDD test labels are not public; unused
     count_tolerance: 0.02
-    licence: open_question            # OQ-4, quoted from the click-through agreement at fetch time
+    junk_files_note: >-
+      The mirror carries editor swap files such as Annotations/.../.001542_r.xml.swp.
+      01_convert_idd.py reads only *.xml and counts everything else it finds under Annotations/.
+    licence: open_question        # OQ-4: the original click-through agreement governs
     redistribution: assume_forbidden
     modalities: [visible]
     default_dest: var/datasets/idd
-    expected_archives:
-      - IDD_Detection.tar.gz
-    sha256: null
-    note: >-
-      Gated behind registration and a licence agreement. 00_fetch.py never scrapes this source.
-      It prints the registration URL, verifies a manually placed archive and extracts it.
-      This is a deliberate refusal to bypass a licence gate.
+
+  flir:
+    enabled: true
+    kind: kaggle
+    kaggle_ref: samdazel/teledyne-flir-adas-thermal-dataset-v2
+    mirror_of: "Teledyne FLIR ADAS Thermal Dataset v2 (https://oem.flir.com/solutions/automotive/adas-dataset-form/)"
+    third_party_mirror: true
+    marker: [images_thermal_train/coco.json, images_rgb_train/coco.json]
+    # Directory -> (modality, official split). Frames are named
+    # video-<videoId>-frame-<n>-<hash>.jpg; the videoId is the sequence key.
+    subsets:
+      images_rgb_train:     {modality: visible, official_split: train}
+      images_rgb_val:       {modality: visible, official_split: val}
+      images_thermal_train: {modality: lwir,    official_split: train}
+      images_thermal_val:   {modality: lwir,    official_split: val}
+      video_rgb_test:       {modality: visible, official_split: test}
+      video_thermal_test:   {modality: lwir,    official_split: test}
+    expected:                     # images per coco.json, verified 2026-09 against the mirror
+      images_rgb_train: 10318
+      images_rgb_val: 1085
+      images_thermal_train: 10742
+      images_thermal_val: 1144
+      video_rgb_test: 3749
+      video_thermal_test: 3749
+    count_tolerance: 0.01
+    licence: open_question        # OQ-12: FLIR's own terms; the mirror labels it "other"
+    redistribution: assume_forbidden
+    modalities: [visible, lwir]
+    default_dest: var/datasets/flir
+
+  llvip:
+    enabled: true
+    kind: kaggle
+    kaggle_ref: afradhossain/llvip-dataset
+    mirror_of: "LLVIP, BUPT (https://bupt-ai-cz.github.io/LLVIP/)"
+    third_party_mirror: true
+    marker: [Annotations, visible, infrared]
+    expected:
+      annotations: 15488          # upstream README: 15,488 pairs, 12,025 train / 3,463 test
+      train_pairs: 12025
+      test_pairs: 3463
+    count_tolerance: 0.01
+    licence: open_question        # OQ-5
+    redistribution: assume_forbidden
+    modalities: [visible, lwir]
+    default_dest: var/datasets/llvip
+
+  kaist:
+    enabled: false
+    disabled_reason: >-
+      Replaced by Teledyne FLIR ADAS v2. The Hugging Face mirror carries images for set00 and
+      set05 only and no annotation files; the official label archives sit behind dead links.
+      02_convert_kaist.py is kept, collision-safe, for the day the labels become available.
+    kind: huggingface
+    repo_id: richidubey/KAIST-Multispectral-Pedestrian-Detection-Dataset
+    repo_type: dataset
+    marker: []
+    expected_file_count: 23210
+    count_tolerance: 0.02
+    licence: open_question
+    redistribution: assume_forbidden
+    modalities: [visible, lwir]
+    default_dest: var/datasets/kaist

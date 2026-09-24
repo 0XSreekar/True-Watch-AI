@@ -8,8 +8,13 @@ dedupe would gut the corpus. The rule this script applies:
   * ACROSS sequences or ACROSS sources, a near-duplicate is a leakage hazard and the
     later record is marked dropped.
 
-Streaming: hashes are computed one image at a time and held as 64-bit integers. A
-million images costs a few tens of MB, not the corpus.
+Hashing runs on --workers processes (the decode dominates: ~135k frames at full scale take
+about 10 minutes on Kaggle's 4 cores) and is cached in the state file, so a re-run costs a
+read. Hashes are held as 64-bit integers: a million images cost a few tens of MB.
+
+Symmetric pairs are exempt by construction: a visible/LWIR pair of one capture shares a
+sequence_key (LLVIP) or is structurally dissimilar (FLIR RGB vs thermal), so it is never
+counted as a cross-sequence duplicate.
 """
 
 from __future__ import annotations
@@ -26,9 +31,9 @@ from _lib import (  # noqa: E402
     Logger,
     base_parser,
     hamming,
-    imread_gray,
     load_state,
-    phash64,
+    parallel_map,
+    phash_worker,
     require_dirs,
     run,
     save_state,
@@ -54,6 +59,8 @@ def main() -> int:
         default=2,
         help="Hamming distance counted as a within-split duplicate for gate G2",
     )
+    ap.add_argument("--bucket-cap", type=int, default=4000,
+                    help="max members of one hash band compared per image (bounds the worst case)")
     args = ap.parse_args()
     log = Logger(SCRIPT)
     counters = Counters()
@@ -88,21 +95,22 @@ def main() -> int:
         records = records[: args.limit]
     log.info("records", count=len(records))
 
-    for position, record in enumerate(records):
-        image = record["image"]
-        if position and position % 2000 == 0:
-            log.info("hashing", done=position, total=len(records))
+    todo = sorted({r["image"] for r in records if r["image"] not in cache})
+    log.info("hashing", to_hash=len(todo), cached=len(records) - len(todo), workers=args.workers)
+    for position, (path, value) in enumerate(zip(todo, parallel_map(phash_worker, todo, args.workers, 64)), 1):
+        if value is not None:
+            cache[path] = value
+        if position % 10000 == 0:
+            log.info("hashing", done=position, total=len(todo))
 
+    for record in records:
+        image = record["image"]
         value = cache.get(image)
         if value is None:
-            gray = imread_gray(Path(image))
-            if gray is None:
-                log.warn("unhashable image", image=image)
-                counters.bump("image.unhashable")
-                record["phash"] = None
-                continue
-            value = phash64(gray)
-            cache[image] = value
+            log.warn("unhashable image", image=image)
+            counters.bump("image.unhashable")
+            record["phash"] = None
+            continue
         hashes[image] = value
         meta[image] = {
             "sequence_key": record.get("sequence_key"),
@@ -115,7 +123,13 @@ def main() -> int:
         # legitimate pair, never a duplicate. Pairs are compared only against other pair_ids.
         candidates: set[str] = set()
         for key in bucket_keys(value):
-            candidates.update(buckets[key])
+            members = buckets[key]
+            if len(members) > args.bucket_cap:
+                # A band shared by thousands of frames (dark night scenes) would make this
+                # quadratic. Compare against the most recent bucket_cap members and count it.
+                counters.bump("bucket.comparisons_capped")
+                members = members[-args.bucket_cap :]
+            candidates.update(members)
             buckets[key].append(image)
 
         for other in candidates:
