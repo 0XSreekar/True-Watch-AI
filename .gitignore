@@ -47,6 +47,11 @@ datasets/**/*.jpeg
 datasets/**/*.png
 datasets/**/*.mp4
 datasets/**/*.zip
+
+# ANPR demo asset (edge/anpr/compare_latin.py renders it on demand; not data).
+edge/anpr/samples/
+# Kaggle packaging output (edge/anpr/scripts/package_plates_for_kaggle.py writes it).
+edge/anpr/kaggle_upload/
 datasets/**/*.tar
 datasets/**/*.tar.gz
 datasets/**/*.pt
