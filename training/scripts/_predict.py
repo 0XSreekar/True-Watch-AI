@@ -7,10 +7,26 @@ Inference is run ONCE per weights file with Ultralytics' NMS set to IoU 1.0 (whi
 nothing) and a low confidence floor. The raw boxes are cached. Non-maximum suppression is then
 applied here, at whatever IoU the caller wants, so `sweep_conf.py` can scan NMS IoU without
 running the network again, and `evaluate.py` and the sweep agree on what a "detection" is.
+
+Two Ultralytics limits would otherwise cut into the cached curve without saying so:
+
+  * max_det. Ultralytics keeps at most `max_det` boxes per image after its NMS. With NMS off and a
+    0.001 floor a crowded frame can propose more candidates than a small cap, and the ones dropped
+    are the low-confidence tail that AP integrates over. The raw cap here (RAW_MAX_DET) is above the
+    8400 anchors a 640 px YOLO11 head has, so at 640 it never binds; every image that reaches it
+    anyway is counted in the cache metadata (`raw_cap_hits`) and reported.
+  * the NMS time limit. Ultralytics' non_max_suppression stops after 2 s + 0.05 s per image in the
+    batch and returns EMPTY results for every image it had not reached, with only a log warning. On a
+    slow CPU with thousands of candidates per image that silently zeroes whole batches. predict_raw
+    lifts the limit (NMS_MAX_TIME_IMG) for the duration of the run; the predictor does not expose it.
+
+The post-NMS cap the evaluation applies (`max_det`, default 300) is recorded in the cache metadata
+too, so sweep_conf.py reusing the cache applies the same cap evaluate.py did.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,8 +43,10 @@ from _common import (
 )
 from _metrics import ImageData
 
-RAW_MAX_DET = 1000   # boxes kept per image before our own NMS
+RAW_MAX_DET = 10000  # boxes kept per image before our own NMS; above the 8400 anchors of a 640 px head
+NMS_MAX_TIME_IMG = 3600.0  # seconds per image Ultralytics' NMS may take before it gives up (default 0.05)
 DEFAULT_CONF_FLOOR = 0.001  # Ultralytics' own validation floor; AP needs the whole curve
+DEFAULT_MAX_DET = 300       # detections kept per image after our own NMS (Ultralytics' default)
 
 
 @dataclass
@@ -43,6 +61,30 @@ class RawPreds:
     meta: dict = field(default_factory=dict)
 
 
+@contextlib.contextmanager
+def no_nms_time_limit(max_time_img: float = NMS_MAX_TIME_IMG):
+    """Run Ultralytics' predictor with its NMS time limit lifted.
+
+    The predictor calls `ultralytics.utils.nms.non_max_suppression` through the module attribute and
+    never passes `max_time_img`, so the default 0.05 s per image applies; past it NMS breaks out of
+    its loop and every image not yet processed comes back with no boxes. The attribute is wrapped for
+    the duration of the block and restored afterwards, even on error.
+    """
+    from ultralytics.utils import nms as nms_module  # AGPL-3.0: training/ only
+
+    original = nms_module.non_max_suppression
+
+    def unlimited(*args, **kwargs):
+        kwargs.setdefault("max_time_img", max_time_img)
+        return original(*args, **kwargs)
+
+    nms_module.non_max_suppression = unlimited
+    try:
+        yield
+    finally:
+        nms_module.non_max_suppression = original
+
+
 def predict_raw(
     weights: str | Path,
     images: Sequence[Path],
@@ -52,8 +94,13 @@ def predict_raw(
     conf_floor: float = DEFAULT_CONF_FLOOR,
     half: bool = False,
     progress_every: int = 500,
+    max_det: int = DEFAULT_MAX_DET,
 ) -> RawPreds:
-    """Run `weights` (.pt or .onnx) over `images`. Boxes come back in original-image pixels."""
+    """Run `weights` (.pt or .onnx) over `images`. Boxes come back in original-image pixels.
+
+    `max_det` is not applied here (the raw boxes are cached before any NMS); it is the post-NMS cap
+    the caller will apply, recorded in the metadata so every reader of the cache applies the same one.
+    """
     from ultralytics import YOLO  # AGPL-3.0: training/ only
 
     model = YOLO(str(weights), task="detect")
@@ -71,16 +118,23 @@ def predict_raw(
         kwargs["device"] = device
 
     paths, hw, boxes, conf, cls = [], [], [], [], []
-    for i, result in enumerate(model.predict(source=[str(p) for p in images], **kwargs)):
-        h, w = result.orig_shape
-        paths.append(str(result.path))
-        hw.append((h, w))
-        b = result.boxes
-        boxes.append(b.xyxy.cpu().numpy().astype(np.float32))
-        conf.append(b.conf.cpu().numpy().astype(np.float32))
-        cls.append(b.cls.cpu().numpy().astype(np.int16))
-        if progress_every and (i + 1) % progress_every == 0:
-            print(f"  predicted {i + 1}/{len(images)} images", flush=True)
+    cap_hits: list[str] = []
+    with no_nms_time_limit():
+        for i, result in enumerate(model.predict(source=[str(p) for p in images], **kwargs)):
+            h, w = result.orig_shape
+            paths.append(str(result.path))
+            hw.append((h, w))
+            b = result.boxes
+            boxes.append(b.xyxy.cpu().numpy().astype(np.float32))
+            conf.append(b.conf.cpu().numpy().astype(np.float32))
+            cls.append(b.cls.cpu().numpy().astype(np.int16))
+            if len(boxes[-1]) >= RAW_MAX_DET:
+                cap_hits.append(Path(str(result.path)).name)
+            if progress_every and (i + 1) % progress_every == 0:
+                print(f"  predicted {i + 1}/{len(images)} images", flush=True)
+    if cap_hits:
+        print(f"warning: {len(cap_hits)} image(s) reached the raw cap of {RAW_MAX_DET} boxes before NMS, e.g. "
+              f"{cap_hits[:3]}; their lowest-confidence candidates were dropped", flush=True)
 
     try:
         import ultralytics
@@ -100,6 +154,10 @@ def predict_raw(
             "imgsz": imgsz,
             "conf_floor": conf_floor,
             "raw_max_det": RAW_MAX_DET,
+            "raw_cap_hits": len(cap_hits),
+            "raw_cap_hit_examples": cap_hits[:10],
+            "nms_max_time_img": NMS_MAX_TIME_IMG,
+            "max_det": int(max_det),
             "ultralytics": version,
         },
     )
@@ -140,7 +198,7 @@ def load_raw(path: Path) -> RawPreds:
 # --------------------------------------------------------------------------------------------
 
 
-def nms(boxes: np.ndarray, conf: np.ndarray, cls: np.ndarray, iou_thr: float, max_det: int = 300):
+def nms(boxes: np.ndarray, conf: np.ndarray, cls: np.ndarray, iou_thr: float, max_det: int = DEFAULT_MAX_DET):
     """Class-aware NMS. Returns indices into the inputs, highest confidence first."""
     if len(boxes) == 0:
         return np.zeros(0, dtype=np.int64)
@@ -188,7 +246,7 @@ def image_data_from_raw(
     raw: RawPreds,
     resolver: MetaResolver,
     nms_iou: float = 0.7,
-    max_det: int = 300,
+    max_det: int = DEFAULT_MAX_DET,
     conf_min: float = 0.0,
     imgsz: int = 640,
     size_basis: str = "input",
@@ -250,6 +308,16 @@ def group_by_slice(images: Sequence[ImageData]) -> dict[str, list[ImageData]]:
         if im.meta.slice == "day":
             groups.setdefault(f"day/{im.meta.lighting}", []).append(im)
     return groups
+
+
+def cap_note(meta: dict) -> str | None:
+    """A sentence for the report when any image reached the raw box cap, else None."""
+    hits = int(meta.get("raw_cap_hits") or 0)
+    if not hits:
+        return None
+    return (f"{hits} image(s) reached the raw cap of {meta.get('raw_max_det')} boxes per image before NMS, e.g. "
+            f"{list(meta.get('raw_cap_hit_examples') or [])[:3]}; their lowest-confidence candidates were dropped, "
+            "which can only lower AP and recall for those images")
 
 
 def iter_batches(items: Sequence, size: int) -> Iterator[Sequence]:

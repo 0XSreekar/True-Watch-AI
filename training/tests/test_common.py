@@ -94,6 +94,29 @@ def test_resolver_uses_the_split_index_when_given(tmp_path):
     assert meta.lighting == "night" and meta.cluster == "kaist/set09/V001"
 
 
+def test_resolver_reads_flir_lighting_and_final_names_from_the_index(tmp_path):
+    rows = [
+        {"source": "flir", "modality": "visible", "image": "/raw/video-abc-frame-000001-x.jpg",
+         "final_image": "images/val/flir_video-abc-frame-000001-x_visible.jpg",
+         "lighting": "night", "sequence_key": "flir/abc"},
+        {"source": "flir", "modality": "visible", "image": "/raw/video-abc-frame-000002-y.jpg",
+         "final_image": "images/val/flir_video-abc-frame-000002-y_visible.jpg",
+         "lighting": "unknown", "sequence_key": "flir/abc"},
+        {"source": "flir", "modality": "lwir", "image": "/raw/video-def-frame-000003-z.jpg",
+         "final_image": "images/val/flir_video-def-frame-000003-z_lwir.jpg",
+         "lighting": "day", "sequence_key": "flir/def"},
+    ]
+    index = tmp_path / "split.jsonl"
+    index.write_text("\n".join(__import__("json").dumps(r) for r in rows), encoding="utf-8")
+    resolver = C.MetaResolver(index)
+    night = resolver.resolve("flir_video-abc-frame-000001-x_visible")
+    assert (night.source, night.lighting, night.cluster) == ("flir", C.LIGHTING_NIGHT, "flir/abc")
+    # 'unknown' lighting is never guessed into a slice.
+    assert resolver.resolve("flir_video-abc-frame-000002-y_visible").lighting == C.LIGHTING_UNRESOLVED
+    ir = resolver.resolve("flir_video-def-frame-000003-z_lwir")
+    assert (ir.slice, ir.lighting, ir.cluster) == ("ir", "n/a", "flir/def")
+
+
 def test_label_path_for():
     p = Path("/data/yolo/images/val/kaist_x_visible.jpg")
     assert C.label_path_for(p) == Path("/data/yolo/labels/val/kaist_x_visible.txt")

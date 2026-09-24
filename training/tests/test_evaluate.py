@@ -51,7 +51,8 @@ def weights(tmp_path) -> Path:
 def make_predictor(calls: list, keep: float = 1.0):
     """A predict_raw stand-in: the label files as detections at confidence 0.9, keeping `keep` of them."""
 
-    def fake(weights, images, imgsz=640, batch=16, device=None, conf_floor=0.001, half=False, progress_every=500):
+    def fake(weights, images, imgsz=640, batch=16, device=None, conf_floor=0.001, half=False, progress_every=500,
+             max_det=P.DEFAULT_MAX_DET):
         calls.append({"n": len(images), "imgsz": imgsz})
         hw, boxes, conf, cls = [], [], [], []
         for path in images:
@@ -70,7 +71,8 @@ def make_predictor(calls: list, keep: float = 1.0):
             hw=np.asarray(hw, dtype=np.int32).reshape(-1, 2),
             boxes=boxes, conf=conf, cls=cls,
             meta={"weights": str(weights), "weights_sha256": C.sha256_file(Path(weights)), "imgsz": imgsz,
-                  "conf_floor": conf_floor, "raw_max_det": P.RAW_MAX_DET, "ultralytics": "test-double"},
+                  "conf_floor": conf_floor, "raw_max_det": P.RAW_MAX_DET, "raw_cap_hits": 0, "max_det": max_det,
+                  "ultralytics": "test-double"},
         )
 
     return fake
@@ -692,3 +694,163 @@ def test_a_hard_set_entry_from_train_is_refused_even_with_allow_partial(calls, w
 def test_hardset_evaluates_only_the_manifest_images(calls, weights, synth_root, tmp_path):
     assert H.main(hs_args(synth_root, weights, tmp_path / "out")) == 0
     assert calls[-1]["n"] == 15 < len(list((synth_root / "images" / "val").iterdir()))
+
+
+# --------------------------------------------------------------------------------------------
+# Raw prediction limits and the post-NMS cap shared with the sweep
+# --------------------------------------------------------------------------------------------
+
+
+def test_nms_time_limit_is_lifted_only_inside_the_block(monkeypatch):
+    pytest.importorskip("ultralytics")
+    from ultralytics.utils import nms as nms_module
+
+    seen = []
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs)
+        return "ran"
+
+    monkeypatch.setattr(nms_module, "non_max_suppression", spy)
+    with P.no_nms_time_limit():
+        assert nms_module.non_max_suppression("preds", 0.001, 1.0, max_det=P.RAW_MAX_DET) == "ran"
+    assert seen[-1]["max_time_img"] == P.NMS_MAX_TIME_IMG and seen[-1]["max_det"] == P.RAW_MAX_DET
+    assert nms_module.non_max_suppression is spy       # restored afterwards
+    with pytest.raises(RuntimeError):
+        with P.no_nms_time_limit():
+            raise RuntimeError("boom")
+    assert nms_module.non_max_suppression is spy       # restored on error too
+
+
+def test_raw_cap_is_above_a_640_px_head_and_hits_are_reported(monkeypatch, weights, synth_root, tmp_path):
+    assert P.RAW_MAX_DET > sum((640 // s) ** 2 for s in (8, 16, 32))
+    recorded: list = []
+    inner = make_predictor(recorded)
+
+    def capped(*args, **kwargs):
+        raw = inner(*args, **kwargs)
+        raw.meta.update({"raw_cap_hits": 2, "raw_cap_hit_examples": ["a_visible.jpg", "b_lwir.jpg"]})
+        return raw
+
+    monkeypatch.setattr(P, "predict_raw", capped)
+    monkeypatch.setattr(E, "model_class_names", lambda w: list(NAMES))
+    report = run_eval(synth_root, weights, tmp_path / "out")
+    assert any("2 image(s) reached the raw cap" in n for n in report["notes"])
+
+
+def test_sweep_reuses_the_post_nms_cap_recorded_by_evaluate(calls, weights, synth_root, tmp_path):
+    import sweep_conf as S
+
+    out = tmp_path / "out"
+    run_eval(synth_root, weights, out, "--max-det", "7")
+    cache = out / "cache" / "preds_t.npz"
+    assert P.load_raw(cache).meta["max_det"] == 7
+    assert S.main(["--preds", str(cache), "--data-root", str(synth_root), "--out-dir", str(out), "--tag", "s"]) == 0
+    sweep = json.loads((out / "sweep_s.json").read_text(encoding="utf-8"))
+    assert sweep["max_det"] == 7 and sweep["grid"]["max_det"] == 7
+    assert S.main(["--preds", str(cache), "--data-root", str(synth_root), "--out-dir", str(out), "--tag", "o", "--max-det", "9"]) == 0
+    override = json.loads((out / "sweep_o.json").read_text(encoding="utf-8"))
+    assert override["max_det"] == 9 and any("overrides the cap 7" in n for n in override["notes"])
+
+
+def test_reusing_a_cache_with_another_max_det_updates_the_recorded_cap(calls, weights, synth_root, tmp_path):
+    out = tmp_path / "out"
+    run_eval(synth_root, weights, out, "--reuse-preds", "--max-det", "7")
+    run_eval(synth_root, weights, out, "--reuse-preds", "--max-det", "11")
+    assert len(calls) == 1 and P.load_raw(out / "cache" / "preds_t.npz").meta["max_det"] == 11
+
+
+# --------------------------------------------------------------------------------------------
+# make_metrics.py over a real evaluation JSON
+# --------------------------------------------------------------------------------------------
+
+
+def _metrics_inputs(eval_doc: dict, **extra):
+    import make_metrics as MM
+
+    return MM, MM.Inputs(eval=eval_doc, files={"eval": ["eval_t.json"], **{k: [f"{k}.json"] for k in extra}}, **extra)
+
+
+def test_make_metrics_renders_the_class_list_of_the_eval_json(report):
+    """The dataset build may withdraw the cart class; the report must follow the eval JSON, not a fixed list."""
+    import copy
+
+    four = copy.deepcopy(report)
+    four["class_names"] = [n for n in NAMES if n != "cart"]
+    for s in four["slices"].values():
+        s["classes"].pop("cart", None)
+        s["at_report_conf"]["classes"].pop("cart", None)
+    MM, inputs = _metrics_inputs(four)
+    text = MM.render_metrics(inputs)
+    table = text.split("## 3.")[1].split("## 4.")[0]
+    assert "| cart |" not in table and all(f"| {n} |" in table for n in four["class_names"])
+    _, five = _metrics_inputs(report)
+    assert "| cart |" in MM.render_metrics(five).split("## 3.")[1].split("## 4.")[0]
+
+
+def _with_person(doc: dict, key: str, ap: float, lo: float, hi: float, n_gt: int) -> None:
+    s = doc["slices"][key]
+    s["n_images"] = max(s.get("n_images") or 0, 1)
+    s["classes"]["person"].update({"ap50": ap, "n_gt": n_gt})
+    s.setdefault("bootstrap", {})["person"] = {"ap50_ci95": [lo, hi], "n_boot": 200, "n_clusters": 40, "n_images": 100}
+
+
+def test_a_tiny_daylight_subset_cannot_make_the_day_target_partial(report):
+    import copy
+
+    import _metrics as M
+
+    doc = copy.deepcopy(report)
+    _with_person(doc, "day", 0.80, 0.77, 0.83, 500)
+    _with_person(doc, "day/daylight", 0.97, 0.90, 0.99, 12)          # 12 boxes: an anecdote
+    MM, inputs = _metrics_inputs(doc)
+    day = next(v for v in MM.compute_verdicts(inputs) if v.key == "day_map")
+    assert day.verdict == M.NOT_MET and "fewer than 30" in day.reason
+    _with_person(doc, "day/daylight", 0.90, 0.87, 0.93, 400)         # large and established on its own
+    day = next(v for v in MM.compute_verdicts(inputs) if v.key == "day_map")
+    assert day.verdict == M.PARTIAL
+
+
+def test_verdict_rows_never_round_a_miss_onto_the_target(report):
+    import copy
+
+    import _metrics as M
+
+    doc = copy.deepcopy(report)
+    _with_person(doc, "day", 0.84962, 0.82, 0.87, 500)
+    MM, inputs = _metrics_inputs(doc)
+    day = next(v for v in MM.compute_verdicts(inputs) if v.key == "day_map")
+    assert day.verdict == M.NOT_MET
+    row = next(line for line in MM.render_targets(inputs, MM.compute_verdicts(inputs), False).splitlines()
+               if line.startswith("| Person mAP@50, day"))
+    assert "0.8496" in row and "0.850" not in row
+
+
+def test_random_weight_benchmarks_show_inference_only():
+    import make_metrics as MM
+
+    committed = json.loads((C.RESULTS_DIR / "benchmark_mac-apple-m5-cpu.json").read_text(encoding="utf-8"))
+    trained = json.loads(json.dumps(committed))
+    trained["label"] = "trained-host"
+    trained["model"].update({"weights_kind": "trained", "weights_provenance": "fine-tuned export"})
+    trained["pipeline_representative"] = True
+    text = MM.render_latency(MM.Inputs(benchmarks=[committed, trained]))
+    random_row = next(line for line in text.splitlines() if line.startswith("| mac-apple-m5-cpu"))
+    trained_row = next(line for line in text.splitlines() if line.startswith("| trained-host"))
+    assert f"{committed['inference_ms']['p50']:.1f}" in random_row
+    assert f"{committed['pipeline_ms']['p50']:.1f}" not in random_row and "suppressed: random weights" in random_row
+    assert f"{trained['pipeline_ms']['p50']:.1f} / {trained['pipeline_ms']['p95']:.1f}" in trained_row
+    assert "suppressed for mac-apple-m5-cpu" in text and "inflated" in text
+
+
+def test_export_section_prints_raw_and_gated_parity_with_labels():
+    import make_metrics as MM
+
+    ex = {"onnx": {"file": "t.onnx", "opset": 17, "imgsz": 640, "size_bytes": 1, "sha256": "a" * 64},
+          "parity": {"passed": True, "box_units": "grid", "max_abs_diff": 8.9e-5, "raw_max_abs_diff": 1.8e-3,
+                     "tolerance": 1e-3, "by_batch": {"1": 8.9e-5}, "input_kind": "synthetic"},
+          "hf": {"url": "https://huggingface.co/o/m", "revision": "b" * 40,
+                 "resolve_url": f"https://huggingface.co/o/m/resolve/{'b' * 40}/t.onnx"}}
+    text = MM.render_export(ex)
+    assert "raw max abs diff (output0 as emitted, box rows in pixels): 0.0018" in text
+    assert "box rows in grid units" in text and "revision `" + "b" * 40 in text

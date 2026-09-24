@@ -12,12 +12,16 @@ Verdict rules (docs/PHASE_MINUS1_SCOPE.md 5.2 targets; _metrics.map_verdict deci
 
   MET           the point estimate reaches the target AND so does the lower 95% bound.
   PARTIAL       reached but not established (the lower bound is below the target), or only the
-                narrower daylight reading reaches it (day only; IR has no narrower reading), or, for
-                the false-alert target, the best a detector-level proxy can say.
+                narrower daylight reading reaches it AND establishes it on its own (at least LOW_N
+                boxes and its own lower bound at the target; day only, IR has no narrower reading),
+                or, for the false-alert target, the best a detector-level proxy can say.
   NOT MET       measured and short of the target; for false alerts, also when the budget point is
                 unreachable, unresolvable or vacuous (recall 0).
   NOT ASSESSED  no measurement exists. Targets that belong to later phases (range, plates, fence
                 crossings) and the Jetson latency target are always here, with the owner named.
+
+Figures in verdict text and in the targets table are truncated to four decimals, never rounded, so
+0.84962 reads 0.8496 and can never print as 0.850 beside a 0.85 target.
 
 MET is never printed for anything without a measurement, and with no inputs the document says
 "no measurements yet" and lists every target as NOT ASSESSED. Any subset of inputs works.
@@ -56,7 +60,7 @@ TARGET_IR_AP50 = 0.75
 FALSE_ALERTS_PER_CAMERA_DAY = 5
 SMALL_PX = 19            # buckets at or below this height are the "under ~20 px" objects
 SMALL_EDGE_PX = C.bucket_upper_edges()[C.SIZE_BUCKETS_PX.index(SMALL_PX) - 1]   # where the 19 px bucket ends (22.6)
-LOW_N = 30               # fewer ground-truth boxes than this and a metric is an anecdote
+LOW_N = M.LOW_N          # fewer ground-truth boxes than this and a metric is an anecdote
 TOP_REASONS = 3
 DATASET_SPEC_PARTS = "docs/DATASET_SPEC.md"
 
@@ -275,17 +279,21 @@ def map_target_verdict(
         return M.NOT_ASSESSED, f"the evaluation holds no {slice_key} images", "n/a"
     narrower = person_stats(eval_doc, narrower_key) if narrower_key else None
     narrower_ap = narrower["ap50"] if narrower and narrower["n_gt"] else None
+    narrower_low = narrower["ci"][0] if narrower_ap is not None and narrower["ci"] else None
+    narrower_n = narrower["n_gt"] if narrower_ap is not None else None
     ci_low = st["ci"][0] if st["ci"] else None
-    verdict, reason = M.map_verdict(st["ap50"], ci_low, target, narrower_ap)
+    verdict, reason = M.map_verdict(st["ap50"], ci_low, target, narrower_ap, narrower_low, narrower_n)
     if st["ap50"] is None:
         return verdict, reason, "n/a"
-    measured = f"person AP50 {st['ap50']:.3f}"
+    f = M.fmt_floor   # truncated, never rounded toward the target
+    measured = f"person AP50 {f(st['ap50'])}"
     if st["ci"]:
-        measured += f", 95% CI [{st['ci'][0]:.3f}, {st['ci'][1]:.3f}] ({st['n_clusters']} clusters, {st['n_gt']} boxes)"
+        measured += f", 95% CI [{f(st['ci'][0])}, {f(st['ci'][1])}] ({st['n_clusters']} clusters, {st['n_gt']} boxes)"
     else:
         measured += f" ({st['n_gt']} boxes, no interval)"
     if narrower_ap is not None:
-        measured += f"; daylight-only {narrower_ap:.3f}"
+        measured += f"; daylight-only {f(narrower_ap)} ({narrower_n} boxes"
+        measured += f", lower 95% bound {f(narrower_low)})" if narrower_low is not None else ", no interval)"
     return verdict, reason, measured
 
 
@@ -482,17 +490,17 @@ def reason_interval(st: dict, target: float) -> Reason | None:
         return None
     if ci is None:
         if ap >= target:
-            return Reason("no_interval", f"No confidence interval was computed, so a point estimate of {f3(ap)} cannot be MET.",
+            return Reason("no_interval", f"No confidence interval was computed, so a point estimate of {M.fmt_floor(ap)} cannot be MET.",
                           None, blocking=True)
         return None
     lo, hi = ci
     clusters = f"{st['n_clusters']} clusters over {st['ci_images']} images"
     if ap >= target and lo < target:
-        return Reason("interval", f"Sampling: AP50 {f3(ap)} reaches {target:.2f} but the lower 95% bound {f3(lo)} does not "
+        return Reason("interval", f"Sampling: AP50 {M.fmt_floor(ap)} reaches {target:.2f} but the lower 95% bound {M.fmt_floor(lo)} does not "
                                   f"({clusters}). More independent sequences (a narrower interval) or a higher AP50 would close "
-                                  f"the gap of {target - lo:.3f}.", ap - lo, blocking=True)
+                                  f"the gap of {target - lo:.4f}.", ap - lo, blocking=True)
     if ap < target <= hi:
-        return Reason("interval", f"Sampling: the shortfall is inside the 95% interval [{f3(lo)}, {f3(hi)}] ({clusters}), so "
+        return Reason("interval", f"Sampling: the shortfall is inside the 95% interval [{M.fmt_floor(lo)}, {M.fmt_floor(hi)}] ({clusters}), so "
                                   "these frames cannot separate a miss from noise; frames without a known group count as "
                                   "their own cluster, which makes the interval optimistic.", (hi - lo) / 2)
     return None
@@ -705,15 +713,26 @@ def render_provenance(inputs: Inputs) -> str:
 def render_export(ex: dict) -> str:
     onnx, par = ex.get("onnx", {}), ex.get("parity", {})
     verdict = "PASSED" if par.get("passed") else "FAILED"
+    units = par.get("box_units", "pixels")
     lines = [
         "ONNX export (`export_onnx.py`):\n",
         f"- file `{onnx.get('file')}`, opset {onnx.get('opset')}, imgsz {onnx.get('imgsz')}, "
         f"{(onnx.get('size_bytes') or 0) / 1e6:.1f} MB, sha256 {short_sha(onnx.get('sha256'))}; dynamic axes {onnx.get('dynamic_axes')}",
-        f"- torch versus onnxruntime parity {verdict}: max abs diff {sci(par.get('max_abs_diff'))} against tolerance "
-        f"{sci(par.get('tolerance'))}, by batch {par.get('by_batch')}, input kind {par.get('input_kind')}",
     ]
+    raw = par.get("raw_max_abs_diff")
+    if raw is None and units == "pixels":
+        raw = par.get("max_abs_diff")
+    lines.append(f"- torch versus onnxruntime, raw max abs diff (output0 as emitted, box rows in pixels): {sci(raw)}"
+                 + ("" if raw is not None else " (not recorded by this export; re-run export_onnx.py)"))
+    lines.append(f"- parity gate {verdict}: max abs diff {sci(par.get('max_abs_diff'))} with box rows in {units} units against "
+                 f"tolerance {sci(par.get('tolerance'))}, by batch {par.get('by_batch')}, input kind {par.get('input_kind')}"
+                 + ("" if units == "pixels" else "; the gate is not on raw pixels, see training/README.md 'ONNX parity'"))
     hf = ex.get("hf")
-    lines.append(f"- Hugging Face: {hf.get('url')}" if hf else "- Hugging Face: not pushed")
+    if hf and hf.get("revision"):
+        lines.append(f"- Hugging Face: {hf.get('url')} at revision `{hf['revision']}`"
+                     + (f", pinned file {hf['resolve_url']}" if hf.get("resolve_url") else ""))
+    else:
+        lines.append(f"- Hugging Face: {hf.get('url')} (no pinned revision recorded)" if hf else "- Hugging Face: not pushed")
     return "\n".join(lines) + "\n"
 
 
@@ -758,7 +777,9 @@ def render_targets(inputs: Inputs, verdicts: list[Verdict], synthetic: bool) -> 
         out.append("How to read the verdicts:\n")
         out.append(f"- `{M.MET}`: the point estimate reaches the target and so does the lower 95% bound (cluster bootstrap over sequences).")
         out.append(f"- `{M.PARTIAL}`: reached but not established (lower bound below the target), or only the daylight-only "
-                   "reading reaches it. IR has no narrower reading.")
+                   f"reading reaches it and establishes it on its own (at least {LOW_N} person boxes and its own lower 95% bound "
+                   "at the target). A smaller or less certain daylight reading leaves the verdict NOT MET. IR has no narrower reading.")
+        out.append("- Figures in this table are truncated to four decimals, never rounded: 0.84962 reads 0.8496.")
         out.append(f"- `{M.NOT_MET}`: measured, and short of the target. For false alerts also: the budget point is unreachable, "
                    "unresolvable or vacuous.")
         out.append(f"- `{M.NOT_ASSESSED}`: no measurement. The false-alert target can be `{M.PARTIAL}` at best, because the "
@@ -1058,18 +1079,38 @@ def render_latency(inputs: Inputs) -> str:
     if not inputs.benchmarks:
         out.append("No measurement yet: no benchmark JSON was provided. Run `benchmark_cpu.py` on the exported ONNX (section 11).\n")
         return "\n".join(out)
-    rows = []
+    rows, suppressed, unrepresentative = [], [], []
     for b in inputs.benchmarks:
         m, c, ms, pm = b["model"], b["config"], b["inference_ms"], b["pipeline_ms"]
         flag = " (fixture model)" if ("synthetic" in f"{b.get('label')} {m.get('weights_provenance')}".lower() or "smoke" in f"{b.get('label')}".lower()) else ""
+        kind = benchmark_weights_kind(b)
+        if kind == "random":
+            pipeline = "suppressed: random weights"
+            suppressed.append(b.get("label"))
+        else:
+            pipeline = f"{pm['p50']:.1f} / {pm['p95']:.1f}"
+            if not b.get("pipeline_representative"):
+                pipeline += " (not representative)"
+                unrepresentative.append(f"{b.get('label')}: {b.get('pipeline_note') or 'weights kind or frame not recorded'}")
         rows.append([f"{b.get('label')}{flag}", host_summary(b.get("host")),
-                     f"{m.get('file')}, {m.get('precision')}, opset {m.get('opset')}, {(m.get('size_bytes') or 0) / 1e6:.1f} MB",
+                     f"{m.get('file')}, {m.get('precision')}, opset {m.get('opset')}, {(m.get('size_bytes') or 0) / 1e6:.1f} MB, weights {kind}",
                      f"{c.get('imgsz')}, batch {c.get('batch')}, threads {c.get('threads')}, {c.get('provider')}, {c.get('runs')} runs",
-                     f"{ms['p50']:.1f} / {ms['p95']:.1f}", f"{pm['p50']:.1f} / {pm['p95']:.1f}"])
+                     f"{ms['p50']:.1f} / {ms['p95']:.1f}", pipeline])
     out.append(md_table(["label", "measured on host", "model", "config (imgsz)", "inference ms p50 / p95", "pipeline ms p50 / p95"], rows, numeric_from=4))
     out.append("")
     out.append("`inference` is onnxruntime `session.run` only. `pipeline` adds letterbox, decode and NMS in numpy: a detector-stage "
                "latency, still not end-to-end (no capture, tracking or fusion). Both are single-frame, batch 1.\n")
+    if suppressed:
+        out.append(f"The pipeline figure is suppressed for {', '.join(str(x) for x in suppressed)}: those rows timed a randomly "
+                   "initialised graph. Inference time depends on the graph and the host, not the weights, so that column stands. "
+                   "Pipeline time does not: a random head scores every anchor alike, NMS receives thousands of candidate boxes a "
+                   "trained detector never produces, and the figure is inflated. The JSON keeps the number; it is not reported "
+                   "here. Re-run `benchmark_cpu.py --onnx <trained export> --weights-kind trained --image <real frame>` for a "
+                   "pipeline row.\n")
+    for note in unrepresentative:
+        out.append(f"- pipeline not representative, {note}")
+    if unrepresentative:
+        out.append("")
     caveats = []
     for b in inputs.benchmarks:
         if b.get("caveat") and b["caveat"] not in caveats:
@@ -1077,6 +1118,15 @@ def render_latency(inputs: Inputs) -> str:
     for cav in caveats:
         out.append(f"> {cav}\n")
     return "\n".join(out)
+
+
+def benchmark_weights_kind(b: dict) -> str:
+    """trained / random / unknown for a benchmark record; older records carry only the provenance sentence."""
+    m = b.get("model") or {}
+    kind = m.get("weights_kind")
+    if kind in ("trained", "random", "unknown"):
+        return kind
+    return "random" if "random" in str(m.get("weights_provenance", "")).lower() else "unknown"
 
 
 def render_reasons(inputs: Inputs, verdicts: list[Verdict]) -> str:
@@ -1144,7 +1194,8 @@ def reproduction_commands(inputs: Inputs) -> str:
         f'{py} training/scripts/export_onnx.py --weights "$WEIGHTS" --imgsz {imgsz} --tag "$TAG"',
         "",
         "# 5. CPU latency of the exported graph on THIS host; run it again on each host you want a row for.",
-        f'{py} training/scripts/benchmark_cpu.py --model "training/weights/$TAG.onnx" --imgsz {imgsz} --label "{label}" --out "training/results/benchmark_{label}.json"',
+        f'{py} training/scripts/benchmark_cpu.py --onnx "training/weights/$TAG.onnx" --weights-kind trained --image "$FRAME" '
+        f'--imgsz {imgsz} --label "{label}" --out "training/results/benchmark_{label}.json"   # FRAME: a real camera frame',
         "",
         "# 6. This report.",
         f'{py} training/scripts/make_metrics.py --eval "training/results/eval_$TAG.json" --hardset "training/results/hardset_$TAG.json" '

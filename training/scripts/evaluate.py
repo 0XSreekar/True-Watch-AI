@@ -186,7 +186,8 @@ def add_engine_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--conf-floor", type=float, default=P.DEFAULT_CONF_FLOOR,
                     help="lowest confidence kept; AP needs the whole precision-recall curve")
     ap.add_argument("--nms-iou", type=float, default=0.7, help="class-aware NMS IoU applied to the raw boxes")
-    ap.add_argument("--max-det", type=int, default=300, help="detections kept per image after NMS")
+    ap.add_argument("--max-det", type=int, default=P.DEFAULT_MAX_DET,
+                    help="detections kept per image after NMS; recorded in the prediction cache so sweep_conf.py applies the same cap")
     ap.add_argument("--report-conf", type=float, default=0.35,
                     help="fixed confidence for the report-conf precision/recall columns (0.35 matches MEASUREMENTS.md)")
     ap.add_argument("--bootstrap", type=int, default=200,
@@ -298,11 +299,21 @@ def get_raw(images: Sequence[Path], s: Settings, sha256: str, cache_path: Path, 
         else:
             why = cache_mismatch(raw, sha256, s, images)
             if why is None:
+                if raw.meta.get("max_det") != s.max_det:
+                    # The raw boxes do not depend on it, but sweep_conf.py reads the cap from this file.
+                    raw.meta["max_det"] = s.max_det
+                    P.save_raw(cache_path, raw)
                 return raw, f"reused cached raw predictions {cache_path.name}"
             print(f"cache {cache_path.name} not reused: {why}; running inference", flush=True)
-    raw = P.predict_raw(s.weights, images, imgsz=s.imgsz, batch=s.batch, device=s.device, conf_floor=s.conf_floor)
+    raw = P.predict_raw(s.weights, images, imgsz=s.imgsz, batch=s.batch, device=s.device, conf_floor=s.conf_floor,
+                        max_det=s.max_det)
     P.save_raw(cache_path, raw)
     return raw, "ran inference"
+
+
+def with_cap_note(raw: P.RawPreds, note: str) -> str:
+    extra = P.cap_note(raw.meta)
+    return f"{note}; {extra}" if extra else note
 
 
 def by_source_block(images: Sequence[M.ImageData], class_names: Sequence[str]) -> dict:
@@ -386,6 +397,7 @@ def run_pipeline(
     check_suffixes(images)
     sha256 = C.sha256_file(s.weights)
     raw, inference_note = get_raw(images, s, sha256, cache_path, reuse)
+    inference_note = with_cap_note(raw, inference_note)
     image_data, seen = as_refusal(
         P.image_data_from_raw, raw, resolver, s.nms_iou, s.max_det, 0.0, s.imgsz, s.size_basis
     )

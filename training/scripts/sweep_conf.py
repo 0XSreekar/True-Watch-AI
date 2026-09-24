@@ -446,14 +446,14 @@ def is_synthetic(root: Path | None) -> bool:
 
 
 def empty_frame_images(raw: P.RawPreds, class_id: int, nms_iou: float, modality: str,
-                       imgsz: int, size_basis: str) -> list[M.ImageData]:
+                       imgsz: int, size_basis: str, max_det: int = P.DEFAULT_MAX_DET) -> list[M.ImageData]:
     """ImageData for background frames: no ground truth, so every detection is a false positive."""
     slice_name = C.slice_of_modality(modality)
     out = []
     for path, (h, w), boxes, conf, cls in zip(raw.paths, raw.hw, raw.boxes, raw.conf, raw.cls):
         keep = cls == class_id
         boxes, conf, cls = boxes[keep], conf[keep], cls[keep]
-        idx = P.nms(boxes, conf, cls, nms_iou)
+        idx = P.nms(boxes, conf, cls, nms_iou, max_det)
         pr_box = boxes[idx].astype(np.float64)
         pr_h = np.array([C.object_height_px((y2 - y1) / h, h, w, imgsz, size_basis)
                          for _, y1, _, y2 in pr_box]) if len(pr_box) else np.zeros(0)
@@ -484,14 +484,16 @@ def check_empty_dir(folder: Path, unseal: bool) -> list[Path]:
     return images
 
 
-def images_by_iou(raw: P.RawPreds, resolver: C.MetaResolver, ious: np.ndarray, imgsz: int, basis: str):
+def images_by_iou(raw: P.RawPreds, resolver: C.MetaResolver, ious: np.ndarray, imgsz: int, basis: str,
+                  max_det: int = P.DEFAULT_MAX_DET):
     """{nms_iou: ImageData list}, plus the composition report. Prints the label warning once."""
     out, report = {}, {}
     for n, iou in enumerate(ious):
         sink = io.StringIO()
         try:
             with (contextlib.nullcontext() if n == 0 else contextlib.redirect_stdout(sink)):
-                out[float(iou)], report = P.image_data_from_raw(raw, resolver, float(iou), imgsz=imgsz, size_basis=basis)
+                out[float(iou)], report = P.image_data_from_raw(raw, resolver, float(iou), max_det=max_det,
+                                                                imgsz=imgsz, size_basis=basis)
         except SystemExit as exc:
             if isinstance(exc.code, str):
                 fail(exc.code, 3)
@@ -521,7 +523,8 @@ def render_report(payload: dict) -> str:
         f"({payload['host'].get('cpu_count_usable')} usable cores)",
         f"grid: confidence {payload['grid']['conf_min']:g} to {payload['grid']['conf_max']:g} "
         f"({payload['grid']['n_conf']} values, including the {CONF_CEILING} ceiling), "
-        f"NMS IoU {payload['grid']['nms_iou']}, matching at IoU 0.50",
+        f"NMS IoU {payload['grid']['nms_iou']}, at most {payload['grid'].get('max_det', P.DEFAULT_MAX_DET)} detections per image, "
+        "matching at IoU 0.50",
         "",
         "False-alert budget arithmetic",
         f"  {a['fps']:g} fps x {SECONDS_PER_DAY:,} s = {a['frames_per_day']:,.0f} frames per camera per day",
@@ -631,6 +634,9 @@ def build_parser() -> argparse.ArgumentParser:
     inf.add_argument("--batch", type=int, default=16)
     inf.add_argument("--device", default=None, help="cpu, mps, or a CUDA index such as 0 (default: Ultralytics chooses)")
     inf.add_argument("--size-basis", choices=["input", "stored"], default="input", help="object-height basis recorded on each image (no effect on the sweep)")
+    inf.add_argument("--max-det", type=int, default=None,
+                     help="detections kept per image after NMS; default: the cap recorded in the prediction cache by evaluate.py "
+                          f"(else {P.DEFAULT_MAX_DET}), so the sweep and the evaluation count the same detections")
     sw = ap.add_argument_group("sweep")
     sw.add_argument("--conf-grid", type=parse_conf_grid, default=DEFAULT_CONF_GRID, metavar="START:STOP:STEP", help="confidence thresholds; 0.99 is always added to judge reachability")
     sw.add_argument("--iou-grid", type=parse_iou_grid, default=DEFAULT_IOU_GRID, metavar="A,B,C", help="NMS IoU thresholds")
@@ -678,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
         fail(f"--split must be one of {', '.join(SPLITS)} (got {args.split!r}). Phase 2 measures on val.")
     if args.split == "test" and not args.unseal_test:
         fail(sealed_test_message(f"--split {args.split}"))
+    if args.max_det is not None and args.max_det < 1:
+        fail("--max-det must be at least 1.")
 
     out_dir = Path(args.out_dir)
     imgsz = args.imgsz
@@ -717,12 +725,29 @@ def main(argv: list[str] | None = None) -> int:
         root = C.resolve_data_root(args.data_root)
         images = C.list_split_images(root, args.split)
         print(f"running {weights.name} once over {len(images)} {args.split} images (imgsz {imgsz}) ...", flush=True)
-        raw = P.predict_raw(weights, images, imgsz=imgsz, batch=args.batch, device=args.device)
+        raw = P.predict_raw(weights, images, imgsz=imgsz, batch=args.batch, device=args.device,
+                            max_det=args.max_det or P.DEFAULT_MAX_DET)
         cache_path = out_dir / "cache" / f"sweep_preds_{tag}.npz"
         P.save_raw(cache_path, raw)
         meta = raw.meta
         weights_path, weights_sha = str(weights), meta.get("weights_sha256")
         cache_record = {"path": _display_path(cache_path), "sha256": C.sha256_file(cache_path)}
+
+    cached_max_det = meta.get("max_det")
+    if args.max_det is not None:
+        max_det = int(args.max_det)
+        if cached_max_det is not None and int(cached_max_det) != max_det:
+            inference_notes.append(f"--max-det {max_det} overrides the cap {cached_max_det} recorded in the prediction cache; "
+                                   "the sweep and that evaluation count different detections")
+    elif cached_max_det is not None:
+        max_det = int(cached_max_det)
+    else:
+        max_det = P.DEFAULT_MAX_DET
+        inference_notes.append(f"the prediction cache records no post-NMS cap (written before it was recorded); "
+                               f"the default {max_det} was applied")
+    cap = P.cap_note(meta)
+    if cap:
+        inference_notes.append(cap)
 
     names = C.load_class_names(root if root is not None and (root / "data.yaml").exists() else None)
     if args.class_name not in names:
@@ -737,7 +762,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- per-IoU ImageData for the split, and for the optional background frames
     resolver = C.MetaResolver(find_index(root, args.index))
-    by_iou, report = images_by_iou(raw, resolver, args.iou_grid, imgsz, args.size_basis)
+    by_iou, report = images_by_iou(raw, resolver, args.iou_grid, imgsz, args.size_basis, max_det)
     if report.get("unlabelled_images") == len(raw.paths):
         fail("none of the images has a label file, so every detection would count as a false positive. The cached image "
              "paths probably moved: pass --data-root pointing at the dataset that holds images/<split> and labels/<split>.", 3)
@@ -756,11 +781,13 @@ def main(argv: list[str] | None = None) -> int:
         folder = Path(args.empty_dir)
         empty_images = check_empty_dir(folder, args.unseal_test)
         print(f"scoring {len(empty_images)} background frames from {folder} as {args.empty_modality} ...", flush=True)
-        empty_raw = P.predict_raw(Path(args.weights), empty_images, imgsz=imgsz, batch=args.batch, device=args.device)
+        empty_raw = P.predict_raw(Path(args.weights), empty_images, imgsz=imgsz, batch=args.batch, device=args.device,
+                                  max_det=max_det)
         P.save_raw(out_dir / "cache" / f"sweep_empty_{tag}.npz", empty_raw)
         modality = "visible" if args.empty_modality == "day" else "lwir"
         for iou in by_iou:
-            slice_frames[args.empty_modality][iou] += empty_frame_images(empty_raw, class_id, iou, modality, imgsz, args.size_basis)
+            slice_frames[args.empty_modality][iou] += empty_frame_images(empty_raw, class_id, iou, modality, imgsz,
+                                                                         args.size_basis, max_det)
         n_empty[args.empty_modality] = len(empty_images)
         empty_record = {"dir": _display_path(folder), "modality": args.empty_modality, "n_frames": len(empty_images)}
 
@@ -787,11 +814,13 @@ def main(argv: list[str] | None = None) -> int:
         "host": C.host_info(),
         "imgsz": imgsz,
         "size_basis": args.size_basis,
+        "max_det": max_det,
         "ultralytics": meta.get("ultralytics"),
         "raw_predictions": {**cache_record, "conf_floor": conf_floor, "meta": meta},
         "n_images": len(raw.paths),
         "grid": {"conf_min": float(confs.min()), "conf_max": float(confs.max()), "n_conf": int(len(confs)),
-                 "conf_ceiling": CONF_CEILING, "nms_iou": [float(v) for v in args.iou_grid], "match_iou": 0.5},
+                 "conf_ceiling": CONF_CEILING, "nms_iou": [float(v) for v in args.iou_grid], "match_iou": 0.5,
+                 "max_det": max_det},
         "empty_frames": empty_record,
         "index_used": resolver.has_index,
         "assumptions": assumptions,

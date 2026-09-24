@@ -1,9 +1,9 @@
 """Detection metrics with the slicing rules the Phase 2 brief makes non-negotiable.
 
 Pure numpy. No Ultralytics, no torch. The matching and the AP integration follow the standard
-COCO/Ultralytics conventions (greedy one-to-one matching by IoU, 101-point interpolated AP,
-IoU 0.50:0.95 in steps of 0.05) so the numbers are comparable with `yolo val`; a test checks that
-against Ultralytics' own `ap_per_class` when it is installed. One consequence worth knowing: this
+COCO/Ultralytics conventions (greedy one-to-one matching by IoU in the exact order of Ultralytics'
+`match_predictions`, 101-point interpolated AP, IoU 0.50:0.95 in steps of 0.05) so the numbers are
+comparable with `yolo val`; tests check both against Ultralytics' own code when it is installed. One consequence worth knowing: this
 interpolation caps a perfect detector at AP 0.995, exactly as `yolo val` does, so a slice that
 reads 0.995 is a perfect slice, not a near miss.
 
@@ -22,6 +22,7 @@ What is different here, deliberately:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import ROUND_FLOOR, Decimal
 from typing import Sequence
 
 import numpy as np
@@ -85,10 +86,18 @@ def box_iou(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _greedy(iou: np.ndarray, thr: float, pred_free: np.ndarray, gt_cols: np.ndarray) -> np.ndarray:
-    """One-to-one greedy assignment by descending IoU.
+    """One-to-one greedy assignment, exactly as Ultralytics' `BaseValidator.match_predictions`.
 
     Returns an array `assigned` of length p: the matched gt column for each prediction, or -1.
-    Only predictions with pred_free[i] and gt columns in `gt_cols` may match.
+    Only predictions with pred_free[i] and gt columns in `gt_cols` may match. Predictions must be
+    sorted by confidence, descending (the order Ultralytics' NMS returns them in).
+
+    The order of the two de-duplications matters in a crowd. Ultralytics sorts the candidate pairs
+    by IoU, keeps each PREDICTION's best ground truth first, and only then gives each ground truth
+    to the first surviving prediction in prediction order (np.unique returns the pairs sorted by
+    prediction index, so there is no second IoU sort). Doing it the other way round (each ground
+    truth's best prediction first) lets one prediction claim two people and then keep only one,
+    which throws away a true positive another prediction could have had.
     """
     p = iou.shape[0]
     assigned = np.full(p, -1, dtype=np.int64)
@@ -98,14 +107,13 @@ def _greedy(iou: np.ndarray, thr: float, pred_free: np.ndarray, gt_cols: np.ndar
     pi, gj = np.nonzero((sub >= thr) & pred_free[:, None])
     if len(pi) == 0:
         return assigned
-    order = np.argsort(-sub[pi, gj], kind="stable")
-    pi, gj = pi[order], gj[order]
-    _, first_gt = np.unique(gj, return_index=True)   # each gt used once, by its best pred
-    pi, gj = pi[first_gt], gj[first_gt]
-    order = np.argsort(-sub[pi, gj], kind="stable")
-    pi, gj = pi[order], gj[order]
-    _, first_pred = np.unique(pi, return_index=True)  # each pred used once, by its best gt
-    pi, gj = pi[first_pred], gj[first_pred]
+    if len(pi) > 1:
+        order = sub[pi, gj].argsort()[::-1]                 # the same sort call Ultralytics makes
+        pi, gj = pi[order], gj[order]
+        _, first_pred = np.unique(pi, return_index=True)    # each prediction keeps its best gt
+        pi, gj = pi[first_pred], gj[first_pred]             # now ordered by prediction index
+        _, first_gt = np.unique(gj, return_index=True)      # each gt goes to the first prediction left
+        pi, gj = pi[first_gt], gj[first_gt]
     assigned[pi] = gt_cols[gj]
     return assigned
 
@@ -444,12 +452,30 @@ NOT_MET = "NOT MET"
 PARTIAL = "PARTIAL"
 NOT_ASSESSED = "NOT ASSESSED"
 
+LOW_N = 30            # fewer ground-truth boxes than this and a metric is an anecdote, not an estimate
+VERDICT_DIGITS = 4    # decimals a verdict prints; enough that 0.84962 can never be shown as 0.850
+
+
+def fmt_floor(value: float | None, digits: int = VERDICT_DIGITS) -> str:
+    """`value` truncated (rounded toward minus infinity) to `digits` decimals, as text.
+
+    Every target here is a lower bound (">= 0.85"), so truncating can only move a printed figure
+    away from a target it has not reached, never onto it: 0.84996 prints as 0.8499, not 0.8500.
+    Decimal on repr() avoids binary noise (0.29 is 0.28999... in binary and must still print 0.2900).
+    """
+    if value is None:
+        return "n/a"
+    q = Decimal(1).scaleb(-digits)
+    return str(Decimal(repr(float(value))).quantize(q, rounding=ROUND_FLOOR))
+
 
 def map_verdict(
     point: float | None,
     ci_low: float | None,
     target: float,
     narrower_point: float | None = None,
+    narrower_ci_low: float | None = None,
+    narrower_n_gt: int | None = None,
 ) -> tuple[str, str]:
     """MET / NOT MET / PARTIAL for an mAP@50 target, and the one-line reason.
 
@@ -458,20 +484,32 @@ def map_verdict(
       * A point estimate at or above target with a lower bound below it is PARTIAL: reached, but
         not established.
       * A point estimate below target is PARTIAL only if a strictly narrower reading of the same
-        target (for "day": daylight-only frames) does reach it; otherwise NOT MET.
+        target (for "day": daylight-only frames) establishes it on its own terms: at least LOW_N
+        ground-truth boxes AND a lower 95% bound at or above the target. A handful of daylight
+        boxes that happen to score well is an anecdote, not a partial result, so it stays NOT MET.
       * No measurement -> NOT ASSESSED. It is never MET by default.
+    Numbers in the reason are truncated to four decimals (fmt_floor), never rounded up.
     """
+    f, t = fmt_floor, f"{target:.2f}"
     if point is None:
         return NOT_ASSESSED, "no ground truth in this slice"
     if point >= target:
         if ci_low is not None and ci_low >= target:
-            return MET, f"{point:.3f} >= {target:.2f}, lower 95% bound {ci_low:.3f} also >= target"
+            return MET, f"{f(point)} >= {t}, lower 95% bound {f(ci_low)} also >= target"
         if ci_low is None:
-            return PARTIAL, f"{point:.3f} >= {target:.2f} but no confidence interval was computed"
-        return PARTIAL, f"{point:.3f} >= {target:.2f} but lower 95% bound {ci_low:.3f} < target"
+            return PARTIAL, f"{f(point)} >= {t} but no confidence interval was computed"
+        return PARTIAL, f"{f(point)} >= {t} but lower 95% bound {f(ci_low)} < target"
     if narrower_point is not None and narrower_point >= target:
-        return PARTIAL, (
-            f"{point:.3f} < {target:.2f} on the full slice; only the narrower daylight-only "
-            f"reading reaches it ({narrower_point:.3f})"
+        n = int(narrower_n_gt or 0)
+        if n >= LOW_N and narrower_ci_low is not None and narrower_ci_low >= target:
+            return PARTIAL, (
+                f"{f(point)} < {t} on the full slice; only the narrower daylight-only reading reaches it "
+                f"({f(narrower_point)}, lower 95% bound {f(narrower_ci_low)}, {n} boxes)"
+            )
+        why = (f"only {n} boxes (fewer than {LOW_N})" if n < LOW_N else
+               "no confidence interval" if narrower_ci_low is None else
+               f"its lower 95% bound {f(narrower_ci_low)} < target")
+        return NOT_MET, (
+            f"{f(point)} < {t}; the daylight-only reading {f(narrower_point)} does not establish the target: {why}"
         )
-    return NOT_MET, f"{point:.3f} < {target:.2f}"
+    return NOT_MET, f"{f(point)} < {t}"

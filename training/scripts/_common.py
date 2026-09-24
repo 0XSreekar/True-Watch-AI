@@ -126,6 +126,9 @@ LIGHTING_UNRESOLVED = "unresolved"
 # something measured per frame; KAIST lighting comes from datasets/config/splits.yaml, whose
 # declaration 02_convert_kaist.py verifies against the frames at conversion time (OQ-1).
 SOURCE_VISIBLE_LIGHTING = {"idd": LIGHTING_DAYLIGHT, "llvip": LIGHTING_NIGHT}
+# Lighting as written into the split index by the converters. 'unknown' is deliberately absent:
+# it stays unresolved rather than being guessed from the source.
+_INDEX_LIGHTING = {"day": LIGHTING_DAYLIGHT, "night": LIGHTING_NIGHT}
 
 
 def modality_of_stem(stem: str) -> str | None:
@@ -169,7 +172,7 @@ def llvip_prefix_length() -> int:
 @dataclass(frozen=True)
 class ImageMeta:
     name: str        # final file stem
-    source: str      # idd | kaist | llvip | unknown
+    source: str      # idd | flir | kaist | llvip | unknown
     modality: str    # visible | lwir
     slice: str       # day | ir
     lighting: str    # daylight | night | unresolved   (visible frames only; lwir is 'n/a')
@@ -202,8 +205,12 @@ class MetaResolver:
                 rec = json.loads(line)
                 if not rec.get("source") or not rec.get("modality") or not rec.get("image"):
                     continue
-                # The rule 09_build_yolo_ds.py uses to name a placed file.
-                stem = f"{rec['source']}_{Path(rec['image']).stem}_{rec['modality']}"
+                # 09_build_yolo_ds.py records the placed file; older indexes only carry the
+                # source image, so fall back to the rule 09 uses to name a placed file.
+                if rec.get("final_image"):
+                    stem = Path(rec["final_image"]).stem
+                else:
+                    stem = f"{rec['source']}_{Path(rec['image']).stem}_{rec['modality']}"
                 if stem in self._index:
                     self.index_collisions += 1
                 self._index[stem] = rec
@@ -218,11 +225,14 @@ class MetaResolver:
             return None
         rec = self._index.get(stem, {})
         source = rec.get("source") or stem.split("_", 1)[0]
-        if source not in ("idd", "kaist", "llvip"):
+        if source not in ("idd", "flir", "kaist", "llvip"):
             source = "unknown"
 
         if modality == "lwir":
             lighting = "n/a"
+        elif rec.get("lighting") in _INDEX_LIGHTING:
+            # Measured per frame at conversion time (FLIR has no per-source lighting).
+            lighting = _INDEX_LIGHTING[rec["lighting"]]
         elif source in SOURCE_VISIBLE_LIGHTING:
             lighting = SOURCE_VISIBLE_LIGHTING[source]
         elif source == "kaist":
