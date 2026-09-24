@@ -187,3 +187,28 @@ def pipeline_stop() -> dict:
 @app.get("/pipeline/status")
 def pipeline_status() -> dict:
     return state.snapshot()
+
+
+class SearchRequest(BaseModel):
+    query: str
+
+
+@app.post("/api/search")
+def api_search(body: SearchRequest) -> dict:
+    """Semantic footage search (Phase 6), mounted behind SEARCH_ENABLED.
+
+    Off by default so a deployment that hasn't provisioned SigLIP (or backfilled
+    an index yet) never pays that cost, and so this route cannot regress any
+    earlier phase's tests. Phase 8 will decide whether the backend proxies to
+    this route or the edge posts results upstream; either shape is compatible
+    with returning the same body query.run_search already produces.
+
+    The heavy imports (torch, transformers) happen here, inside the handler,
+    not at module import time, so importing edge.app never requires them.
+    """
+    cfg = app.state.config
+    if not cfg.search_enabled:
+        raise HTTPException(status_code=404, detail="search is not enabled on this instance")
+    from search.query import search_with_config
+
+    return search_with_config(cfg, body.query)
