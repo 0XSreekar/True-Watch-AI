@@ -8,6 +8,26 @@ raw output tensors are compared, and a difference of 1e-3 or more exits non-zero
 proves the batch axis is really dynamic, since a graph traced at batch 1 with a constant baked in
 would fail there.
 
+What is compared, and what is gated. The PARITY line prints two numbers, both labelled:
+
+  raw    the plain max |torch - onnxruntime| over the output tensor as it leaves the graph: box
+         rows in input pixels (0-640), score rows 0-1. This is the number the brief asks to print.
+  gated  the same difference with each anchor's four box rows divided by that anchor's stride
+         (8, 16 or 32): the grid units the head predicts in before Detect multiplies by the stride.
+         Score rows are unchanged. This is what the 1e-3 tolerance is applied to by default.
+
+Why the gate is not on raw pixels. On the COCO-pretrained YOLO11-s at 640 px (measured with
+ultralytics 8.4.155, torch 2.14.0, onnxruntime 1.30.0, CPU) raw is about 1.5e-3 px whatever is done to the ONNX
+side: onnxslim on or off (1.8e-3 / 1.5e-3), onnxruntime graph optimisations ALL or DISABLE_ALL
+(1.5e-3 either way), one thread or many. Against a float64 run of the same weights torch's own
+FP32 output is 1.4e-3 px off while the ONNX graph is 6.0e-4 px off, so the residual is torch's
+float32 rounding of box centres near 640 (one float32 step there is 6.1e-5) multiplied by the
+stride, not a graph fault, and no FP32 export can promise raw < 1e-3 against FP32 torch. Divided by
+the stride the same difference is about 9e-5, ten times under the tolerance, and it is a TIGHTER
+test than comparing boxes as fractions of the image (pixels / 640, 20 to 80 times looser).
+`--box-units pixels` applies the tolerance to raw pixels as written; `normalized` is kept for
+comparison with earlier records. Scores (about 1e-7) are compared raw in every mode.
+
 Why not `yolo export ... dynamic=True`. In Ultralytics 8.4.155 (engine/exporter.py, export_onnx)
 that flag makes batch, height AND width dynamic on the input and batch and anchors dynamic on the
 output, and switches the Detect head to rebuild its anchor grid inside the graph. The edge only
@@ -35,7 +55,11 @@ letterbox the edge uses. The parity check here does not go through Ultralytics, 
 
 The .onnx is written to --out (default training/weights/) and never to results/: metrics JSON is
 committed, weights are not. Nothing is uploaded unless --push-to-hub is given, and then only the
-.onnx and a generated model card; the token comes from $HF_TOKEN only.
+.onnx and a generated model card; the token comes from $HF_TOKEN only. A successful upload writes
+results/hf_model.json: the repo, the commit sha the upload created, a resolve URL pinned to that
+commit, and the file's sha256 and size. That small JSON is what the edge reads at boot to download
+and verify the model over plain HTTPS without a token, so the repo must be public (--private is
+refused) and the pinned URL never moves when the repo is updated later.
 
 Exit codes: 0 exported and parity passed, 1 parity FAILED, 2 bad input or environment (missing
 weights, no HF_TOKEN with --push-to-hub, sealed test split, output inside results/), 3 the upload
@@ -72,6 +96,17 @@ EXIT_OK, EXIT_PARITY_FAIL, EXIT_USAGE, EXIT_UPLOAD_FAIL = 0, 1, 2, 3
 DEFAULT_OPSET = 17
 DEFAULT_IMGSZ = 640
 DEFAULT_TOLERANCE = 1e-3
+BOX_UNITS = ("grid", "normalized", "pixels")
+DEFAULT_BOX_UNITS = "grid"   # box rows / anchor stride: see the module docstring
+BOX_UNIT_LABELS = {"grid": "grid", "normalized": "norm", "pixels": "px"}
+BOX_UNIT_MEANING = {
+    "grid": "box rows divided by each anchor's stride (8/16/32), the head's own units; score rows 0-1",
+    "normalized": "box rows divided by the input size (fractions of the image); score rows 0-1",
+    "pixels": "box rows in input pixels, as the graph outputs them; score rows 0-1",
+}
+DEFAULT_SOURCE_URL = "https://github.com/0XSreekar/True-Watch-AI"
+HF_MODEL_SCHEMA = "truewatch.hf_model.v1"
+HF_MODEL_FILE = "hf_model.json"
 PARITY_BATCHES = (1, 3)
 SENSITIVITY_FACTOR = 100  # outputs must move by this many tolerances between inputs for the check to mean anything
 IR_VERSION_CAP = 10  # newer IR versions are refused by older onnxruntime builds on the edge
@@ -80,6 +115,7 @@ DYNAMIC_AXES = {INPUT_NAME: {0: "batch"}, OUTPUT_NAME: {0: "batch"}}
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _REPO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 
 INPUT_DESCRIPTION = (
     "images: float32 NCHW RGB scaled to 0-1, letterboxed to imgsz x imgsz on 114-grey padding. "
@@ -314,13 +350,14 @@ def image_inputs(folder: Path, n: int, imgsz: int, seed: int, unseal_test: bool)
     return batch, [p.name for p in chosen]
 
 
-def compare_outputs(reference: np.ndarray, candidate: np.ndarray, box_scale: float = 1.0) -> dict:
+def compare_outputs(reference: np.ndarray, candidate: np.ndarray, box_scale: "float | np.ndarray" = 1.0) -> dict:
     """Max absolute differences over all channels, the four box rows and the score rows.
 
     Boxes are pixels (up to the input size) and scores are 0..1, so one number over both would let
     a score error hide under coordinate rounding; they are reported separately. `box_scale`
-    multiplies the box rows first (1/imgsz turns pixels into fractions of the input). Non-finite
-    values fail the comparison outright.
+    multiplies the box rows first: a scalar (1/imgsz turns pixels into fractions of the input) or
+    one value per anchor (1/stride turns pixels into grid units). Non-finite values fail the
+    comparison outright.
     """
     if reference.shape != candidate.shape:
         return {"shape_ok": False, "max_abs": float("inf"), "max_abs_boxes": float("inf"), "max_abs_scores": float("inf")}
@@ -330,8 +367,34 @@ def compare_outputs(reference: np.ndarray, candidate: np.ndarray, box_scale: flo
     return {"shape_ok": True, "max_abs": peak(diff), "max_abs_boxes": peak(diff[:, :4]), "max_abs_scores": peak(diff[:, 4:])}
 
 
-def parity_line(max_abs_diff: float, tolerance: float, passed: bool) -> str:
-    return f"PARITY max_abs_diff={max_abs_diff:.3e} tolerance={tolerance:.0e} -> {'PASS' if passed else 'FAIL'}"
+def parity_line(raw_max_abs_diff: float, gated_max_abs_diff: float, box_units: str, tolerance: float, passed: bool) -> str:
+    """The one machine-readable verdict line. `raw` is torch vs onnxruntime as the graph outputs it (box rows in
+    pixels); `gated` is the number the tolerance is applied to, with the box rows in `box_units`."""
+    return (f"PARITY raw_max_abs_diff={raw_max_abs_diff:.3e} gated_max_abs_diff={gated_max_abs_diff:.3e} "
+            f"gated_box_units={box_units} tolerance={tolerance:.0e} -> {'PASS' if passed else 'FAIL'}")
+
+
+def anchor_strides(strides: Sequence[float], imgsz: int, n_anchors: int) -> np.ndarray:
+    """The stride of every anchor column of output0, in the order Detect concatenates the levels (P3, P4, P5)."""
+    per_level = [np.full((imgsz // int(s)) ** 2, float(s)) for s in strides]
+    out = np.concatenate(per_level) if per_level else np.zeros(0)
+    if len(out) != n_anchors:
+        raise SystemExit(
+            f"cannot map the {n_anchors} output anchors to strides {list(strides)} at imgsz {imgsz} "
+            f"({len(out)} expected); use --box-units pixels or normalized for this model"
+        )
+    return out
+
+
+def box_scale_for(box_units: str, imgsz: int, strides: Sequence[float], n_anchors: int) -> "float | np.ndarray":
+    """The multiplier compare_outputs applies to the four box rows for `box_units`."""
+    if box_units == "pixels":
+        return 1.0
+    if box_units == "normalized":
+        return 1.0 / imgsz
+    if box_units == "grid":
+        return 1.0 / anchor_strides(strides, imgsz, n_anchors)
+    raise ValueError(f"unknown box units {box_units!r}; expected one of {BOX_UNITS}")
 
 
 def float64_reference(model, x: np.ndarray, torch_out: np.ndarray, onnx_out: np.ndarray, box_scale: float) -> dict:
@@ -372,21 +435,25 @@ def run_parity(
     images_dir: Path | None = None,
     seed: int = 0,
     unseal_test: bool = False,
-    box_units: str = "pixels",
+    box_units: str = DEFAULT_BOX_UNITS,
     verbose: bool = True,
 ) -> dict:
     """Compare torch and onnxruntime raw outputs at each batch size; return the `parity` record.
 
     The torch side is prepared afresh from the .pt (not the module that was traced), so the check
-    covers load, fuse and export as one chain, and the ONNX side is the file on disk. When the check
+    covers load, fuse and export as one chain, and the ONNX side is the file on disk. Two numbers
+    are kept: the raw difference (box rows in pixels) and the gated one (box rows in `box_units`),
+    which is what `tolerance` is applied to. The defaults are the CLI's defaults. When the check
     fails, a float64 run of the same weights says whether the fault is the graph or float32 noise.
     """
     import onnxruntime as ort
     import torch
 
-    box_scale = 1.0 / imgsz if box_units == "normalized" else 1.0
-    box_label = "norm" if box_units == "normalized" else "px"
+    if box_units not in BOX_UNITS:
+        raise ValueError(f"unknown box units {box_units!r}; expected one of {BOX_UNITS}")
+    box_label = BOX_UNIT_LABELS[box_units]
     reference = prepare_torch_model(weights, imgsz)
+    strides = [float(v) for v in getattr(reference.model, "stride", [8.0, 16.0, 32.0])]
     options = ort.SessionOptions()
     options.log_severity_level = 3
     session = ort.InferenceSession(str(onnx_file), sess_options=options, providers=["CPUExecutionProvider"])
@@ -399,20 +466,24 @@ def run_parity(
     else:
         pool, kind, detail = synthetic_inputs(n_inputs, imgsz, seed), "synthetic", {"seed": seed, "n": n_inputs}
 
-    by_batch, by_boxes, by_scores, shape_ok = {}, {}, {}, True
+    by_batch, by_boxes, by_scores, raw_by_batch, raw_boxes, shape_ok = {}, {}, {}, {}, {}, True
+    box_scale: "float | np.ndarray" = 1.0
     for b in batches:
         x = np.ascontiguousarray(pool[:b])
         with torch.inference_mode():
             out = reference.model(torch.from_numpy(x))
         expected = (out[0] if isinstance(out, (tuple, list)) else out).cpu().numpy()
         got = session.run(None, {input_name: x})[0]
+        box_scale = box_scale_for(box_units, imgsz, strides, expected.shape[-1])
         cmp = compare_outputs(expected, got, box_scale)
+        raw = compare_outputs(expected, got, 1.0)
         shape_ok &= cmp["shape_ok"]
         by_batch[str(b)], by_boxes[str(b)], by_scores[str(b)] = cmp["max_abs"], cmp["max_abs_boxes"], cmp["max_abs_scores"]
+        raw_by_batch[str(b)], raw_boxes[str(b)] = raw["max_abs"], raw["max_abs_boxes"]
         if verbose:
             print(
-                f"  batch={b}  output {tuple(got.shape)}  max_abs_diff={cmp['max_abs']:.3e}  "
-                f"boxes({box_label})={cmp['max_abs_boxes']:.3e}  scores={cmp['max_abs_scores']:.3e}"
+                f"  batch={b}  output {tuple(got.shape)}  raw_max_abs_diff={raw['max_abs']:.3e} (boxes px)  "
+                f"gated: boxes({box_label})={cmp['max_abs_boxes']:.3e}  scores={cmp['max_abs_scores']:.3e}"
                 + ("" if cmp["shape_ok"] else f"  SHAPE MISMATCH torch {tuple(expected.shape)}")
             )
     worst = max(by_batch.values())
@@ -444,7 +515,12 @@ def run_parity(
     return {
         "tolerance": tolerance,
         "box_units": box_units,
+        "gated_metric": f"max |torch - onnxruntime| with {BOX_UNIT_MEANING[box_units]}; the tolerance applies to this",
         "max_abs_diff": worst,
+        "raw_max_abs_diff": max(raw_by_batch.values()),
+        "raw_max_abs_diff_boxes_px": max(raw_boxes.values()),
+        "raw_metric": "max |torch - onnxruntime| over output0 as the graph emits it: box rows in input pixels, score rows 0-1",
+        "raw_by_batch": raw_by_batch,
         "max_abs_diff_boxes": max(by_boxes.values()),
         "max_abs_diff_scores": max(by_scores.values()),
         "by_batch": by_batch,
@@ -459,10 +535,16 @@ def run_parity(
     }
 
 
-def compare_scale(channels: int, box_scale: float) -> np.ndarray:
-    """(1, channels, 1) multiplier that puts the four box rows in the compared units."""
-    scale = np.ones((1, channels, 1), dtype=np.float64)
-    scale[:, :4] = box_scale
+def compare_scale(channels: int, box_scale: "float | np.ndarray") -> np.ndarray:
+    """Multiplier that puts the four box rows in the compared units: (1, channels, 1) for a scalar
+    scale, (1, channels, anchors) for a per-anchor one."""
+    per_anchor = np.asarray(box_scale, dtype=np.float64)
+    if per_anchor.ndim == 0:
+        scale = np.ones((1, channels, 1), dtype=np.float64)
+        scale[:, :4] = float(per_anchor)
+        return scale
+    scale = np.ones((1, channels, per_anchor.shape[-1]), dtype=np.float64)
+    scale[:, :4, :] = per_anchor.reshape(1, 1, -1)
     return scale
 
 
@@ -471,9 +553,23 @@ def compare_scale(channels: int, box_scale: float) -> np.ndarray:
 # --------------------------------------------------------------------------------------------
 
 
-def render_model_card(class_names: Sequence[str], imgsz: int, opset: int, tag: str, source_sha256: str, onnx_sha256: str) -> str:
-    """The README pushed with the weights. It states the licence terms and carries no accuracy figure."""
+def render_model_card(
+    class_names: Sequence[str],
+    imgsz: int,
+    opset: int,
+    tag: str,
+    source_sha256: str,
+    onnx_sha256: str,
+    source_url: str = DEFAULT_SOURCE_URL,
+) -> str:
+    """The README pushed with the weights. It states the licence terms and carries no accuracy figure.
+
+    `source_url` is the public repository that holds the corresponding source (AGPL-3.0 section 13)
+    and METRICS.md; both links are rendered from it.
+    """
     classes = "\n".join(f"- {i}: {name}" for i, name in enumerate(class_names))
+    source_url = source_url.rstrip("/")
+    metrics_url = f"{source_url}/blob/main/training/results/METRICS.md"
     return f"""---
 license: agpl-3.0
 library_name: onnx
@@ -488,7 +584,7 @@ tags:
 
 ONNX export of the single YOLO11-s detector behind the appearance channel of the TRUEWATCH
 border-surveillance stack, fine-tuned on public research datasets and exported with `export_onnx.py`
-from the TRUEWATCH source repository.
+from the TRUEWATCH source repository: {source_url}
 
 ## Interface
 
@@ -508,6 +604,7 @@ Classes, by id:
 - Ultralytics YOLO11 is licensed under AGPL-3.0. These weights are a derivative of it and are offered
   under the same licence. If you run this model, or a modified version, in a service that people reach over a
   network, AGPL-3.0 section 13 requires you to offer those users the corresponding source of that service.
+  The corresponding source for this model (training, export and serving code) is {source_url}.
   The licence text is at https://www.gnu.org/licenses/agpl-3.0.html. This card is not legal advice.
 - The training data are public research datasets (IDD, LLVIP and KAIST). Each has its own terms, which may
   restrict some uses. The datasets are not redistributed here, and using this model grants no rights to them.
@@ -516,7 +613,8 @@ Classes, by id:
 ## Accuracy
 
 This card carries no accuracy figures. Measured results, each with the split and the host it was measured on,
-are published in `METRICS.md` in the source repository. Nothing measured on synthetic data is a result.
+are published in [`METRICS.md`]({metrics_url}) in the source repository. Nothing measured on synthetic data
+is a result.
 
 ## Provenance
 
@@ -525,13 +623,29 @@ are published in `METRICS.md` in the source repository. Nothing measured on synt
 """
 
 
-def push_to_hub(onnx_file: Path, repo_id: str, private: bool, card: str, token: str) -> dict:
-    """Create the repo if needed and upload the .onnx and the card. Returns {repo_id, url}."""
+def push_to_hub(onnx_file: Path, repo_id: str, card: str, token: str) -> dict:
+    """Create the public repo if needed, upload the .onnx and the card, and return what the edge needs.
+
+    Returns {repo_id, url, revision, private}. `revision` is the commit sha of the upload that
+    contains the .onnx (the card follows in a later commit, which does not change the file), so a
+    URL pinned to it keeps serving exactly these bytes however the repo changes afterwards.
+    """
     from huggingface_hub import HfApi
 
     api = HfApi(token=token)
-    api.create_repo(repo_id=repo_id, repo_type="model", private=private, exist_ok=True)
-    api.upload_file(
+    api.create_repo(repo_id=repo_id, repo_type="model", private=False, exist_ok=True)
+    private = None
+    try:
+        private = bool(getattr(api.repo_info(repo_id=repo_id, repo_type="model"), "private", False))
+    except Exception as exc:  # visibility unknown is reported, not fatal: the upload itself is the goal
+        print(f"warning: could not read the visibility of {repo_id} ({type(exc).__name__})", file=sys.stderr)
+    if private:
+        print(
+            f"warning: {repo_id} already exists and is PRIVATE. The edge downloads the model without a token, so it "
+            "cannot fetch this file until the repo is made public (Settings > Make public on the Hub).",
+            file=sys.stderr,
+        )
+    commit = api.upload_file(
         path_or_fileobj=str(onnx_file), path_in_repo=onnx_file.name, repo_id=repo_id, repo_type="model",
         commit_message=f"Add {onnx_file.name}",
     )
@@ -539,7 +653,34 @@ def push_to_hub(onnx_file: Path, repo_id: str, private: bool, card: str, token: 
         path_or_fileobj=card.encode("utf-8"), path_in_repo="README.md", repo_id=repo_id, repo_type="model",
         commit_message="Add model card",
     )
-    return {"repo_id": repo_id, "url": f"https://huggingface.co/{repo_id}"}
+    revision = getattr(commit, "oid", None)
+    if not revision or not _SHA1_RE.match(str(revision)):
+        raise RuntimeError(
+            f"the upload did not return a commit sha (got {revision!r}); without one the edge URL cannot be pinned"
+        )
+    return {"repo_id": repo_id, "url": f"https://huggingface.co/{repo_id}", "revision": str(revision), "private": private}
+
+
+def hf_model_record(hf: dict, record: dict, source_url: str) -> dict:
+    """results/hf_model.json: everything the edge needs to download and verify the model, and nothing else."""
+    onnx = record["onnx"]
+    repo_id, revision, name = hf["repo_id"], hf["revision"], onnx["file"]
+    return {
+        "schema": HF_MODEL_SCHEMA,
+        "repo_id": repo_id,
+        "revision": revision,
+        "file": name,
+        "resolve_url": f"https://huggingface.co/{repo_id}/resolve/{revision}/{name}",
+        "sha256": onnx["sha256"],
+        "size": onnx["size_bytes"],
+        "opset": onnx["opset"],
+        "imgsz": onnx["imgsz"],
+        "class_names": record["class_names"],
+        "source_weights_sha256": record["source_weights"]["sha256"],
+        "export_record": f"export_{record['tag']}.json",
+        "source_url": source_url,
+        "created": record["created"],
+    }
 
 
 # --------------------------------------------------------------------------------------------
@@ -553,8 +694,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         epilog=(
             "Exit codes: 0 done, 1 parity FAILED, 2 bad input or environment, 3 upload failed. "
-            "--push-to-hub reads the token from $HF_TOKEN only; an existing repo keeps its visibility and its README "
-            "is replaced by the generated model card."
+            "--push-to-hub reads the token from $HF_TOKEN only, creates the repo public, replaces its README with the "
+            "generated model card and writes results/hf_model.json with a commit-pinned URL for the edge."
         ),
     )
     p.add_argument("--weights", required=True, type=Path, help="Ultralytics .pt checkpoint, e.g. runs/day/weights/best.pt")
@@ -564,9 +705,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--simplify", action=argparse.BooleanOptionalAction, default=True, help="run onnxslim on the graph")
     p.add_argument("--parity-tol", type=float, default=DEFAULT_TOLERANCE, help="max absolute difference torch vs onnxruntime that still passes")
     p.add_argument(
-        "--box-units", choices=("pixels", "normalized"), default="normalized",
-        help="units of the four box rows in the parity comparison: fractions of the input size (pixels / imgsz, the default: "
-             "scale-invariant, so float32 rounding on 0-640 coordinates does not swamp the check), or raw input pixels",
+        "--box-units", choices=BOX_UNITS, default=DEFAULT_BOX_UNITS,
+        help="units of the four box rows in the GATED parity number (the raw pixel number is always printed too): grid = "
+             "pixels / the anchor's stride, the head's own units (default); normalized = pixels / imgsz (looser); "
+             "pixels = the tolerance applied to raw pixels as written (fails on float32 rounding near 640, see the docstring)",
     )
     p.add_argument("--parity-images", type=Path, default=None, help="folder of real images for the parity input (else a fixed-seed synthetic tensor)")
     p.add_argument("--parity-seed", type=int, default=0, help="seed for the synthetic tensor and for choosing images")
@@ -574,7 +716,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", default=None, help="name of this export, used for <tag>.onnx and export_<tag>.json; the weights file stem when omitted")
     p.add_argument("--results-dir", type=Path, default=C.RESULTS_DIR, help="where export_<tag>.json is written")
     p.add_argument("--push-to-hub", metavar="REPO_ID", default=None, help="upload the .onnx and a model card to this Hugging Face repo, e.g. user/truewatch-detector")
-    p.add_argument("--private", action="store_true", help="create the repo as private (only when it does not exist yet)")
+    p.add_argument("--private", action="store_true",
+                   help="refused: the edge downloads the model without a token, so the repo must be public")
+    p.add_argument("--source-url", default=DEFAULT_SOURCE_URL,
+                   help="public repository with the corresponding source (AGPL-3.0 section 13); linked from the model card")
     return p
 
 
@@ -616,6 +761,14 @@ def validate(args: argparse.Namespace) -> str:
         if not args.parity_images.is_dir():
             raise SystemExit(f"--parity-images {args.parity_images} is not a directory")
         refuse_sealed_test_split(args.parity_images, args.unseal_test)
+    if not re.match(r"^https://[^\s/]+/\S*$", args.source_url or ""):
+        raise SystemExit(f"--source-url must be an https:// URL of the public source repository, got {args.source_url!r}")
+    if args.private:
+        raise SystemExit(
+            "--private is refused: the edge downloads the model at boot over plain HTTPS without a token "
+            "(edge/models/detector_weights.py), so a private repo would stop every edge from starting. Push to a "
+            "public repo; the weights carry the AGPL-3.0 terms in the model card."
+        )
     if args.push_to_hub is not None:
         if not _REPO_ID_RE.match(args.push_to_hub):
             raise SystemExit(f"--push-to-hub expects owner/name, got {args.push_to_hub!r}")
@@ -674,19 +827,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"error: {exc.code}", file=sys.stderr)
             return EXIT_USAGE
         raise
-    if args.box_units == "pixels":
-        print("          box rows are pixels (0-640) where one float32 step at the top of the range is 6.1e-05; score rows are 0-1")
-    else:
-        print(f"          box rows are compared as fractions of the input size (pixels / {imgsz}); score rows are 0-1")
-        print(f"          the same box difference in input pixels: {parity['max_abs_diff_boxes'] * imgsz:.3e} "
-              f"(one float32 step at 640 is 6.1e-05; run with --box-units pixels to apply the tolerance to pixels)")
+    print(f"          raw   = {parity['raw_metric']}: {parity['raw_max_abs_diff']:.3e} "
+          f"(box rows {parity['raw_max_abs_diff_boxes_px']:.3e} px; one float32 step at 640 is 6.1e-05)")
+    print(f"          gated = max |torch - onnxruntime| with {BOX_UNIT_MEANING[args.box_units]}: {parity['max_abs_diff']:.3e}; "
+          f"the {args.parity_tol:.0e} tolerance applies to this number")
+    if args.box_units != "pixels":
+        raw_verdict = "also under" if parity["raw_max_abs_diff"] < args.parity_tol else "NOT under"
+        print(f"          raw is {raw_verdict} the tolerance; README 'ONNX parity' explains why the gate is not raw pixels")
     if parity["input_sensitive"] is False:
         print(
             f"WEAK CHECK: the torch outputs for different inputs differ by at most {parity['input_sensitivity']:.3e}, "
             f"under {SENSITIVITY_FACTOR} x the tolerance, so this input cannot tell a correct graph from one that "
             "ignores its input. Expected for random-initialised weights; repeat on trained weights, ideally with --parity-images."
         )
-    print(parity_line(parity["max_abs_diff"], parity["tolerance"], parity["passed"]))
+    print(parity_line(parity["raw_max_abs_diff"], parity["max_abs_diff"], parity["box_units"], parity["tolerance"], parity["passed"]))
 
     record = {
         "schema": SCHEMA,
@@ -723,8 +877,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if exact and exact["graph_as_accurate_as_torch"]:
             advice = (
                 "The float64 reference says the graph is as accurate as torch itself, so the tolerance is below the float32 "
-                "noise floor of this model. If you accept that, choose it on purpose (--parity-tol, or --box-units normalized "
-                "to compare boxes as fractions of the input) and record why."
+                "noise floor of this model. If you accept that, choose it on purpose (--box-units grid, the default, compares "
+                "boxes in the head's own units; or --parity-tol) and record why."
             )
         else:
             advice = "Do not use this file. Re-run with --no-simplify to rule out the simplifier, and keep the JSON as evidence."
@@ -735,15 +889,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"wrote {results_json}")
 
     if args.push_to_hub:
-        card = render_model_card(record["class_names"], imgsz, args.opset, tag, source_sha, onnx_sha)
+        card = render_model_card(record["class_names"], imgsz, args.opset, tag, source_sha, onnx_sha, args.source_url)
         token = os.environ["HF_TOKEN"].strip()
         try:
-            record["hf"] = push_to_hub(out_file, args.push_to_hub, args.private, card, token)
+            record["hf"] = push_to_hub(out_file, args.push_to_hub, card, token)
         except Exception as exc:
             print(f"error: upload to {args.push_to_hub} failed: {str(exc).replace(token, '***')}", file=sys.stderr)
             return EXIT_UPLOAD_FAIL
+        pinned = hf_model_record(record["hf"], record, args.source_url)
+        record["hf"]["resolve_url"] = pinned["resolve_url"]
         C.write_json(results_json, record)
-        print(f"uploaded  {record['hf']['url']}  (updated {results_json})")
+        hf_json = args.results_dir / HF_MODEL_FILE
+        C.write_json(hf_json, pinned)
+        print(f"uploaded  {record['hf']['url']}  revision {pinned['revision']}  (updated {results_json})")
+        print(f"pinned    {pinned['resolve_url']}  sha256 {pinned['sha256']}")
+        print(f"wrote {hf_json}; commit it: the edge reads it at boot to download and verify the model")
     return EXIT_OK
 
 

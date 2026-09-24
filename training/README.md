@@ -5,7 +5,7 @@ appearance channel (slide 3: *"fine-tuning planned on IDD, LLVIP, KAIST"*). Thes
 Kaggle GPU hours, not in CI and not in `edge/`. `edge/` consumes an exported ONNX graph through
 onnxruntime and nothing else.
 
-> **Status (Phase 2).** The tooling is complete: 253 GPU-free tests pass, and `scripts/smoke_test.py`
+> **Status (Phase 2).** The tooling is complete: the GPU-free test suite passes, and `scripts/smoke_test.py`
 > runs every script end to end on a synthetic dataset, including a real SIGKILL-and-resume and a
 > hand-truncated checkpoint. **No training run has been done, so there is no measured detector
 > accuracy yet.** `results/METRICS.md` says so and lists every slide-5 target as NOT ASSESSED; it
@@ -66,29 +66,53 @@ training datasets are public research datasets with their own terms that are not
 2. **No router.** A day/night classifier's errors would become detector errors at dusk, the hours a border post cares about most.
 3. **Slide 4 makes it free.** *"IR replicated to 3 channels"* puts LWIR into the same input tensor as RGB, so no architecture change is needed, and `docs/MEASUREMENTS.md` §1 measured 89% IR recovery from a visible-only COCO model: the representation already transfers.
 4. **The smaller domain is the harder target.** IR is the smaller share of the corpus and carries 0.75, not 0.85. Stage 2 exists to give IR more weight without splitting the data.
-5. **The budget fits one lineage.** Kaggle gives 30 GPU-hours a week for the whole project, and the project plan sets aside about 8 for this phase. One lineage fits; two do not.
+5. **The budget fits one lineage.** Kaggle gives 30 GPU-hours a week for the whole project; one lineage at ~16.5 GPU-hours (estimate below) fits in two sessions; two lineages do not.
 
 | Decision | Choice | Reason |
 |---|---|---|
-| Stage 1 | 30 epochs, full corpus, COCO `yolo11s.pt` | The bulk of adaptation. |
-| Stage 2 | 8 epochs from stage 1 best weights, LWIR repeated ×2, LR 5× lower | Re-weights toward IR; same corpus, same head. |
+| Stage 1 | 20 epochs, full corpus, COCO `yolo11s.pt` | The bulk of adaptation, sized to the session budget below. |
+| Stage 2 | 6 epochs from stage 1 best weights, LWIR repeated ×2, LR 5× lower | Re-weights toward IR; same corpus, same head. |
 | Image size | 640 | The ~30 ms figure is defined at 640 px, and the far field is handled by 640×640 SAHI tiles, so a bigger input is not needed. |
 | Batch | 32 (nominal batch 64, so two accumulated steps) | Fits a 16 GB T4 under AMP. |
 | Optimiser | SGD, momentum 0.937, weight decay 5e-4 | What Ultralytics would choose above 10,000 iterations; explicit so a resume cannot change it. |
 | LR | Stage 1 0.005, cosine to ×0.01; stage 2 0.001 | Half the from-scratch COCO rate: fine-tuning should not overwrite pretrained features. |
-| Warmup | 3 epochs (stage 2: 1) | Momentum and bias warmup for the new 5-class head. |
+| Warmup | 3 epochs (stage 2: 1); bias warmup LR 0.05 = 10× lr0 (stage 2: equal to lr0, no boost) | Momentum and bias warmup for the new 5-class head; Ultralytics' default 0.1 against stage 2's lr0 of 0.001 would have started the trained biases at 100×. |
 | Freeze | Layers 0-9 frozen for epochs 0-2, then unfrozen (stage 1) | A freshly initialised head produces large early gradients that would wreck COCO features. |
 | EMA | On (Ultralytics always keeps one); `best.pt` and `last.pt` hold EMA weights | Not switchable; stated so nobody looks for the switch. |
-| Early stopping | Patience 8 (stage 2: 5) on Ultralytics fitness | Class-mean fitness keeps vehicles from dying while people improve; per-epoch person AP50 is logged for a human to watch. |
-| Augmentation | Read from `datasets/config/augment.yaml`, never duplicated; the `forbidden:` block is asserted at start | Single source of truth between `datasets/` and `training/`. |
+| Early stopping | Patience 6 (stage 2: 3) on Ultralytics fitness, restored from `train_log.csv` on every resume | Class-mean fitness keeps vehicles from dying while people improve; per-epoch AP50 of every class is logged for a human to watch. Ultralytics restarts patience on each resume; `train.py` puts it back. |
+| Augmentation | Every key of `datasets/config/augment.yaml` applied or reported, never duplicated (see below) | Single source of truth between `datasets/` and `training/`. |
 | Class imbalance | Images with `truck` or `cart` appear twice per epoch, no image more than twice, no loss reweighting | `docs/DATASET_SPEC.md` §3.1: oversampling a rare class in a detector mostly multiplies its backgrounds. |
-| Sessions | `--max-hours` (default 9.0) stops after the epoch that crosses it | Kaggle kills at 12 h and evaluation and export need the rest. |
+| Sessions | `--max-hours` is a deadline: training stops at the epoch boundary where one more epoch would cross it | The notebook passes the time left in its 12 h session, keeping 45 min for evaluation, export and packaging. |
+| Cart gate | A dataset that withdraws class 4 (four names in its `data.yaml`, or five with no cart label) trains the same 5-output head; class 4 gets no positives | `DATASET_SPEC.md` §1.5 keeps id 4 reserved, so the wire names and the ONNX output shape do not change. Preflight fails if a withdrawn class still has label rows. |
 
 None of these values has been tuned: they were decided in advance from the reasons above, and the
-first Kaggle epochs are the first evidence for or against them. The 8 GPU-hour total is an
-**estimate**. It depends on dataloader throughput on Kaggle's four vCPUs, which has not been
-measured. `train_log.csv` records seconds per epoch; replace the estimate with the measurement after
-the first epoch.
+first Kaggle epochs are the first evidence for or against them. The time budget is an **estimate**,
+derived at the top of `configs/yolo11s_day.yaml`: ~80k images at 640 on one T4, paced by Kaggle's
+four vCPUs at an assumed ~45 img/s, gives ~35 min per stage-1 epoch and ~48 min per stage-2 epoch,
+so ~11.7 h + ~4.8 h = ~16.5 GPU-hours, two sessions of ~10 h of training each. `train_log.csv`
+records seconds per epoch; check it after epoch 1. If an epoch takes much over 50 min, start a fresh
+run with a smaller `--epochs` (it is ignored on resume) rather than let the stages spill into a
+third or fourth session.
+
+### Augmentation: every policy key is applied or reported
+
+`train.py` routes each key of `datasets/config/augment.yaml` and stops (exit 3) on a key it has no
+route for, so the policy cannot silently drift from what training does. The start-up log and
+`run_state.json` (`augment_plan`) list the route of every key.
+
+| Block | Keys | How training applies them |
+|---|---|---|
+| `always_on` | `mosaic`, `scale`, `translate`, `fliplr`, `hsv_*`, `mosaic_close_epochs` | Ultralytics arguments (`close_mosaic` clamped to the stage). |
+| `always_on` | `downscale_upscale`, `jpeg`, `motion_blur` | Albumentations `Downscale` (INTER_AREA down, INTER_LINEAR up), `ImageCompression`, `MotionBlur`, on every training sample after mosaic. They replace Ultralytics' built-in Albumentations defaults, which are never used. |
+| `infrared_only` | `clahe`, `gaussian_noise`, `brightness_contrast`, `thermal_washout` | A dataset hook applies them per SOURCE image, before mosaic, to LWIR images only (the modality is the `_lwir` token 09_build_yolo_ds.py puts in every filename). It works on one grey channel and replicates it, so B = G = R holds. |
+| `forbidden` | all | Asserted against the resolved Ultralytics arguments; `erase_max_box_fraction` is reported as not applicable (the detection pipeline has no random erase). |
+| `infrared_conversion` | all | The offline 3-channel conversion done by `datasets/`, reported, not a training augmentation. |
+
+Albumentations (>= 2.0) is therefore a requirement. Ultralytics swallows an Albumentations failure
+and trains on without it, so `train.py` checks the package before any GPU time and reads the
+transform list back from the live dataset after the dataloader is built; either failure is exit 3,
+naming the unapplied keys. Multi-GPU (DDP) is refused: Ultralytics' DDP children run a generated
+script that carries neither the callbacks nor the dataset hook.
 
 ## Running it
 
@@ -104,15 +128,26 @@ python -m pytest tests -q
 
 ### On Kaggle
 
-1. Build the corpus on the Mac (`datasets/README.md`), then copy `datasets/processed/index/split.jsonl`
-   to `<upload dir>/index/split.jsonl` before `kaggle datasets create`. It lets evaluation tell KAIST
-   day frames from KAIST night frames and group frames by video for the bootstrap.
-2. Open `notebooks/kaggle_train.ipynb`. Accelerator GPU T4 ×2 or P100, Internet on. Add the corpus dataset.
-3. Run all. Each session trains until `--max-hours`, writes `run_state.json`, and stops.
+1. Build the corpus with `datasets/notebooks/kaggle_build.ipynb`. Its `/kaggle/working/truewatch_ds/`
+   output (YOLO tree, `data.yaml` with relative paths, `manifests/` including `hard_set.txt`,
+   `reports/`) is attached to the training notebook as an input; the notebook finds it by searching
+   `/kaggle/input/**/truewatch_ds/data.yaml`, whatever the mount path. If a split index
+   (`index/split.jsonl`) is inside it, evaluation uses it for KAIST day/night and video clusters.
+2. Open `notebooks/kaggle_train.ipynb` (it clones branch `fix/phase1-2-complete`). Accelerator GPU
+   T4 ×2 or P100, Internet on. One GPU is used.
+3. Run all. The first cell starts one session clock; each stage gets only the time left minus 45 min
+   for evaluation, export and packaging, and stage 2 starts only if one estimated epoch still fits.
+   `train.py` exits non-zero only on a real failure, and the notebook raises on it.
 4. For the next session, add the previous session's output as an input. The notebook restores the run
-   directory and `--auto-resume` continues.
-5. The notebook ends by evaluating, exporting, rendering `METRICS.md` and publishing a private results
-   dataset. Copy only the small metrics files into `training/results/` and commit those.
+   directories and the hard-set baseline, and `--auto-resume` continues from the last good checkpoint.
+5. Once the final stage (stage 2) is complete, the notebook evaluates, runs the hard-set gate, exports,
+   renders `METRICS.md` and publishes a private results dataset; before that it only packages the
+   checkpoints. Copy only the small metrics files into `training/results/` and commit those.
+6. The hard-set gate compares against `results/hardset_baseline.json`. When none exists the notebook
+   records it once from the COCO-pretrained `yolo11s.pt` (`hardset_baseline_source.json` says
+   `baseline: pretrained`), never from the model being judged. A failed gate blocks the upload.
+7. The Hugging Face upload reads `HF_TOKEN` from Kaggle Secrets and is skipped, with a message, when it
+   is absent; the upload can then be done from the Mac with `export_onnx.py --push-to-hub`.
 
 ## Checkpoint and resume
 
@@ -127,7 +162,11 @@ best fitness are all inside it. Two things in Ultralytics 8.4.155 needed handlin
   `data=` and `save_dir=` explicitly, which Ultralytics' `check_resume` honours.
 
 `--resume` requires a checkpoint and exits 2 without one; `--auto-resume` resumes if one exists.
-`train_log.csv` is append-only, so it spans sessions. `scripts/smoke_test.py` kills a run with
+`train_log.csv` is append-only, so it spans sessions; it carries `ap50_<class>` for every class
+(blank, never 0, for a class with no validation ground truth). Ultralytics creates a fresh
+early-stopping counter on every start, so on a resume `train.py` restores its best fitness and best
+epoch from the log; patience therefore counts across sessions. A resume that has less time left
+than one logged epoch trains nothing and exits 0 with `run_state.json` saying why. `scripts/smoke_test.py` kills a run with
 SIGKILL after the second epoch, resumes it, asserts the log has no gap and no duplicate, then does it
 again with `last.pt` truncated by hand.
 
@@ -160,7 +199,11 @@ project's favour:
 
 - **MET**: the point estimate reaches the target *and* so does the lower 95% bound.
 - **PARTIAL**: the point estimate reaches it but the lower bound does not; or the full slice misses
-  while the narrower daylight-only reading of "day" reaches it.
+  while the narrower daylight-only reading of "day" reaches it *and establishes it on its own*: at
+  least 30 person boxes and its own lower 95% bound at the target. A smaller or less certain daylight
+  reading leaves the verdict NOT MET.
+- Figures in verdict text and the targets table are truncated to four decimals, never rounded, so
+  0.84962 reads 0.8496 beside a 0.85 target.
 - **NOT MET**: the point estimate is below the target.
 - **NOT ASSESSED**: outside what a detector evaluation can show (detection range, plate recognition,
   missed fence crossings, the Jetson latency budget) or no measurement exists. It is never MET by default.
@@ -173,26 +216,76 @@ bound) and says plainly when the validation split is too small to resolve the bu
 ## Export and hosting
 
 ```bash
-python scripts/export_onnx.py --weights runs/ir/weights/best.pt
+python scripts/export_onnx.py --weights runs/ir/weights/best.pt --tag truewatch-yolo11s
 ```
 
 Exports opset 17 with a dynamic batch axis, then runs torch and onnxruntime on the same input at batch
-1 and 3 and prints `PARITY max_abs_diff=... tolerance=1e-03 -> PASS`. It exits non-zero at 1e-3 or above.
+1 and 3 and prints both differences, labelled, on one line:
 
-Box rows are compared as **fractions of the input size** by default (`--box-units normalized`). The raw
-graph emits boxes in input pixels (0-640), where one float32 step is 6e-5 and accumulated rounding
-reaches 1.5e-3 even on a tiny model, while the graph is provably as close to a float64 run of the same
-weights as torch itself is. A pixel-unit tolerance of 1e-3 would therefore fail correct exports. The
-pixel-unit difference is always printed beside the normalized one, and `--box-units pixels` applies the
-tolerance to raw pixels. Scores (0-1) are compared unscaled either way. Measured on the smoke model:
-9.4e-06 normalized, 1.5e-03 in pixels.
+```
+PARITY raw_max_abs_diff=1.785e-03 gated_max_abs_diff=8.917e-05 gated_box_units=grid tolerance=1e-03 -> PASS
+```
+
+### ONNX parity: what is printed, what is gated, and the deviation from the brief
+
+The brief asks for "torch vs onnxruntime max-abs-diff < 1e-3, printed". Both halves are kept apart
+on purpose:
+
+- **raw** is the plain max |torch - onnxruntime| over `output0` exactly as the graph emits it: box rows
+  in input pixels (0-640), score rows 0-1. It is always printed and recorded (`raw_max_abs_diff`).
+- **gated** is what the 1e-3 tolerance is applied to. By default (`--box-units grid`) each anchor's four
+  box rows are divided by that anchor's stride (8, 16 or 32), which is the unit the head predicts in
+  before the Detect layer multiplies by the stride. Scores are compared raw.
+
+**Deviation, stated plainly: the gate is not raw pixels, because raw < 1e-3 is not achievable against
+FP32 torch.** Measured on the COCO-pretrained YOLO11-s at 640 px (ultralytics 8.4.155, torch 2.14.0,
+onnxruntime 1.30.0, Apple M5 CPU, fixed-seed input):
+
+| variant | raw max abs diff (px) | gated, grid units |
+| :-- | --: | --: |
+| onnxslim on, onnxruntime ORT_ENABLE_ALL (the shipped graph) | 1.785e-03 | 8.9e-05 |
+| onnxslim on, ORT_DISABLE_ALL | 1.480e-03 | |
+| onnxslim off, ORT_ENABLE_ALL | 1.526e-03 | |
+| onnxslim off, ORT_DISABLE_ALL | 1.480e-03 | |
+| one intra-op thread instead of the default pool | unchanged | |
+
+Score rows differ by about 1.4e-07 in every variant. Against a float64 run of the same weights, torch's
+own FP32 output is 1.39e-03 px off while the shipped ONNX graph is 6.0e-04 px off (6.2e-04 without onnxslim): the residual is torch's float32
+rounding of box coordinates near 640 (one float32 step there is 6.1e-05) multiplied by the stride, not a
+graph fault, and no FP32 export can guarantee raw < 1e-3 against FP32 torch. Divided by the stride, the
+same difference is ten times under the tolerance. That gate is tighter than comparing boxes as fractions
+of the image (`--box-units normalized`, pixels / 640, which is 20 to 80 times looser and was this
+script's earlier default). `--box-units pixels` applies the tolerance to raw pixels as written and fails
+on a correct export; when any gate fails, a float64 run of the same weights says whether the graph or
+float32 noise is to blame. The script exits 1 when the gated difference is 1e-3 or more.
+
+### Hugging Face Hub, and how the edge finds the file
 
 Weights are hosted on the Hugging Face Hub (free, public) and are **never committed**: `.gitignore`
 blocks `*.pt`, `*.pth`, `*.onnx`, `*.engine` and `*.safetensors` repository-wide, and `edge/models/`
-carries its own copy of the rule. Upload with `--push-to-hub <user>/<repo>` and `HF_TOKEN` set in the
-environment; nothing is uploaded otherwise. After a real upload, record the model URL in
-`results/hf_model.json` and commit that file, not the weights. `edge/` resolves the model by URL at
-boot through `YOLO_MODEL_ID`; that loader is not part of this phase.
+carries its own copy of the rule.
+
+```bash
+export HF_TOKEN=...   # a write token; never a flag, never written to a file
+python scripts/export_onnx.py --weights runs/ir/weights/best.pt --tag truewatch-yolo11s \
+    --push-to-hub <user>/truewatch-detector
+```
+
+- The repository is created **public**. `--private` is refused: the edge downloads the model at boot
+  without a token, so a private repository would stop every edge from starting. An existing private
+  repository is uploaded to with a warning.
+- The model card states the AGPL-3.0 terms, links the corresponding source (AGPL-3.0 section 13) given
+  by `--source-url` (default `https://github.com/0XSreekar/True-Watch-AI`) and links `METRICS.md` there.
+  It carries no accuracy figure.
+- The upload writes `results/hf_model.json` and `results/export_<tag>.json`. `hf_model.json` holds the
+  repository, the **commit sha** of the upload (`revision`), a `resolve_url` pinned to that commit
+  (`https://huggingface.co/<repo>/resolve/<sha>/<file>`), the file's SHA-256 and size, the opset, input
+  size and class names. Commit it: it is the only model artefact in git, and a later push to the same
+  repository cannot change the bytes it points at.
+- `edge/models/detector_weights.py` reads that file at boot (or `YOLO_MODEL_URL` + `YOLO_MODEL_SHA256`,
+  which a container built from `edge/` alone must set), downloads over plain HTTPS into
+  `edge/models/cache/`, verifies the SHA-256 before an atomic rename, and opens the graph with
+  onnxruntime. Nothing in `edge/` imports Ultralytics.
 
 ## Performance figures
 
@@ -205,13 +298,26 @@ boot through `YOLO_MODEL_ID`; that loader is not part of this phase.
 > measurement in this repository was taken on a Jetson.
 
 `benchmark_cpu.py` reports FP32 latency on a CPU, at batch 1 and 640 px, as p50 and p95 over many
-runs, for onnxruntime alone and for a detector-stage pipeline (letterbox, run, decode, NMS). Those
-numbers are **not comparable to the Jetson INT8 target** and must never be quoted beside it as if
-they were. The Mac figures in `results/` were taken with a randomly initialised YOLO11-s of the right
-shape, because latency depends on the graph and not the weights; each file says so. There is no
-Hugging Face Spaces measurement yet: run the script in a Space (it needs only numpy and onnxruntime),
-copy the JSON block it prints between `--- BEGIN BENCHMARK JSON ---` and `--- END BENCHMARK JSON ---`
-from the Space's log into `results/benchmark_<label>.json`, and commit it.
+runs, for onnxruntime alone (`inference_ms`) and for a detector-stage pipeline (`pipeline_ms`:
+letterbox, run, decode, NMS). Those numbers are **not comparable to the Jetson INT8 target** and must
+never be quoted beside it as if they were.
+
+```bash
+python scripts/benchmark_cpu.py --onnx weights/truewatch-yolo11s.onnx --weights-kind trained \
+    --image <a real 720p frame> --label mac-apple-m5-cpu
+```
+
+The committed Mac file (`results/benchmark_mac-apple-m5-cpu.json`) was taken with a **randomly
+initialised** YOLO11-s of the right shape. Its `inference_ms` stands, because inference time depends
+on the graph and the host, not the weights. Its `pipeline_ms` does not: a random head scores every
+anchor alike, so NMS receives all 8400 candidates and keeps 300 detections per frame, which a trained
+detector never produces. Every record now carries `weights_kind` (trained / random / unknown, with
+"random" inferred from the provenance line of older files) and `pipeline_representative` (true only for
+trained weights on a real `--image`), and `make_metrics.py` suppresses the pipeline figure of a
+random-weight record and says why. Re-run the command above on the trained export for a pipeline row.
+There is no Hugging Face Spaces measurement yet: run the script in a Space (it needs only numpy and
+onnxruntime), copy the JSON block it prints between `--- BEGIN BENCHMARK JSON ---` and
+`--- END BENCHMARK JSON ---` from the Space's log into `results/benchmark_<label>.json`, and commit it.
 
 ## Before the first real run: check the dataset for filename collisions
 
@@ -235,4 +341,8 @@ on the real corpus before the first long run.
   measured per frame. Frames whose lighting cannot be resolved are labelled unresolved and are never
   counted as daylight.
 - If the cart class ends up with fewer than 300 hand-verified instances it is withdrawn from the
-  shipped schema (`docs/DATASET_SPEC.md` §1.5); id 4 stays reserved and its AP is `n/a`.
+  shipped schema (`docs/DATASET_SPEC.md` §1.5); id 4 stays reserved and its AP is `n/a`. The head
+  still has a class-4 output that was trained with no positives, so its scores should stay low, but
+  consumers must drop class 4 while it is withdrawn (`run_state.json` `withdrawn_classes` says so).
+- Only one of the two T4s in a "T4 ×2" session is used. DDP would roughly halve epoch time but runs
+  outside `train.py`'s callbacks and dataset hook, so it is refused rather than half-supported.
