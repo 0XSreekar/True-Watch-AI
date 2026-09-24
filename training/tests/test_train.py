@@ -125,7 +125,7 @@ def test_fraction_subsample_is_seeded_and_never_empty():
 # --------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("stage,epochs,close,freeze", [("day", 30, 10, 10), ("ir", 8, 3, None)])
+@pytest.mark.parametrize("stage,epochs,close,freeze", [("day", 20, 10, 10), ("ir", 6, 2, None)])
 def test_shipped_configs_load_and_resolve(stage, epochs, close, freeze):
     cfg = T.load_stage_config(T.DEFAULT_CONFIGS[stage], stage)
     args = T.resolve_train_args(cfg, T.load_augment_policy())
@@ -133,15 +133,16 @@ def test_shipped_configs_load_and_resolve(stage, epochs, close, freeze):
     assert args["close_mosaic"] == close
     assert args.get("freeze") == freeze
     assert args["seed"] == 42 and args["optimizer"] == "SGD" and args["deterministic"] is False
-    assert args["augmentations"] == []           # the Albumentations decision: built-in defaults are disabled
+    names = [spec["transform"]["__class_fullname__"] for spec in args["augmentations"]]
+    assert names == ["Downscale", "ImageCompression", "MotionBlur"]  # augment.yaml, replacing Ultralytics' built-in defaults
     assert args["imgsz"] == 640 and args["batch"] == 32 and args["nbs"] == 64
 
 
 def test_stage_configs_carry_the_documented_differences():
     day = T.load_stage_config(T.DEFAULT_CONFIGS["day"], "day")
     ir = T.load_stage_config(T.DEFAULT_CONFIGS["ir"], "ir")
-    assert (day.train["lr0"], day.train["lrf"], day.train["warmup_epochs"], day.train["patience"]) == (0.005, 0.01, 3, 8)
-    assert (ir.train["lr0"], ir.train["lrf"], ir.train["warmup_epochs"], ir.train["patience"]) == (0.001, 0.1, 1, 5)
+    assert (day.train["lr0"], day.train["lrf"], day.train["warmup_epochs"], day.train["patience"]) == (0.005, 0.01, 3, 6)
+    assert (ir.train["lr0"], ir.train["lrf"], ir.train["warmup_epochs"], ir.train["patience"]) == (0.001, 0.1, 1, 3)
     assert day.sampling.lwir_repeat == 1 and ir.sampling.lwir_repeat == 2
     assert day.unfreeze_epoch == 3 and ir.unfreeze_epoch is None
     assert day.model == "yolo11s.pt" and ir.model is None
@@ -166,7 +167,7 @@ def test_day_config_states_the_one_model_argument_at_the_top():
 
 
 def test_augmentation_keys_in_a_stage_config_are_rejected(tmp_path):
-    text = T.DEFAULT_CONFIGS["day"].read_text(encoding="utf-8").replace("  epochs: 30", "  epochs: 30\n  mosaic: 1.0")
+    text = T.DEFAULT_CONFIGS["day"].read_text(encoding="utf-8").replace("  epochs: 20", "  epochs: 20\n  mosaic: 1.0")
     bad = tmp_path / "yolo11s_day.yaml"
     bad.write_text(text, encoding="utf-8")
     with pytest.raises(T.UsageError, match="augment.yaml"):
@@ -196,11 +197,11 @@ def test_close_mosaic_is_clamped_to_the_stage_length():
 def test_close_mosaic_epochs_key_only_overrides_when_set():
     day = T.load_stage_config(T.DEFAULT_CONFIGS["day"], "day")
     ir = T.load_stage_config(T.DEFAULT_CONFIGS["ir"], "ir")
-    assert day.close_mosaic_epochs is None and ir.close_mosaic_epochs == 3
+    assert day.close_mosaic_epochs is None and ir.close_mosaic_epochs == 2
     policy = T.load_augment_policy()
     assert policy.mosaic_close_epochs == 10
     assert T.resolve_train_args(day, policy)["close_mosaic"] == 10
-    assert T.resolve_train_args(ir, policy)["close_mosaic"] == 3
+    assert T.resolve_train_args(ir, policy)["close_mosaic"] == 2
 
 
 def test_augmentation_values_come_from_augment_yaml():
@@ -259,52 +260,238 @@ def test_a_policy_file_with_a_non_zero_forbidden_value_is_refused(tmp_path):
 def test_ultralytics_resolution_of_our_arguments_passes_the_assertion():
     pytest.importorskip("ultralytics")
     policy = T.load_augment_policy()
-    resolved = T.ultralytics_args(T.resolve_train_args(T.load_stage_config(T.DEFAULT_CONFIGS["day"], "day"), policy))
+    args = T.resolve_train_args(T.load_stage_config(T.DEFAULT_CONFIGS["day"], "day"), policy)
+    resolved = T.ultralytics_args(args)
     T.assert_forbidden_augmentation(resolved, policy)
-    assert resolved.close_mosaic == 10 and resolved.augmentations == []
+    assert resolved.close_mosaic == 10 and resolved.augmentations == args["augmentations"] == list(policy.albumentations)
 
 
 # --------------------------------------------------------------------------------------------
-# the Albumentations decision, with the package present and absent
+# augment.yaml: every key applied or reported
 # --------------------------------------------------------------------------------------------
 
 
-def test_albumentations_override_disables_the_builtin_transforms():
+def raw_policy() -> dict:
+    import yaml
+
+    return yaml.safe_load(C.AUGMENT_YAML.read_text(encoding="utf-8"))
+
+
+def test_every_policy_key_has_a_route_and_the_plan_lists_them_all():
+    raw = raw_policy()
+    policy = T.load_augment_policy()
+    expected = {f"{block}.{key}" for block, keys in raw.items() for key in keys}
+    assert set(policy.plan) == expected
+    for key in ("always_on.downscale_upscale", "always_on.jpeg", "always_on.motion_blur"):
+        assert "Albumentations" in policy.plan[key]
+    for key in ("infrared_only.clahe", "infrared_only.gaussian_noise", "infrared_only.brightness_contrast", "infrared_only.thermal_washout"):
+        assert "LWIR" in policy.plan[key]
+    assert "not applicable" in policy.plan["forbidden.erase_max_box_fraction"]
+    lines = "\n".join(T.augmentation_report(policy))
+    assert all(key in lines for key in expected)
+
+
+@pytest.mark.parametrize("block,key", [("always_on", "gaussian_blur"), ("infrared_only", "polarity_inversion"), ("brand_new_block", "x")])
+def test_an_unapplied_policy_key_stops_the_run_and_is_named(tmp_path, block, key):
+    import yaml
+
+    raw = raw_policy()
+    raw.setdefault(block, {})[key] = {"p": 0.5}
+    bad = tmp_path / "augment.yaml"
+    bad.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    with pytest.raises(T.AugmentationViolation, match=key if block != "brand_new_block" else block):
+        T.load_augment_policy(bad)
+
+
+@pytest.mark.parametrize("key", ["channel_shuffle", "false_colour"])
+def test_a_non_zero_channel_shuffle_or_false_colour_is_refused(tmp_path, key):
+    import yaml
+
+    raw = raw_policy()
+    raw["forbidden"][key] = 0.2
+    bad = tmp_path / "augment.yaml"
+    bad.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    with pytest.raises(T.AugmentationViolation, match=key):
+        T.load_augment_policy(bad)
+
+
+def test_albumentations_specs_carry_the_policy_values():
+    always = raw_policy()["always_on"]
+    down, jpeg, blur = (s["transform"] for s in T.load_augment_policy().albumentations)
+    d, j, m = always["downscale_upscale"], always["jpeg"], always["motion_blur"]
+    assert down["__class_fullname__"] == "Downscale" and down["p"] == d["p"]
+    assert down["scale_range"] == [1 / d["factor_max"], 1 / d["factor_min"]] == [0.25, 0.5]
+    assert jpeg["__class_fullname__"] == "ImageCompression" and jpeg["p"] == j["p"] and jpeg["quality_range"] == [j["quality_min"], j["quality_max"]]
+    assert blur["__class_fullname__"] == "MotionBlur" and blur["p"] == m["p"] and blur["blur_limit"] == [m["kernel_min"], m["kernel_max"]]
+    assert blur["angle_range"] == [0.0, 360.0]          # DATASET_SPEC 4.1: random angle
+
+
+def test_interpolation_constants_are_the_cv2_values():
+    cv2 = pytest.importorskip("cv2")
+    assert (T.CV2_INTER_AREA, T.CV2_INTER_LINEAR) == (cv2.INTER_AREA, cv2.INTER_LINEAR)
+    assert T.load_augment_policy().albumentations[0]["transform"]["interpolation_pair"] == {"downscale": cv2.INTER_AREA, "upscale": cv2.INTER_LINEAR}
+
+
+def test_albumentations_rebuilds_the_policy_and_replaces_the_ultralytics_defaults():
     pytest.importorskip("ultralytics")
     pytest.importorskip("albumentations")
     from ultralytics.data.augment import Albumentations
 
+    policy = T.load_augment_policy()
+    assert T.check_albumentations(policy)
     default = Albumentations(p=1.0, transforms=None)
-    assert default.transform is not None and len(default.transform.transforms) == 7  # what Ultralytics would apply on Kaggle
-    ours = Albumentations(p=1.0, transforms=[])                                      # what train.py passes
-    assert ours.transform is not None and list(ours.transform.transforms) == []
-    labels = {"img": __import__("numpy").zeros((32, 32, 3), dtype="uint8")}
-    assert ours(labels) is labels or (ours(labels)["img"] == labels["img"]).all()
+    assert len(default.transform.transforms) == 7                                    # what Ultralytics would apply by itself
+    ours = Albumentations(p=1.0, transforms=[dict(s) for s in policy.albumentations])  # the serialised form train.py passes
+    assert [type(x).__name__ for x in ours.transform.transforms] == T.expected_albumentations(policy)
+    dataset = SimpleNamespace(transforms=SimpleNamespace(transforms=[ours]), ir_augment=object())
+    assert [r.split("(")[0] for r in T.effective_albumentations(dataset)] == ["Downscale", "ImageCompression", "MotionBlur"]
 
 
-def test_effective_albumentations_reports_the_transform_list():
-    pytest.importorskip("ultralytics")
+def test_the_policy_transforms_really_change_pixels_when_forced_on():
     pytest.importorskip("albumentations")
-    from ultralytics.data.augment import Albumentations
+    import albumentations as A
+    import numpy as np
 
-    dataset = SimpleNamespace(transforms=SimpleNamespace(transforms=[Albumentations(p=1.0, transforms=[])]))
-    assert T.effective_albumentations(dataset) == []
-    dataset = SimpleNamespace(transforms=SimpleNamespace(transforms=[Albumentations(p=1.0, transforms=None)]))
-    assert len(T.effective_albumentations(dataset)) == 7
+    img = np.random.default_rng(0).integers(0, 255, (96, 96, 3), dtype=np.uint8)
+    for spec in T.load_augment_policy().albumentations:
+        forced = {"transform": {**spec["transform"], "p": 1.0}}
+        out = A.from_dict(forced)(image=img)["image"]
+        assert out.shape == img.shape and not np.array_equal(out, img), spec["transform"]["__class_fullname__"]
+
+
+def test_missing_albumentations_fails_loudly_listing_the_unapplied_keys(monkeypatch):
+    monkeypatch.setitem(sys.modules, "albumentations", None)   # makes `import albumentations` raise ImportError
+    with pytest.raises(T.AugmentationViolation) as info:
+        T.check_albumentations(T.load_augment_policy())
+    for key in ("always_on.downscale_upscale", "always_on.jpeg", "always_on.motion_blur"):
+        assert key in str(info.value)
+
+
+def test_a_live_dataset_without_the_transforms_or_the_ir_hook_is_refused():
+    policy = T.load_augment_policy()
+    silent = SimpleNamespace(transforms=SimpleNamespace(transforms=[]))              # Ultralytics swallowed a failure
+    with pytest.raises(T.AugmentationViolation, match="always_on.jpeg") as info:
+        T.assert_live_augmentation(silent, policy)
+    assert "infrared_only.clahe" in str(info.value)
+
+
+def test_effective_albumentations_is_none_without_the_stage():
     assert T.effective_albumentations(SimpleNamespace(transforms=SimpleNamespace(transforms=[]))) is None
 
 
-def test_override_does_not_crash_when_albumentations_is_absent(monkeypatch):
-    pytest.importorskip("ultralytics")
-    from ultralytics.data.augment import Albumentations
+# --------------------------------------------------------------------------------------------
+# the infrared-only block
+# --------------------------------------------------------------------------------------------
 
-    monkeypatch.setitem(sys.modules, "albumentations", None)   # makes `import albumentations` raise ImportError
-    absent = Albumentations(p=1.0, transforms=[])
-    assert absent.transform is None
-    labels = {"img": object()}
-    assert absent(labels) is labels
-    dataset = SimpleNamespace(transforms=SimpleNamespace(transforms=[absent]))
-    assert T.effective_albumentations(dataset) is None
+
+def grey_bgr(seed: int = 0, shape=(64, 80)):
+    import numpy as np
+
+    g = np.random.default_rng(seed).integers(40, 200, shape, dtype=np.uint8)
+    return np.repeat(g[:, :, None], 3, axis=2)
+
+
+def forced_ir(**changes) -> T.IRAugment:
+    spec = T.load_augment_policy().ir
+    fields = {"clahe_p": 1.0, "noise_p": 1.0, "bc_p": 1.0, "washout_p": 1.0}
+    fields.update(changes)
+    return T.IRAugment(T.IRAugmentSpec(**{**spec.__dict__, **fields}))
+
+
+def test_ir_spec_is_read_from_the_policy():
+    spec = T.load_augment_policy().ir
+    ir = raw_policy()["infrared_only"]
+    assert spec.clahe_p == ir["clahe"]["p"] and spec.clahe_clip == (ir["clahe"]["clip_min"], ir["clahe"]["clip_max"])
+    assert spec.clahe_grid == ir["clahe"]["tile_grid"] and spec.noise_sigma == (ir["gaussian_noise"]["sigma_min"], ir["gaussian_noise"]["sigma_max"])
+    assert (spec.brightness, spec.contrast) == (ir["brightness_contrast"]["brightness"], ir["brightness_contrast"]["contrast"])
+    assert spec.washout_p == ir["thermal_washout"]["p"] and spec.washout_range == (ir["thermal_washout"]["range_min"], ir["thermal_washout"]["range_max"])
+
+
+def test_ir_augment_changes_the_frame_and_keeps_b_equal_g_equal_r():
+    import random
+
+    import numpy as np
+
+    img = grey_bgr()
+    out = forced_ir()(img, random.Random(3))
+    assert out.shape == img.shape and out.dtype == np.uint8
+    assert np.array_equal(out[..., 0], out[..., 1]) and np.array_equal(out[..., 1], out[..., 2])   # DATASET_SPEC 3.4 invariant
+    assert not np.array_equal(out, img)
+    assert np.array_equal(forced_ir()(img, random.Random(3)), out)                                # seeded: reproducible
+    assert img.max() < 200                                                                         # the input is never modified in place
+
+
+def test_ir_augment_with_every_probability_zero_is_the_identity():
+    import random
+
+    import numpy as np
+
+    img = grey_bgr(1)
+    assert np.array_equal(forced_ir(clahe_p=0.0, noise_p=0.0, bc_p=0.0, washout_p=0.0)(img, random.Random(0)), img)
+
+
+def test_thermal_washout_compresses_the_range_around_the_mean():
+    import numpy as np
+
+    g = np.array([[0, 100, 200]], dtype=np.uint8)
+    out = T.thermal_washout(g, 0.5)
+    assert out.tolist() == [[50, 100, 150]]
+    assert np.ptp(T.thermal_washout(grey_bgr()[..., 0], 0.4)) < np.ptp(grey_bgr()[..., 0])
+
+
+def test_ir_augment_pickles_for_dataloader_workers():
+    import pickle
+    import random
+
+    import numpy as np
+
+    aug = forced_ir()
+    clone = pickle.loads(pickle.dumps(aug))
+    img = grey_bgr(2)
+    assert np.array_equal(clone(img, random.Random(9)), aug(img, random.Random(9)))
+
+
+def test_the_dataset_hook_touches_lwir_images_only_and_pickles(synth_root):
+    pytest.importorskip("ultralytics")
+    import pickle
+
+    import numpy as np
+    from ultralytics.cfg import get_cfg
+
+    from ultralytics.data.dataset import YOLODataset
+
+    hyp = get_cfg(overrides={"mosaic": 0.0})
+    names = dict(enumerate(C.load_class_names(None)))
+    dataset = YOLODataset(img_path=str(synth_root / "images" / "train"), imgsz=160, augment=True, hyp=hyp,
+                          data={"names": names, "nc": 5, "channels": 3}, task="detect")
+    plain = [dataset.get_image_and_label(i)["img"].copy() for i in range(len(dataset))]
+    dataset.__class__ = T.modality_dataset_class()
+    dataset.ir_augment = forced_ir()
+    touched = {"lwir": 0, "visible": 0}
+    for i in range(len(dataset)):
+        label = dataset.get_image_and_label(i)
+        modality = C.modality_of_stem(Path(label["im_file"]).stem)
+        changed = not np.array_equal(label["img"], plain[i])
+        touched[modality] += changed
+        if modality == "visible":
+            assert not changed
+        else:
+            img = label["img"]
+            assert np.array_equal(img[..., 0], img[..., 1]) and np.array_equal(img[..., 1], img[..., 2])
+    assert touched["lwir"] > 0 and touched["visible"] == 0
+    dataset.augment = False                                               # validation-style datasets are never touched
+    assert all(np.array_equal(dataset.get_image_and_label(i)["img"], plain[i]) for i in range(len(dataset)))
+    clone = pickle.loads(pickle.dumps(dataset))                          # what a spawned dataloader worker receives
+    assert type(clone).__name__ == "ModalityAwareYOLODataset" and clone.ir_augment is not None
+    assert T.ModalityAwareYOLODataset is T.modality_dataset_class()
+
+
+def test_the_trainer_class_attaches_the_hook_to_the_train_dataset_only():
+    pytest.importorskip("ultralytics")
+    from ultralytics.models.yolo.detect import DetectionTrainer
+
+    cls = T.make_trainer_class(forced_ir())
+    assert issubclass(cls, DetectionTrainer) and "build_dataset" in cls.__dict__
 
 
 # --------------------------------------------------------------------------------------------
@@ -503,7 +690,8 @@ def test_log_appends_across_sessions_with_the_documented_columns(tmp_path):
     T.append_log_row(path, log_row(1))
     T.append_log_row(path, log_row(2))
     assert path.read_text(encoding="utf-8").splitlines()[0] == (
-        "epoch,session,elapsed_s,epoch_s,box_loss,cls_loss,dfl_loss,precision,recall,map50,map50_95,person_ap50,lr,fitness"
+        "epoch,session,elapsed_s,epoch_s,box_loss,cls_loss,dfl_loss,precision,recall,map50,map50_95,person_ap50,lr,fitness,"
+        "ap50_person,ap50_two_wheeler,ap50_car,ap50_truck,ap50_cart"
     )
     assert T.next_session_number(path) == 2
     T.append_log_row(path, log_row(3, session=2))
@@ -684,7 +872,7 @@ def test_preflight_passes_on_the_clean_fixture_and_reports_the_histogram(dataset
     assert report.ok, report.errors
     text = "\n".join(report.lines)
     assert "class 0 person" in text and "class 4 cart" in text and "empty-label images" in text
-    assert any("class 4 (cart)" in w and "300" in w for w in report.warnings)      # the DATASET_SPEC 1.5 gate note
+    assert any("class 4 (cart)" in w and "WITHDRAWN" in w and "1.5" in w for w in report.warnings)  # no carts: the gate withdraws it
 
 
 def test_preflight_fails_on_duplicate_manifest_rows(dataset):
@@ -752,6 +940,7 @@ def run_cli(*argv: str) -> int:
 
 def test_dry_run_prints_the_plan_and_writes_nothing(tmp_path, dataset, capsys):
     pytest.importorskip("ultralytics")
+    pytest.importorskip("albumentations")
     run_dir = tmp_path / "runs" / "dry"
     code = run_cli("--stage", "day", "--dry-run", "--data-root", str(dataset), "--run-dir", str(run_dir),
                    "--model", str(C.TRAINING_ROOT / "weights" / "yolo11n.pt") if (C.TRAINING_ROOT / "weights" / "yolo11n.pt").exists() else str(dataset / "data.yaml"),
@@ -812,6 +1001,245 @@ def test_cli_defaults_match_the_contract():
 
 
 # --------------------------------------------------------------------------------------------
+# per-class AP, early stopping across sessions, the session deadline
+# --------------------------------------------------------------------------------------------
+
+
+def test_schema_class_names_constant_matches_the_schema():
+    assert list(T.SCHEMA_CLASS_NAMES) == C.load_class_names(None)
+    assert T.AP_COLUMNS == [f"ap50_{n}" for n in C.load_class_names(None)]
+
+
+def test_epoch_row_carries_ap50_for_every_class_present_and_blank_for_the_rest(tmp_path):
+    trainer = fake_trainer(tmp_path, ap_index=(0, 2, 3), ap50=(0.6, 0.4, 0.2))
+    row = T.make_epoch_row(trainer, make_state(tmp_path), now=5.0)
+    assert (row["ap50_person"], row["ap50_car"], row["ap50_truck"]) == (0.6, 0.4, 0.2)
+    assert row["ap50_two_wheeler"] is None and row["ap50_cart"] is None      # no ground truth in val: blank, never 0
+    assert row["person_ap50"] == 0.6
+    path = tmp_path / "train_log.csv"
+    T.append_log_row(path, row)
+    logged = T.read_log(path)[0]
+    assert logged["ap50_car"] == "0.4" and logged["ap50_cart"] == ""
+
+
+def test_an_old_format_log_is_migrated_before_a_new_row_is_appended(tmp_path):
+    path = tmp_path / "train_log.csv"
+    old = ["epoch", "session", "elapsed_s", "epoch_s", "box_loss", "cls_loss", "dfl_loss", "precision", "recall", "map50",
+           "map50_95", "person_ap50", "lr", "fitness"]
+    path.write_text(",".join(old) + "\n" + "1,1,10,10,1,1,1,0.1,0.2,0.3,0.2,0.25,0.001,0.2\n", encoding="utf-8")
+    T.append_log_row(path, log_row(2, fitness=0.3, ap50_person=0.5))
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert lines[0].split(",") == T.LOG_COLUMNS
+    rows = T.read_log(path)
+    assert [r["epoch"] for r in rows] == ["1", "2"] and rows[0]["fitness"] == "0.2" and rows[1]["ap50_person"] == "0.5"
+
+
+def test_early_stopping_is_restored_from_the_log_on_resume(tmp_path):
+    pytest.importorskip("ultralytics")
+    from ultralytics.utils.torch_utils import EarlyStopping
+
+    rows = [{"epoch": "1", "fitness": "0.10"}, {"epoch": "2", "fitness": "0.30"}, {"epoch": "3", "fitness": "0.30"},
+            {"epoch": "4", "fitness": "0.25"}, {"epoch": "5", "fitness": "0.28"}, {"epoch": "6", "fitness": "0.99"}]
+    stopper = EarlyStopping(patience=4)
+    assert T.restore_early_stopping(stopper, rows, completed_epoch=5) == (2, 0.30)   # epoch 6 is past the checkpoint
+    assert stopper.best_epoch == 2 and stopper.best_fitness == 0.30 and stopper.possible_stop is True
+    assert stopper(6, 0.29) is True                         # 4 epochs without improvement across the session boundary
+    fresh = EarlyStopping(patience=4)
+    assert fresh(6, 0.29) is False                          # what the old behaviour did: patience silently restarted
+    assert T.restore_early_stopping(EarlyStopping(patience=4), [{"epoch": "1", "fitness": ""}], 1) is None
+
+
+def test_on_train_start_restores_the_stopper_only_when_resuming(tmp_path):
+    state = make_state(tmp_path)
+    for e, f in ((1, 0.1), (2, 0.4), (3, 0.3)):
+        T.append_log_row(state.paths.log_csv, log_row(e, fitness=f))
+    model = SimpleNamespace(parameters=lambda: [])
+    stopper = SimpleNamespace(best_fitness=0.0, best_epoch=0, patience=5, possible_stop=False)
+    trainer = SimpleNamespace(model=model, args=SimpleNamespace(freeze=None), start_epoch=3, stopper=stopper)
+    T.build_callbacks(state)["on_train_start"](trainer)
+    assert (stopper.best_epoch, stopper.best_fitness) == (2, 0.4)
+    fresh = SimpleNamespace(best_fitness=0.0, best_epoch=0, patience=5, possible_stop=False)
+    T.build_callbacks(state)["on_train_start"](SimpleNamespace(model=model, args=SimpleNamespace(freeze=None), start_epoch=0, stopper=fresh))
+    assert (fresh.best_epoch, fresh.best_fitness) == (0, 0.0)
+
+
+def test_should_stop_for_time_predicts_the_next_epoch():
+    assert T.should_stop_for_time(100.0, 100.0, None) is True           # budget spent
+    assert T.should_stop_for_time(50.0, 100.0, None) is False           # no estimate yet: run on
+    assert T.should_stop_for_time(50.0, 100.0, 40.0) is False           # 50 + 44 fits
+    assert T.should_stop_for_time(60.0, 100.0, 40.0) is True            # 60 + 44 would cross the deadline
+
+
+def test_prior_epoch_seconds_uses_the_slowest_recent_epoch():
+    rows = [{"epoch_s": "100"}, {"epoch_s": ""}, {"epoch_s": "300"}, {"epoch_s": "120"}, {"epoch_s": "110"}]
+    assert T.prior_epoch_seconds(rows) == 300.0
+    assert T.prior_epoch_seconds([{"epoch_s": ""}]) is None
+
+
+def test_model_save_stops_before_an_epoch_that_would_cross_the_deadline(tmp_path):
+    import time
+
+    state = make_state(tmp_path, max_hours=1.0)
+    now = time.time()
+    state.session_start = now - 0.6 * 3600          # 0.6 h used
+    state.epoch_started = now - 0.3 * 3600          # this epoch took 0.3 h; the next would end at ~0.93 h: fits
+    fake_checkpoint(state.paths.last, epoch=1, epochs=10)
+    trainer = fake_trainer(tmp_path, epoch=1, epochs=10)
+    T.build_callbacks(state)["on_model_save"](trainer)
+    assert trainer.stop is False
+    state.session_start = now - 0.75 * 3600         # 0.75 h used: 0.75 + 0.33 > 1.0
+    state.epoch_started = now - 0.3 * 3600
+    trainer = fake_trainer(tmp_path, epoch=2, epochs=10)
+    T.build_callbacks(state)["on_model_save"](trainer)
+    assert trainer.stop is True and state.session_stopped is True
+
+
+def test_an_early_stop_is_not_reported_as_a_session_stop(tmp_path):
+    state = make_state(tmp_path, max_hours=0.0001)
+    fake_checkpoint(state.paths.last, epoch=1, epochs=10)
+    trainer = fake_trainer(tmp_path, epoch=1, epochs=10)
+    trainer.stop = True                              # EarlyStopping already ended the run this epoch
+    T.build_callbacks(state)["on_model_save"](trainer)
+    assert state.session_stopped is False
+
+
+# --------------------------------------------------------------------------------------------
+# the cart gate: a dataset that withdraws class 4
+# --------------------------------------------------------------------------------------------
+
+
+def drop_cart_from_data_yaml(root: Path) -> None:
+    import yaml
+
+    data = yaml.safe_load((root / "data.yaml").read_text(encoding="utf-8"))
+    data["nc"] = 4
+    data["names"] = {i: n for i, n in enumerate(C.load_class_names(None)[:4])}
+    (root / "data.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+
+
+def test_withdrawn_classes_from_the_dataset_names():
+    schema = C.load_class_names(None)
+    assert T.dataset_withdrawn_classes(schema, schema, "x") == ()
+    assert T.dataset_withdrawn_classes(schema[:4], schema, "x") == (4,)
+    assert T.dataset_withdrawn_classes({i: n for i, n in enumerate(schema[:4])}, schema, "x") == (4,)
+    for bad in (schema[:3], ["person", "bike", "car", "truck", "cart"], schema[1:]):
+        with pytest.raises(T.DatasetError, match="taxonomy"):
+            T.dataset_withdrawn_classes(bad, schema, "x")
+
+
+def test_preflight_accepts_a_withdrawn_cart_with_no_rows(dataset):
+    names = C.load_class_names(None)
+    train, val = T.scan_split(dataset, "train", 5), T.scan_split(dataset, "val", 5)
+    report = T.run_preflight(dataset, names, train, val, dataset / "manifest.tsv", cart_gate=300, withdrawn=(4,))
+    assert report.ok, report.errors
+    assert any("WITHDRAWN" in line for line in report.lines)
+    assert T.effective_withdrawn(names, train, ()) == (4,)          # five names, no cart label: withdrawn in effect
+
+
+def test_preflight_fails_when_a_withdrawn_class_still_has_rows(dataset):
+    label = next((dataset / "labels" / "train").glob("*.txt"))
+    label.write_text(label.read_text(encoding="utf-8") + "4 0.5 0.5 0.1 0.1\n", encoding="utf-8")
+    names = C.load_class_names(None)
+    train, val = T.scan_split(dataset, "train", 5), T.scan_split(dataset, "val", 5)
+    report = T.run_preflight(dataset, names, train, val, dataset / "manifest.tsv", cart_gate=300, withdrawn=(4,))
+    assert any("withdrawn" in e and "cart" in e for e in report.errors)
+    assert T.effective_withdrawn(names, train, ()) == ()             # one cart row: not withdrawn in effect
+
+
+def test_dry_run_accepts_a_four_class_dataset_and_keeps_five_outputs(tmp_path, dataset, capsys):
+    pytest.importorskip("ultralytics")
+    pytest.importorskip("albumentations")
+    drop_cart_from_data_yaml(dataset)
+    code = run_cli("--stage", "day", "--dry-run", "--data-root", str(dataset), "--run-dir", str(tmp_path / "r"), "--model", str(dataset / "data.yaml"))
+    out = capsys.readouterr().out
+    assert code == 0 and "withdrawn class id(s) [4] (cart)" in out and "5-output head" in out
+
+
+def test_a_resume_with_less_time_than_one_epoch_trains_nothing_and_exits_0(tmp_path, dataset, capsys):
+    pytest.importorskip("ultralytics")
+    pytest.importorskip("albumentations")
+    paths = T.RunPaths(tmp_path / "runs" / "day")
+    fake_checkpoint(paths.last, epoch=1, epochs=10)
+    for e in (1, 2):
+        T.append_log_row(paths.log_csv, {**log_row(e), "epoch_s": 3600.0})   # one epoch took an hour
+    code = run_cli("--stage", "day", "--auto-resume", "--data-root", str(dataset), "--run-dir", str(paths.run_dir), "--max-hours", "0.5")
+    assert code == 0 and "not enough time" in capsys.readouterr().out
+    state = C.read_json(paths.state_json)
+    assert state["status"] == "session_stop" and state["complete"] is False and "insufficient" in state["note"]
+
+
+# --------------------------------------------------------------------------------------------
+# the Kaggle notebook
+# --------------------------------------------------------------------------------------------
+
+NOTEBOOK = C.TRAINING_ROOT / "notebooks" / "kaggle_train.ipynb"
+
+
+def notebook_code_cells() -> list[str]:
+    import json
+
+    nb = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+    assert nb["nbformat"] == 4
+    return ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+
+
+def test_notebook_is_valid_nbformat_and_every_code_cell_parses():
+    import ast
+
+    nbformat = pytest.importorskip("nbformat")
+    nbformat.validate(nbformat.read(str(NOTEBOOK), as_version=4))
+    for source in notebook_code_cells():
+        ast.parse(source)
+
+
+def test_notebook_shares_one_session_clock_and_never_ignores_a_training_failure():
+    cells = notebook_code_cells()
+    assert "NB_START = time.time()" in cells[0]
+    assert 'GIT_REF = "fix/phase1-2-complete"' in cells[0]
+    train_calls = [c for c in cells if "training/scripts/train.py --stage" in c and "--dry-run" not in c]
+    assert len(train_calls) == 2
+    for cell in train_calls:
+        assert "--max-hours {budget" in cell and "remaining_train_hours()" in cell
+        call = cell[cell.index('sh(f"python training/scripts/train.py'):]
+        assert "check=False" not in call[: call.index("\n\n") if "\n\n" in call else len(call)]
+    assert 'DEVICE = "0" ' in cells[0]                                             # one GPU: train.py refuses DDP
+    assert "RESERVE_HOURS = 0.75" in cells[0]
+
+
+def test_notebook_evaluates_only_a_finished_final_stage_and_never_self_baselines():
+    text = "\n".join(notebook_code_cells())
+    assert "READY = STAGE1_DONE and (STAGE2_DONE or not RUN_STAGE_2)" in text
+    write_baseline = [ln for ln in text.splitlines() if "--write-baseline" in ln]
+    assert write_baseline and all("{coco}" in ln and "{WEIGHTS}" not in ln for ln in write_baseline)
+    assert '"baseline": "pretrained"' in text
+    assert 'secret("HF_TOKEN")' in text and "UserSecretsClient" in text
+    assert "truewatch_ds/data.yaml" in text and "truewatch_ds/manifests/hard_set.txt" in text
+
+
+def test_notebook_helpers_find_inputs_at_any_depth_and_budget_the_session(tmp_path):
+    import time
+
+    namespace: dict = {}
+    exec(notebook_code_cells()[0], namespace)                    # definitions only: touches nothing under /kaggle
+    namespace["INPUT_ROOT"] = tmp_path / "input"
+    namespace["RUNS"] = tmp_path / "runs"
+    deep = tmp_path / "input" / "datasets" / "someone" / "prev-output" / "runs" / "day"
+    deep.mkdir(parents=True)
+    (deep / "train_log.csv").write_text("epoch,epoch_s\n1,1800\n2,2000\n3,1900\n", encoding="utf-8")
+    smoke = tmp_path / "input" / "prev" / "smoke" / "runs" / "day"
+    smoke.mkdir(parents=True)
+    (smoke / "train_log.csv").write_text("epoch,epoch_s\n1,1\n", encoding="utf-8")
+    assert namespace["earlier_run_logs"]("day") == [deep / "train_log.csv"]
+    (tmp_path / "runs" / "day").mkdir(parents=True)
+    (tmp_path / "runs" / "day" / "train_log.csv").write_text((deep / "train_log.csv").read_text(), encoding="utf-8")
+    assert abs(namespace["epoch_hours"]("day") - 2000 / 3600) < 1e-9
+    assert namespace["epoch_hours"]("ir") is None
+    namespace["NB_START"] = time.time() - 3 * 3600               # three hours into the session
+    left = namespace["remaining_train_hours"]()
+    assert abs(left - (12.0 - 3.0 - 0.75 - 0.25)) < 0.01
+
+
+# --------------------------------------------------------------------------------------------
 # reporting rules for this file itself
 # --------------------------------------------------------------------------------------------
 
@@ -823,6 +1251,7 @@ def test_cli_defaults_match_the_contract():
     C.TRAINING_ROOT / "configs" / "yolo11s_ir.yaml",
     C.TRAINING_ROOT / "configs" / "data.yaml",
     C.TRAINING_ROOT / "requirements.txt",
+    C.TRAINING_ROOT / "notebooks" / "kaggle_train.ipynb",
 ])
 def test_owned_files_carry_no_forbidden_strings(path):
     text = path.read_text(encoding="utf-8").lower()

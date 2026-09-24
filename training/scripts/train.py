@@ -10,21 +10,36 @@ that matter are not the Ultralytics call but what surrounds it:
     last.pt (epoch -1), which makes a stopped-for-time run un-resumable. train.py therefore copies
     every finished last.pt to last_good.pt atomically and, on resume, picks the newest checkpoint
     that actually loads AND still carries optimiser state, repairing last.pt from last_good.pt.
-  * A WALL-CLOCK STOP (--max-hours) that ends the session cleanly after an epoch, so the next
-    session can --resume, instead of Kaggle killing the process in the middle of an epoch.
+  * A WALL-CLOCK DEADLINE (--max-hours). After every epoch the run predicts whether one more epoch
+    (measured in this session, or taken from earlier sessions' train_log.csv) still ends inside the
+    budget, and stops cleanly at the epoch boundary when it would not, so the next session can
+    --resume instead of Kaggle killing the process in the middle of an epoch. The notebook passes
+    the time REMAINING in its session, so two stages in one session share one 12 h clock.
   * A LOG THAT SPANS SESSIONS. train_log.csv is appended, never truncated, and reconciled against
-    the checkpoint on resume so a kill leaves neither a gap nor a duplicate epoch.
-  * THE AUGMENTATION CONTRACT. Augmentation values are read from datasets/config/augment.yaml and
-    injected, never copied into a training config, and the forbidden block (DATASET_SPEC 4.3) is
-    asserted against the final resolved Ultralytics arguments. Ultralytics' built-in Albumentations
-    defaults (blur, grey, CLAHE at p=0.01) switch on only when albumentations is importable, which
-    differs between a laptop and Kaggle. They are disabled here so the two behave identically.
+    the checkpoint on resume so a kill leaves neither a gap nor a duplicate epoch. It carries a
+    per-class AP50 column for every class; early-stopping patience is restored from it on resume.
+  * THE AUGMENTATION CONTRACT. Every key of datasets/config/augment.yaml is either applied or
+    reported, and an unknown key stops the run (exit 3) rather than being silently ignored:
+      - mosaic, scale, translate, fliplr, hsv_* and mosaic_close_epochs become Ultralytics arguments;
+      - downscale_upscale, jpeg and motion_blur become the Albumentations list Ultralytics applies to
+        every training sample (replacing its built-in defaults, which are never used);
+      - the infrared_only block (CLAHE, sensor noise, brightness/contrast, thermal wash-out) is
+        applied per SOURCE image, before mosaic, and only to LWIR images, by a dataset hook, because
+        the modality is a property of one image and a mosaic mixes day and IR;
+      - the forbidden block (DATASET_SPEC 4.3) is asserted against the final resolved arguments.
+    Albumentations is therefore required: without it the run fails loudly, listing the keys that
+    would go unapplied.
   * IMBALANCE WITHOUT LOSS REWEIGHTING. An image holding a truck or a cart enters the epoch list
     twice; stage 2 also repeats LWIR images; nothing is repeated more than twice. The list is a
     train_list.txt in the run dir and the resolved data yaml points at it.
   * DATASET PREFLIGHT. Class-id range, orphan and empty labels, and duplicate rows in manifest.tsv
     (two source frames written to one final filename silently pair an image with the wrong labels)
     fail the run with exit code 3 before any GPU time is spent.
+  * THE CART GATE. DATASET_SPEC 1.5 withdraws class 4 (cart) when fewer than 300 hand-verified
+    instances exist. A dataset may say so by listing only the first four names in its data.yaml, or
+    by keeping all five with no cart instance. Either way the head keeps five outputs (id 4 stays
+    reserved, so the wire names of ARCHITECTURE_V2 4.2 and the ONNX output shape do not change) and
+    class 4 simply receives no positives; a withdrawn class that still has label rows is an error.
 
 ONE lineage, two stages: `--stage day` trains from COCO weights on the full mixed corpus, `--stage
 ir` continues from the day stage's best.pt with LWIR images repeated and a lower learning rate.
@@ -44,10 +59,12 @@ checkpoint or init weights; 3 dataset preflight failure or a violated augmentati
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import math
 import os
 import random
+import re
 import shutil
 import sys
 import time
@@ -71,11 +88,17 @@ DEFAULT_CONFIGS = {stage: C.CONFIG_DIR / f"yolo11s_{stage}.yaml" for stage in ST
 DATA_YAML = C.CONFIG_DIR / "data.yaml"
 WEIGHTS_DIR = C.TRAINING_ROOT / "weights"
 RUNS_DIR = C.TRAINING_ROOT / "runs"
-DEFAULT_MAX_HOURS = 9.5  # a Kaggle session is 12 h; the rest is slack for the last epoch and final validation
+DEFAULT_MAX_HOURS = 9.5  # standalone default; the notebook always passes the time left in its session
+EPOCH_ESTIMATE_SAFETY = 1.10  # the next epoch is assumed to take 10% longer than the slowest recent one
 
+# The five wire names of ARCHITECTURE_V2 4.2 / datasets/config/schema.yaml, in id order. A test pins this
+# tuple to the schema; it exists so the log columns are fixed even before the schema has been read.
+SCHEMA_CLASS_NAMES = ("person", "two_wheeler", "car", "truck", "cart")
+CART_ID = 4
+AP_COLUMNS = [f"ap50_{name}" for name in SCHEMA_CLASS_NAMES]
 LOG_COLUMNS = [
     "epoch", "session", "elapsed_s", "epoch_s", "box_loss", "cls_loss", "dfl_loss",
-    "precision", "recall", "map50", "map50_95", "person_ap50", "lr", "fitness",
+    "precision", "recall", "map50", "map50_95", "person_ap50", "lr", "fitness", *AP_COLUMNS,
 ]
 VAL_SCOPE = (
     "per-epoch validation is over the whole val set, day and IR together; it selects checkpoints and "
@@ -142,12 +165,31 @@ class StageConfig:
 
 
 @dataclass(frozen=True)
+class IRAugmentSpec:
+    """The infrared_only block of augment.yaml (DATASET_SPEC 4.2), as numbers."""
+
+    clahe_p: float
+    clahe_clip: tuple[float, float]
+    clahe_grid: int
+    noise_p: float
+    noise_sigma: tuple[float, float]       # 8-bit grey levels
+    bc_p: float
+    brightness: float                      # +/- fraction of full scale
+    contrast: float                        # +/- fraction
+    washout_p: float
+    washout_range: tuple[float, float]     # the dynamic range kept, as a fraction of the original
+
+
+@dataclass(frozen=True)
 class AugmentPolicy:
     inject: dict[str, float]
     mosaic_close_epochs: int
     degrees: float
     degrees_hard_max: float
     source: Path
+    albumentations: tuple[dict, ...] = ()   # always-on pixel transforms, in the A.to_dict form Ultralytics accepts
+    ir: IRAugmentSpec | None = None
+    plan: dict[str, str] = field(default_factory=dict)  # "block.key" -> how it is applied (or why it cannot be)
 
 
 def _read_yaml(path: Path) -> dict:
@@ -215,20 +257,133 @@ def load_stage_config(path: Path, stage: str) -> StageConfig:
     return StageConfig(stage, model, None if unfreeze is None else int(unfreeze), sampling, dict(train), Path(path), close_mosaic)
 
 
+# How every key of augment.yaml reaches training. A key missing from this table is an unapplied key and
+# stops the run: a policy entry that nobody applies is exactly the silent drift this contract prevents.
+ULTRALYTICS_KEYS = ("mosaic", "scale", "translate", "fliplr", "hsv_h", "hsv_s", "hsv_v")
+ALBUMENTATIONS_KEYS = ("downscale_upscale", "jpeg", "motion_blur")
+IR_KEYS = ("clahe", "gaussian_noise", "brightness_contrast", "thermal_washout")
+FORBIDDEN_ZERO_KEYS = ("flipud", "perspective", "mixup", "copy_paste", "channel_shuffle", "false_colour")
+POLICY_ROUTES: dict[str, dict[str, str]] = {
+    "always_on": {
+        **{k: f"Ultralytics argument `{k}`" for k in ULTRALYTICS_KEYS},
+        "mosaic_close_epochs": "Ultralytics argument `close_mosaic` (clamped to the stage length; a stage config may override it)",
+        "downscale_upscale": "Albumentations Downscale (INTER_AREA down, INTER_LINEAR up) on every training sample",
+        "jpeg": "Albumentations ImageCompression (JPEG) on every training sample",
+        "motion_blur": "Albumentations MotionBlur (random angle) on every training sample",
+    },
+    "infrared_only": {k: "train.py LWIR hook, per source image before mosaic, LWIR images only" for k in IR_KEYS},
+    "forbidden": {
+        "flipud": "asserted 0 (Ultralytics `flipud`)",
+        "perspective": "asserted 0 (Ultralytics `perspective`; `shear` is also held at 0)",
+        "mixup": "asserted 0 (Ultralytics `mixup`; `cutmix` is also held at 0)",
+        "copy_paste": "asserted 0 (Ultralytics `copy_paste`)",
+        "degrees": "Ultralytics `degrees`, asserted within +/- degrees_hard_max",
+        "degrees_hard_max": "the bound the `degrees` assertion uses",
+        "channel_shuffle": "asserted 0; Ultralytics `bgr` held at 0 and the LWIR hook writes B = G = R",
+        "false_colour": "asserted 0; nothing in the training pipeline maps grey to colour",
+        "erase_max_box_fraction": "not applicable: the Ultralytics detection pipeline has no random erase (`erasing` is classification-only)",
+    },
+    "infrared_conversion": {
+        "*": "offline conversion invariant applied by datasets/scripts/04_ir_to_3ch.py, not a training augmentation",
+    },
+}
+
+CV2_INTER_LINEAR = 1  # cv2.INTER_LINEAR; a test pins both values to cv2 so no cv2 import is needed here
+CV2_INTER_AREA = 3    # cv2.INTER_AREA
+
+
+def _prob(block: Mapping[str, Any], key: str) -> float:
+    p = float(block["p"])
+    if not 0.0 <= p <= 1.0:
+        raise ValueError(f"{key}.p={p} is not a probability")
+    return p
+
+
+def albumentations_specs(always: Mapping[str, Any]) -> tuple[dict, ...]:
+    """The always-on pixel transforms as serialised Albumentations dicts (the `A.to_dict()` form).
+
+    Ultralytics accepts this form in `augmentations` directly and restores it with `A.from_dict`,
+    which keeps args.yaml and the checkpoint's train_args plain data, and needs no albumentations
+    import here. Values come from augment.yaml only.
+    """
+    d, j, m = always["downscale_upscale"], always["jpeg"], always["motion_blur"]
+    fmin, fmax = float(d["factor_min"]), float(d["factor_max"])
+    if not 1.0 <= fmin <= fmax:
+        raise ValueError(f"downscale_upscale factors {fmin}..{fmax} must satisfy 1 <= min <= max")
+    qmin, qmax = int(j["quality_min"]), int(j["quality_max"])
+    if not 1 <= qmin <= qmax <= 100:
+        raise ValueError(f"jpeg quality {qmin}..{qmax} must lie in 1..100")
+    kmin, kmax = int(m["kernel_min"]), int(m["kernel_max"])
+    if kmin < 3 or kmax < kmin or kmin % 2 == 0 or kmax % 2 == 0:
+        raise ValueError(f"motion_blur kernel {kmin}..{kmax} must be odd and at least 3")
+    return (
+        {"transform": {"__class_fullname__": "Downscale", "p": _prob(d, "downscale_upscale"),
+                       "scale_range": [1.0 / fmax, 1.0 / fmin],
+                       "interpolation_pair": {"downscale": CV2_INTER_AREA, "upscale": CV2_INTER_LINEAR}}},
+        {"transform": {"__class_fullname__": "ImageCompression", "p": _prob(j, "jpeg"),
+                       "compression_type": "jpeg", "quality_range": [qmin, qmax]}},
+        {"transform": {"__class_fullname__": "MotionBlur", "p": _prob(m, "motion_blur"),
+                       "blur_limit": [kmin, kmax], "angle_range": [0.0, 360.0]}},
+    )
+
+
+def ir_spec(block: Mapping[str, Any]) -> IRAugmentSpec:
+    c, n, b, w = block["clahe"], block["gaussian_noise"], block["brightness_contrast"], block["thermal_washout"]
+    spec = IRAugmentSpec(
+        clahe_p=_prob(c, "clahe"), clahe_clip=(float(c["clip_min"]), float(c["clip_max"])), clahe_grid=int(c["tile_grid"]),
+        noise_p=_prob(n, "gaussian_noise"), noise_sigma=(float(n["sigma_min"]), float(n["sigma_max"])),
+        bc_p=_prob(b, "brightness_contrast"), brightness=float(b["brightness"]), contrast=float(b["contrast"]),
+        washout_p=_prob(w, "thermal_washout"), washout_range=(float(w["range_min"]), float(w["range_max"])),
+    )
+    for name, (lo, hi) in (("clahe clip", spec.clahe_clip), ("noise sigma", spec.noise_sigma), ("washout range", spec.washout_range)):
+        if not 0.0 <= lo <= hi:
+            raise ValueError(f"infrared_only {name} {lo}..{hi} must satisfy 0 <= min <= max")
+    if spec.washout_range[1] > 1.0 or spec.clahe_grid < 1:
+        raise ValueError("thermal_washout range must be <= 1 and clahe tile_grid >= 1")
+    return spec
+
+
+def policy_plan(raw: Mapping[str, Any], path: Path) -> dict[str, str]:
+    """"block.key" -> how it is applied, for every key of augment.yaml. Raises on any key with no route."""
+    plan: dict[str, str] = {}
+    unapplied: list[str] = []
+    for block, value in raw.items():
+        routes = POLICY_ROUTES.get(block)
+        if routes is None or not isinstance(value, Mapping):
+            unapplied.append(str(block))
+            continue
+        for key in value:
+            route = routes.get(key) or routes.get("*")
+            if route is None:
+                unapplied.append(f"{block}.{key}")
+            else:
+                plan[f"{block}.{key}"] = route
+    if unapplied:
+        raise AugmentationViolation(
+            f"{path} has key(s) that train.py does not apply: {unapplied}. Every policy entry must be applied or explicitly "
+            f"reported (DATASET_SPEC 4); add a route for it in train.py POLICY_ROUTES and an implementation, or remove it."
+        )
+    return plan
+
+
 def load_augment_policy(path: Path = C.AUGMENT_YAML) -> AugmentPolicy:
     raw = _read_yaml(path)
+    plan = policy_plan(raw, Path(path))
     try:
         always = raw["always_on"]
         forbidden = raw["forbidden"]
-        inject = {k: float(always[k]) for k in ("mosaic", "scale", "translate", "fliplr", "hsv_h", "hsv_s", "hsv_v")}
+        inject = {k: float(always[k]) for k in ULTRALYTICS_KEYS}
         policy = AugmentPolicy(
             inject=inject,
             mosaic_close_epochs=int(always["mosaic_close_epochs"]),
             degrees=float(forbidden["degrees"]),
             degrees_hard_max=float(forbidden["degrees_hard_max"]),
             source=Path(path),
+            albumentations=albumentations_specs(always),
+            ir=ir_spec(raw["infrared_only"]),
+            plan=plan,
         )
-        zeros = {k: float(forbidden[k]) for k in ("flipud", "perspective", "mixup", "copy_paste")}
+        zeros = {k: float(forbidden[k]) for k in FORBIDDEN_ZERO_KEYS}
     except (KeyError, TypeError, ValueError) as exc:
         raise UsageError(f"{path} is missing or has a malformed entry the trainer depends on: {exc!r}") from exc
     # The file's own comment says any non-zero value in the forbidden block is a bug.
@@ -236,6 +391,164 @@ def load_augment_policy(path: Path = C.AUGMENT_YAML) -> AugmentPolicy:
     if bad or policy.degrees > policy.degrees_hard_max:
         raise AugmentationViolation(f"{path} lists non-zero forbidden values {bad} (degrees {policy.degrees}); fix the policy file")
     return policy
+
+
+def expected_albumentations(policy: AugmentPolicy) -> list[str]:
+    """Class names of the always-on transforms, in order, as the dataset must report them."""
+    return [spec["transform"]["__class_fullname__"] for spec in policy.albumentations]
+
+
+def check_albumentations(policy: AugmentPolicy) -> str:
+    """Albumentations must import and rebuild every always-on transform; returns its version. Exit 3 otherwise.
+
+    Ultralytics swallows any Albumentations failure (a missing package, or an old release without
+    `scale_range`/`quality_range`) and trains on without the transforms, so this is checked here,
+    before any GPU time, and again against the live dataset in on_pretrain_routine_end.
+    """
+    keys = [f"always_on.{k}" for k in ALBUMENTATIONS_KEYS]
+    try:
+        import albumentations as A
+    except ImportError as exc:
+        raise AugmentationViolation(
+            f"albumentations is not installed, so these augment.yaml keys would go unapplied: {keys}. "
+            f"Install it (pip install -r training/requirements.txt)."
+        ) from exc
+    rebuilt = []
+    for spec in policy.albumentations:
+        try:
+            rebuilt.append(type(A.from_dict(spec)).__name__)
+        except Exception as exc:  # any failure means the transform would silently not run
+            raise AugmentationViolation(
+                f"albumentations {A.__version__} cannot build {spec['transform']['__class_fullname__']} ({type(exc).__name__}: {exc}); "
+                f"these augment.yaml keys would go unapplied: {keys}. training/requirements.txt names the minimum version."
+            ) from exc
+    if rebuilt != expected_albumentations(policy):
+        raise AugmentationViolation(f"albumentations rebuilt {rebuilt}, expected {expected_albumentations(policy)}")
+    return str(A.__version__)
+
+
+def augmentation_report(policy: AugmentPolicy) -> list[str]:
+    """One line per augment.yaml key, saying how it is applied. Printed at start and stored in run_state.json."""
+    lines = [f"augmentation policy {policy.source}: every key applied or reported"]
+    lines += [f"  {key:<40} {route}" for key, route in policy.plan.items()]
+    return lines
+
+
+# --------------------------------------------------------------------------------------------
+# The infrared-only block: applied per LWIR source image by a dataset hook
+# --------------------------------------------------------------------------------------------
+
+
+def thermal_washout(grey: Any, keep: float) -> Any:
+    """Compress the dynamic range around the frame mean to `keep` (0..1) of the original: ground and body converge."""
+    import numpy as np
+
+    g = grey.astype(np.float32)
+    mean = float(g.mean())
+    return np.clip(mean + (g - mean) * float(keep), 0, 255).astype(np.uint8)
+
+
+class IRAugment:
+    """The DATASET_SPEC 4.2 infrared-only transforms, for one LWIR image.
+
+    Order follows the signal chain: the scene washes out (thermal_washout), the microbolometer adds
+    noise (gaussian_noise), auto-gain moves brightness and contrast (brightness_contrast), then the
+    display-side CLAHE. All four act on ONE grey channel, which is replicated back to three at the
+    end, so the B = G = R invariant of DATASET_SPEC 3.4 holds by construction (no channel shuffle,
+    no false colour). Randomness comes from Python's `random`, which Ultralytics reseeds per dataloader
+    worker, so workers do not repeat each other. Holds only numbers, so it pickles into workers.
+    """
+
+    def __init__(self, spec: IRAugmentSpec) -> None:
+        self.spec = spec
+
+    def __call__(self, img: Any, rng: random.Random | None = None) -> Any:
+        import cv2
+        import numpy as np
+
+        r = rng or random
+        s = self.spec
+        if img.ndim == 3 and img.shape[2] == 3:
+            same = np.array_equal(img[..., 0], img[..., 1]) and np.array_equal(img[..., 1], img[..., 2])
+            grey = img[..., 0] if same else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            grey = img.reshape(img.shape[0], img.shape[1])
+        out = np.ascontiguousarray(grey, dtype=np.uint8)
+        if r.random() < s.washout_p:
+            out = thermal_washout(out, r.uniform(*s.washout_range))
+        if r.random() < s.noise_p:
+            sigma = r.uniform(*s.noise_sigma)
+            noise = np.random.default_rng(r.getrandbits(32)).normal(0.0, sigma, out.shape)
+            out = np.clip(out.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+        if r.random() < s.bc_p:
+            alpha = 1.0 + r.uniform(-s.contrast, s.contrast)
+            beta = r.uniform(-s.brightness, s.brightness) * 255.0   # brightness as a fraction of full scale
+            out = np.clip(out.astype(np.float32) * alpha + beta, 0, 255).astype(np.uint8)
+        if r.random() < s.clahe_p:
+            clahe = cv2.createCLAHE(clipLimit=r.uniform(*s.clahe_clip), tileGridSize=(s.clahe_grid, s.clahe_grid))
+            out = clahe.apply(out)
+        if img.ndim == 3:
+            return np.repeat(out[:, :, None], img.shape[2], axis=2)
+        return out.reshape(img.shape)
+
+
+_DATASET_CLASS: Any = None
+
+
+def modality_dataset_class() -> Any:
+    """YOLODataset with the LWIR hook: `get_image_and_label` applies `ir_augment` to LWIR images when augmenting.
+
+    Ultralytics' Mosaic calls `dataset.get_image_and_label` for every image it tiles, so the hook
+    runs per source image, before mosaic, and a day tile next to an IR tile is never touched. Created
+    lazily so this module imports without Ultralytics; published as a module attribute (see
+    __getattr__ below) so a spawned dataloader worker can unpickle it.
+    """
+    global _DATASET_CLASS
+    if _DATASET_CLASS is None:
+        from ultralytics.data.dataset import YOLODataset
+
+        class ModalityAwareYOLODataset(YOLODataset):
+            ir_augment: IRAugment | None = None
+
+            def get_image_and_label(self, index: int) -> dict:
+                label = super().get_image_and_label(index)
+                if self.augment and self.ir_augment is not None and C.modality_of_stem(Path(label["im_file"]).stem) == "lwir":
+                    label["img"] = self.ir_augment(label["img"])  # a new array: the RAM buffer's copy is never modified
+                return label
+
+        ModalityAwareYOLODataset.__module__ = __name__
+        ModalityAwareYOLODataset.__qualname__ = "ModalityAwareYOLODataset"
+        _DATASET_CLASS = ModalityAwareYOLODataset
+        globals()["ModalityAwareYOLODataset"] = ModalityAwareYOLODataset
+    return _DATASET_CLASS
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ModalityAwareYOLODataset":
+        return modality_dataset_class()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def make_trainer_class(ir_augment: IRAugment | None) -> Any:
+    """A DetectionTrainer whose TRAIN dataset carries the LWIR hook. Validation data is never augmented."""
+    from ultralytics.models.yolo.detect import DetectionTrainer
+
+    dataset_cls = modality_dataset_class()
+
+    class TrueWatchDetectionTrainer(DetectionTrainer):
+        def build_dataset(self, img_path: str, mode: str = "train", batch: int | None = None):
+            dataset = super().build_dataset(img_path, mode, batch)
+            if mode == "train":
+                if type(dataset) is not dataset_cls.__mro__[1]:
+                    raise AugmentationViolation(
+                        f"Ultralytics built a {type(dataset).__name__}, not a YOLODataset; the infrared_only block cannot be attached"
+                    )
+                dataset.__class__ = dataset_cls
+                dataset.ir_augment = ir_augment
+            return dataset
+
+    return TrueWatchDetectionTrainer
+
 
 
 def effective_close_mosaic(policy_epochs: int, epochs: int) -> int:
@@ -262,7 +575,9 @@ def resolve_train_args(cfg: StageConfig, policy: AugmentPolicy, overrides: Mappi
     args.update(policy.inject)
     close = cfg.close_mosaic_epochs if cfg.close_mosaic_epochs is not None else policy.mosaic_close_epochs
     args["close_mosaic"] = effective_close_mosaic(close, int(args["epochs"]))
-    args["augmentations"] = []  # an empty list disables Ultralytics' built-in Albumentations defaults; None would keep them
+    # augment.yaml's always-on pixel transforms. A non-empty list also REPLACES Ultralytics' built-in defaults
+    # (Blur, MedianBlur, ToGray, CLAHE at p=0.01), which the policy does not contain; None would keep them.
+    args["augmentations"] = [copy.deepcopy(spec) for spec in policy.albumentations]
     for key in ZERO_ARGS:
         args.setdefault(key, 0.0)
     args.setdefault("degrees", policy.degrees)
@@ -306,6 +621,25 @@ def assert_names_match_schema(names: Any, schema_names: Sequence[str], where: st
     got = normalise_names(names)
     if got != list(schema_names):
         raise DatasetError(f"{where} class names {got} differ from datasets/config/schema.yaml {list(schema_names)}; every component must share one taxonomy")
+
+
+def dataset_withdrawn_classes(dataset_names: Any, schema_names: Sequence[str], where: str) -> tuple[int, ...]:
+    """Class ids the dataset's own data.yaml withdraws. () when it lists the full schema.
+
+    DATASET_SPEC 1.5 lets exactly one class be withdrawn, cart (id 4, the last), by the hand-verification
+    gate (schema.yaml cart_gate.on_failure: withdraw_class_4). A dataset may express that by listing only
+    ids 0..3. Any other difference from the schema is a taxonomy mismatch and stops the run.
+    """
+    got = normalise_names(dataset_names)
+    schema = list(schema_names)
+    if got == schema:
+        return ()
+    if len(schema) == CART_ID + 1 and schema[CART_ID] == "cart" and got == schema[:CART_ID]:
+        return (CART_ID,)
+    raise DatasetError(
+        f"{where} class names {got} differ from datasets/config/schema.yaml {schema}; every component must share one taxonomy "
+        f"(the only allowed difference is the cart gate's withdrawal of the last class, id {CART_ID})"
+    )
 
 
 def resolved_data_dict(data_cfg: Mapping[str, Any], root: Path, train_list: Path) -> dict[str, Any]:
@@ -466,10 +800,26 @@ def _histogram_lines(scan: SplitScan, names: Sequence[str]) -> list[str]:
     return out
 
 
-def run_preflight(root: Path, names: Sequence[str], train: SplitScan, val: SplitScan, manifest: Path | None, cart_gate: int) -> Preflight:
-    """Judge the scans. Errors abort the run (exit 3); warnings are printed and the run goes on."""
+def run_preflight(
+    root: Path, names: Sequence[str], train: SplitScan, val: SplitScan, manifest: Path | None, cart_gate: int,
+    withdrawn: Sequence[int] = (),
+) -> Preflight:
+    """Judge the scans. Errors abort the run (exit 3); warnings are printed and the run goes on.
+
+    `withdrawn` holds the ids the dataset's data.yaml withdraws (the cart gate). Such a class must have
+    no label row in any split; it stays in the head as a reserved output that receives no positives.
+    """
     report = Preflight()
     nc = len(names)
+    withdrawn = tuple(int(c) for c in withdrawn)
+    for cid in withdrawn:
+        for scan in (train, val):
+            n = scan.instances.get(cid, 0)
+            if n:
+                report.errors.append(
+                    f"class {cid} ({names[cid]}) is withdrawn by the dataset's data.yaml (the DATASET_SPEC 1.5 cart gate) but {scan.split} "
+                    f"still has {n} instance(s) of it; the build is inconsistent, rebuild it"
+                )
 
     for scan in (train, val):
         if not scan.entries:
@@ -507,8 +857,15 @@ def run_preflight(root: Path, names: Sequence[str], train: SplitScan, val: Split
         total = sum(train.instances.values())
         for cid, name in enumerate(names):
             n = train.instances.get(cid, 0)
+            if cid in withdrawn:
+                continue  # reported above (error if it has rows) and in the plan lines below
             if cid == nc - 1 and name == "cart":
-                if n < cart_gate:
+                if n == 0:
+                    report.warnings.append(
+                        f"class {cid} (cart) has no train instances: treated as WITHDRAWN by the DATASET_SPEC 1.5 cart gate. Id {cid} stays "
+                        f"reserved in the 5-output head and receives no positives; its AP is n/a."
+                    )
+                elif n < cart_gate:
                     report.warnings.append(
                         f"class {cid} (cart) has {n} train instances, below the {cart_gate} gate of DATASET_SPEC 1.5; that section withdraws "
                         f"the class unless {cart_gate} hand-verified instances exist. Id {cid} stays reserved either way."
@@ -548,7 +905,17 @@ def run_preflight(root: Path, names: Sequence[str], train: SplitScan, val: Split
 
     report.lines = ["dataset preflight"] + _histogram_lines(train, names) + _histogram_lines(val, names)
     report.lines.append(f"  train modalities: {dict(train.modality_counts)}; val modalities: {dict(val.modality_counts)}")
+    for cid in withdrawn:
+        report.lines.append(f"  class {cid} ({names[cid]}) WITHDRAWN by the dataset (cart gate): id reserved, head keeps {nc} outputs, no positives")
     return report
+
+
+def effective_withdrawn(names: Sequence[str], train: SplitScan, declared: Sequence[int]) -> tuple[int, ...]:
+    """Declared withdrawals plus a cart class the dataset kept by name but gave no train instance."""
+    out = set(int(c) for c in declared)
+    if len(names) == CART_ID + 1 and names[CART_ID] == "cart" and train.entries and train.instances.get(CART_ID, 0) == 0:
+        out.add(CART_ID)
+    return tuple(sorted(out))
 
 
 def cart_gate_from_schema() -> int:
@@ -792,10 +1159,19 @@ def read_log(path: Path) -> list[dict[str, str]]:
         return [row for row in csv.DictReader(fh) if row.get("epoch")]
 
 
+def _log_header(path: Path) -> list[str]:
+    with Path(path).open(newline="", encoding="utf-8") as fh:
+        return next(csv.reader(fh), [])
+
+
 def append_log_row(path: Path, row: Mapping[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     new_file = not path.exists() or path.stat().st_size == 0
+    if not new_file and _log_header(path) != LOG_COLUMNS:
+        # A log written by an older train.py (fewer columns): rewrite it under the current header first, so a
+        # resumed run never appends rows whose cells sit under the wrong column names. Old cells are kept.
+        _rewrite_log(path, read_log(path))
     with path.open("a", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh, lineterminator="\n")
         if new_file:
@@ -815,6 +1191,40 @@ def _rewrite_log(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+
+
+def prior_epoch_seconds(rows: Sequence[Mapping[str, str]], last_n: int = 3) -> float | None:
+    """The slowest of the last `last_n` logged epoch durations, or None when none is logged."""
+    values = [v for v in (_num(r.get("epoch_s")) for r in rows) if v is not None and v > 0]
+    return max(values[-last_n:]) if values else None
+
+
+def best_fitness_row(rows: Sequence[Mapping[str, str]], up_to_epoch: int) -> tuple[int, float] | None:
+    """(epoch, fitness) of the best logged epoch <= up_to_epoch; the earliest one on a tie, as EarlyStopping keeps it."""
+    best: tuple[int, float] | None = None
+    for row in rows:
+        epoch, fit = _num(row.get("epoch")), _num(row.get("fitness"))
+        if epoch is None or fit is None or int(epoch) > up_to_epoch:
+            continue
+        if best is None or fit > best[1]:
+            best = (int(epoch), fit)
+    return best
+
+
+def restore_early_stopping(stopper: Any, rows: Sequence[Mapping[str, str]], completed_epoch: int) -> tuple[int, float] | None:
+    """Put the patience counter back where the killed session left it.
+
+    Ultralytics creates a fresh EarlyStopping on every start, resumed or not (best_fitness 0, best_epoch
+    0), so without this a run that resumes every session could never early-stop across sessions. Its
+    epochs are 1-based, like the log's. Returns what was restored, or None when the log has no fitness.
+    """
+    best = best_fitness_row(rows, completed_epoch)
+    if best is None or stopper is None:
+        return None
+    stopper.best_epoch, stopper.best_fitness = best
+    patience = getattr(stopper, "patience", float("inf"))
+    stopper.possible_stop = (completed_epoch - best[0]) >= (patience - 1)
+    return best
 
 
 def next_session_number(path: Path) -> int:
@@ -902,6 +1312,9 @@ class TrainState:
     session_stopped: bool = False
     stage: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+    prior_epoch_s: float | None = None                    # from earlier sessions' train_log.csv
+    epoch_durations: list[float] = field(default_factory=list)  # this session's epochs, train + val
+    ir_images: int | None = None                          # LWIR images in the epoch list, for the start-up report
 
 
 def count_params(model: Any) -> tuple[int, int]:
@@ -941,6 +1354,26 @@ def effective_albumentations(dataset: Any) -> list[str] | None:
     return None
 
 
+def assert_live_augmentation(dataset: Any, policy: AugmentPolicy) -> None:
+    """The live train dataset must apply exactly the policy: both halves, or AugmentationViolation (exit 3).
+
+    Ultralytics logs and swallows an Albumentations failure and trains on without it, so the effective
+    transform list is read back from the dataset itself rather than trusted.
+    """
+    unapplied = []
+    active = effective_albumentations(dataset)
+    names = [re.split(r"[(\s]", t, maxsplit=1)[0] for t in (active or [])]
+    if names != expected_albumentations(policy):
+        unapplied += [f"always_on.{k}" for k in ALBUMENTATIONS_KEYS]
+    if getattr(dataset, "ir_augment", None) is None or type(dataset).__name__ != "ModalityAwareYOLODataset":
+        unapplied += [f"infrared_only.{k}" for k in IR_KEYS]
+    if unapplied:
+        raise AugmentationViolation(
+            f"the live training dataset does not apply augment.yaml keys {unapplied} (Albumentations transforms in effect: {active}; "
+            f"expected {expected_albumentations(policy)} and the LWIR hook)"
+        )
+
+
 def _num(value: Any) -> float | None:
     try:
         number = float(value)
@@ -949,16 +1382,42 @@ def _num(value: Any) -> float | None:
     return None if math.isnan(number) or math.isinf(number) else number
 
 
-def person_ap50(trainer: Any) -> float | None:
-    """Person (class 0) AP50 from the last validation, or None when val held no person (never 0)."""
+def class_ap50(trainer: Any) -> dict[int, float]:
+    """Per-class AP50 from the last validation: {class id: AP50} for the classes val holds ground truth for.
+
+    `box.ap50` is aligned with `box.ap_class_index` (Ultralytics 8.4.155 utils/metrics.py), so a class
+    absent from val is simply missing here and is logged blank, never 0.
+    """
     box = getattr(getattr(getattr(trainer, "validator", None), "metrics", None), "box", None)
     if box is None:
-        return None
+        return {}
     index = [int(i) for i in getattr(box, "ap_class_index", [])]
-    ap50 = getattr(box, "ap50", [])
-    if 0 in index and len(ap50) > index.index(0):
-        return _num(ap50[index.index(0)])
-    return None
+    ap50 = list(getattr(box, "ap50", []))
+    out = {}
+    for position, cid in enumerate(index):
+        if position < len(ap50):
+            value = _num(ap50[position])
+            if value is not None:
+                out[cid] = value
+    return out
+
+
+def person_ap50(trainer: Any) -> float | None:
+    """Person (class 0) AP50 from the last validation, or None when val held no person (never 0)."""
+    return class_ap50(trainer).get(0)
+
+
+def should_stop_for_time(elapsed_s: float, budget_s: float, next_epoch_s: float | None) -> bool:
+    """Stop now if the budget is spent, or if one more epoch (with the safety factor) would end past it."""
+    if elapsed_s >= budget_s:
+        return True
+    return next_epoch_s is not None and elapsed_s + next_epoch_s * EPOCH_ESTIMATE_SAFETY > budget_s
+
+
+def next_epoch_estimate(state: TrainState) -> float | None:
+    """The slowest of this session's last three epochs, else the slowest recent epoch of earlier sessions."""
+    recent = state.epoch_durations[-3:]
+    return max(recent) if recent else state.prior_epoch_s
 
 
 def weight_group_lr(trainer: Any) -> float | None:
@@ -975,7 +1434,9 @@ def make_epoch_row(trainer: Any, state: TrainState, now: float) -> dict[str, Any
     if getattr(trainer, "tloss", None) is not None:
         losses = {k.split("/", 1)[-1]: v for k, v in trainer.label_loss_items(trainer.tloss).items()}
     metrics = getattr(trainer, "metrics", None) or {}
+    per_class = class_ap50(trainer)
     return {
+        **{column: per_class.get(cid) for cid, column in enumerate(AP_COLUMNS)},
         "epoch": trainer.epoch + 1,
         "session": state.session,
         "elapsed_s": round(now - state.session_start, 1),
@@ -987,7 +1448,7 @@ def make_epoch_row(trainer: Any, state: TrainState, now: float) -> dict[str, Any
         "recall": _num(metrics.get("metrics/recall(B)")),
         "map50": _num(metrics.get("metrics/mAP50(B)")),
         "map50_95": _num(metrics.get("metrics/mAP50-95(B)")),
-        "person_ap50": person_ap50(trainer),
+        "person_ap50": per_class.get(0),
         "lr": weight_group_lr(trainer),
         "fitness": _num(getattr(trainer, "fitness", None)),
     }
@@ -1033,16 +1494,13 @@ def build_callbacks(state: TrainState) -> dict[str, Callable[[Any], None]]:
         if trainer.data.get("test"):
             raise DatasetError("the trainer's dataset has a test split; the test split is sealed until Phase 11")
         dataset = trainer.train_loader.dataset
-        active = effective_albumentations(dataset)
         args = trainer.args
         say(f"augmentation: mosaic={args.mosaic} close_mosaic={args.close_mosaic} scale={args.scale} translate={args.translate} fliplr={args.fliplr} "
             f"hsv=({args.hsv_h}, {args.hsv_s}, {args.hsv_v}); zero: {', '.join(f'{k}={getattr(args, k)}' for k in ZERO_ARGS)}, degrees={args.degrees}")
-        if active is None:
-            say("augmentation: albumentations is not in use (package absent or disabled); no Albumentations transforms")
-        elif active:
-            raise AugmentationViolation(f"Albumentations transforms are active despite augmentations=[]: {active}")
-        else:
-            say("augmentation: albumentations is installed and its built-in transforms are disabled (effective transform list: [])")
+        assert_live_augmentation(dataset, state.policy)
+        say(f"augmentation: Albumentations on every sample: {effective_albumentations(dataset)}")
+        say(f"augmentation: infrared_only block attached to the train dataset, applied per LWIR source image"
+            + (f" ({state.ir_images} LWIR images in the epoch list)" if state.ir_images is not None else ""))
         entries = len(dataset)
         say(f"train dataset: {entries} entries per epoch, val dataset: {len(trainer.test_loader.dataset)} images")
         if state.expected_entries is not None and entries != state.expected_entries:
@@ -1051,7 +1509,18 @@ def build_callbacks(state: TrainState) -> dict[str, Callable[[Any], None]]:
     def on_train_start(trainer: Any) -> None:
         trainable, frozen = count_params(trainer.model)
         say(f"parameters at start: {trainable} trainable, {frozen} frozen; freeze={trainer.args.freeze}; unfreeze at epoch index {state.unfreeze_epoch}")
-        say(f"session {state.session}: stops after the first epoch that ends past {state.max_hours:g} h of wall clock")
+        say(f"session {state.session}: deadline {state.max_hours:g} h of wall clock from process start; stops at the epoch boundary where "
+            f"one more epoch would cross it (estimate now: "
+            + (f"{next_epoch_estimate(state):.0f} s)" if next_epoch_estimate(state) else "none until the first epoch ends)"))
+        start_epoch = int(getattr(trainer, "start_epoch", 0) or 0)
+        if start_epoch > 0:
+            restored = restore_early_stopping(getattr(trainer, "stopper", None), read_log(state.paths.log_csv), start_epoch)
+            if restored:
+                stopper = trainer.stopper
+                say(f"early stopping restored from train_log.csv: best fitness {restored[1]:.5g} at epoch {restored[0]}, "
+                    f"{start_epoch - restored[0]} epoch(s) without improvement of patience {stopper.patience}")
+            else:
+                warn("resumed, but train_log.csv holds no fitness to restore early stopping from; patience restarts at 0")
 
     def on_train_epoch_start(trainer: Any) -> None:
         state.epoch_started = time.time()
@@ -1069,11 +1538,15 @@ def build_callbacks(state: TrainState) -> dict[str, Callable[[Any], None]]:
             warn(f"last_good.pt was not updated after epoch {trainer.epoch + 1}: {exc}")
         now = time.time()
         append_log_row(state.paths.log_csv, make_epoch_row(trainer, state, now))
+        if state.epoch_started > 0:
+            state.epoch_durations.append(now - state.epoch_started)
         elapsed = now - state.session_start
-        if elapsed >= state.max_hours * 3600.0 and trainer.epoch + 1 < trainer.epochs:
+        estimate = next_epoch_estimate(state)
+        if trainer.epoch + 1 < trainer.epochs and not trainer.stop and should_stop_for_time(elapsed, state.max_hours * 3600.0, estimate):
             trainer.stop = True
             state.session_stopped = True
-            say(f"session budget of {state.max_hours:g} h reached after epoch {trainer.epoch + 1} ({elapsed / 3600.0:.2f} h); stopping cleanly. "
+            say(f"session deadline: {elapsed / 3600.0:.2f} h used of {state.max_hours:g} h after epoch {trainer.epoch + 1}, and one more epoch "
+                f"(~{(estimate or 0) / 3600.0:.2f} h) would not finish inside it; stopping cleanly. "
                 f"Re-run the same command with --resume (or --auto-resume) in the next session.")
 
     def on_train_end(trainer: Any) -> None:
@@ -1112,12 +1585,15 @@ def build_parser() -> argparse.ArgumentParser:
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--resume", action="store_true", help="continue from the newest valid checkpoint; exit 2 when there is none")
     group.add_argument("--auto-resume", action="store_true", help="resume when a checkpoint exists, otherwise start fresh (what the notebook uses)")
-    ap.add_argument("--max-hours", type=float, default=DEFAULT_MAX_HOURS, help="stop cleanly after the first epoch that ends past this many wall-clock hours in this session")
+    ap.add_argument("--max-hours", type=float, default=DEFAULT_MAX_HOURS,
+                    help="wall-clock deadline for this process, in hours from its start: training stops at the epoch boundary where one "
+                         "more epoch would cross it (the notebook passes the time left in its 12 h session)")
     ap.add_argument("--epochs", type=int, default=None, help="override the config's epochs (ignored on resume: the checkpoint's value wins)")
     ap.add_argument("--batch", type=int, default=None, help="override the config's batch size")
     ap.add_argument("--imgsz", type=int, default=None, help="override the config's image size")
     ap.add_argument("--workers", type=int, default=None, help="override the config's dataloader workers")
-    ap.add_argument("--device", default=None, help="Ultralytics device, e.g. cpu or 0; a single device only (default: Ultralytics picks)")
+    ap.add_argument("--device", default=None,
+                    help="Ultralytics device, e.g. cpu or 0; a single device only, multi-GPU (DDP) is refused (default: Ultralytics picks)")
     ap.add_argument("--fraction", type=float, default=1.0, help="train on a seeded random fraction of the train images (smoke runs); val is always whole")
     ap.add_argument("--unfreeze-epoch", type=int, default=None, help="override schedule.unfreeze_epoch (0-based epoch at which the backbone is released)")
     ap.add_argument("--name", default=None, help="run name; sets the default run dir")
@@ -1142,8 +1618,9 @@ def validate_cli(args: argparse.Namespace) -> None:
     device = str(args.device or "")
     if "," in device or device.lower() in ("-1,-1",):
         raise UsageError(
-            f"--device {device!r} names several GPUs. Ultralytics runs multi-GPU training in spawned child processes, which do not carry "
-            f"this script's callbacks (freeze schedule, last_good.pt, train_log.csv). Use a single device, e.g. --device 0."
+            f"--device {device!r} names several GPUs. Ultralytics runs multi-GPU training in spawned child processes built from a "
+            f"generated script, which carry neither this script's callbacks (freeze schedule, last_good.pt, train_log.csv, the session "
+            f"deadline) nor its trainer (the infrared_only augmentation hook). Use a single device, e.g. --device 0."
         )
 
 
@@ -1224,6 +1701,10 @@ def run(args: argparse.Namespace) -> int:
     resolved = ultralytics_args(train_args)
     assert_forbidden_augmentation(resolved, policy)
 
+    for line in augmentation_report(policy):
+        say(line)
+    albumentations_version = check_albumentations(policy)
+
     schema_names = C.load_class_names(None)
     data_cfg = load_data_yaml()
     assert_names_match_schema(data_cfg["names"], schema_names, str(DATA_YAML))
@@ -1238,7 +1719,7 @@ def run(args: argparse.Namespace) -> int:
         root = C.resolve_data_root(args.data_root)
     except SystemExit as exc:
         raise DatasetError(str(exc)) from exc
-    assert_names_match_schema(C.load_class_names(root), schema_names, f"{root}/data.yaml")
+    declared_withdrawn = dataset_withdrawn_classes(C.load_class_names(root), schema_names, f"{root}/data.yaml")
 
     init_desc = "the checkpoint being resumed"
     init_path = None
@@ -1249,7 +1730,8 @@ def run(args: argparse.Namespace) -> int:
 
     train_scan = scan_split(root, "train", len(schema_names))
     val_scan = scan_split(root, "val", len(schema_names))
-    preflight = run_preflight(root, schema_names, train_scan, val_scan, root / "manifest.tsv", cart_gate_from_schema())
+    preflight = run_preflight(root, schema_names, train_scan, val_scan, root / "manifest.tsv", cart_gate_from_schema(), declared_withdrawn)
+    withdrawn = effective_withdrawn(schema_names, train_scan, declared_withdrawn)
     for line in preflight.lines:
         say(line)
     for text in preflight.warnings:
@@ -1287,8 +1769,26 @@ def run(args: argparse.Namespace) -> int:
     say(f"  data root {root}; resolved yaml {paths.data_yaml} (no test key)")
     say(f"  epochs {train_args['epochs']}, imgsz {train_args['imgsz']}, batch {train_args['batch']}, workers {train_args.get('workers')}, device {args.device or 'auto'}, "
         f"optimizer {train_args['optimizer']}, lr0 {train_args['lr0']}, lrf {train_args['lrf']}, cos_lr {train_args['cos_lr']}, patience {train_args['patience']}")
-    say(f"  freeze {train_args.get('freeze')} until epoch index {unfreeze_epoch}; close_mosaic {train_args['close_mosaic']}; session budget {args.max_hours:g} h")
+    say(f"  freeze {train_args.get('freeze')} until epoch index {unfreeze_epoch}; close_mosaic {train_args['close_mosaic']}; session deadline {args.max_hours:g} h")
+    say(f"  Albumentations {albumentations_version}: {expected_albumentations(policy)} on every sample; infrared_only block on LWIR images")
+    if withdrawn:
+        say(f"  withdrawn class id(s) {list(withdrawn)} ({', '.join(schema_names[c] for c in withdrawn)}): reserved in the "
+            f"{len(schema_names)}-output head, no positives, AP n/a (DATASET_SPEC 1.5)")
     say(f"  {VAL_SCOPE}")
+
+    prior_epoch_s = prior_epoch_seconds(read_log(paths.log_csv)) if decision.kind == "resume" else None
+    if prior_epoch_s is not None:
+        say(f"  earlier sessions: slowest recent epoch {prior_epoch_s / 60.0:.1f} min")
+        if prior_epoch_s * EPOCH_ESTIMATE_SAFETY > args.max_hours * 3600.0:
+            say(f"not enough time: one epoch takes about {prior_epoch_s / 3600.0:.2f} h and the deadline is {args.max_hours:g} h away; "
+                f"nothing trained in this session (exit 0). Resume in a session with more time left.")
+            if not args.dry_run:
+                note_state = TrainState(paths=paths, session=next_session_number(paths.log_csv), session_start=session_start,
+                                        max_hours=args.max_hours, unfreeze_epoch=unfreeze_epoch, policy=policy, stage=stage)
+                done = len(read_log(paths.log_csv))
+                write_run_state(note_state, "session_stop", epochs_done=done, epochs_total=decision.checkpoint.epochs if decision.checkpoint else None,
+                                stopped_for_time=True, note="insufficient session time for one epoch")
+            return EXIT_OK
 
     if args.dry_run:
         say("dry run: nothing was written; the run dir was not created")
@@ -1304,11 +1804,14 @@ def run(args: argparse.Namespace) -> int:
     session = next_session_number(paths.log_csv)
     state = TrainState(
         paths=paths, session=session, session_start=session_start, max_hours=args.max_hours, unfreeze_epoch=unfreeze_epoch,
-        policy=policy, expected_entries=len(listing), stage=stage,
+        policy=policy, expected_entries=len(listing), stage=stage, prior_epoch_s=prior_epoch_s,
+        ir_images=sum(repeat_count(e, rules) for e in entries if e.modality == "lwir"),
         extra={
             "config": str(cfg.source), "config_sha256": C.sha256_file(cfg.source),
             "augment_policy": str(policy.source), "augment_sha256": C.sha256_file(policy.source),
+            "augment_plan": dict(policy.plan), "albumentations": albumentations_version,
             "data_root": str(root), "train_images": len(entries), "train_list_entries": len(listing),
+            "withdrawn_classes": [schema_names[c] for c in withdrawn],
             "ultralytics": _ultralytics_version(), "split": "val", "seed": seed,
         },
     )
@@ -1349,7 +1852,7 @@ def run(args: argparse.Namespace) -> int:
         model.add_callback(event, callback)
 
     say(f"starting session {session}")
-    model.train(**kwargs)
+    model.train(trainer=make_trainer_class(IRAugment(policy.ir)), **kwargs)
 
     rows = read_log(paths.log_csv)
     say(f"session {session} finished; train_log.csv has {len(rows)} epoch row(s); best {paths.best}, last {paths.last}")

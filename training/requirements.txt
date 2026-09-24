@@ -10,8 +10,9 @@
 # ultralytics is pinned to the exact version the smoke runs and tests were executed with (a resume must use the version that wrote the
 # checkpoint, and train.py reads Ultralytics internals that change between releases). Everything else is a floor, not a pin.
 #
-# albumentations is optional. Ultralytics enables its built-in transforms when it can import it; train.py disables them either way so a
-# Kaggle run (where it is installed) and a bare local run behave identically.
+# albumentations is REQUIRED. train.py applies augment.yaml's downscale_upscale, jpeg and motion_blur through it (replacing Ultralytics'
+# built-in defaults) and exits 3 when it is missing, rather than let Ultralytics silently train without them. 2.0 is the floor because the
+# transforms are built with the scale_range / quality_range / blur_limit arguments of the 2.x API.
 
 ultralytics==8.4.155
 onnx>=1.17
@@ -19,6 +20,7 @@ onnxruntime>=1.20
 onnxslim>=0.1.82
 huggingface_hub>=0.30
 pyyaml>=6.0
+albumentations>=2.0.0
 numpy>=1.26
 opencv-python-headless>=4.8
 pytest>=8.0
