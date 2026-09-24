@@ -23,10 +23,21 @@ onnxruntime
 # --- Tracking and tiling (Phases 5, 6) ---
 # lap / scipy for ByteTrack association, sahi for tiled far-field inference.
 
-# --- ANPR, face, explanation, search (Phase 7) ---
+# --- ANPR, face, explanation (Phase 7) ---
 # paddleocr / paddlepaddle for PP-OCRv5 Devanagari.
 # YuNet ships with OpenCV's model zoo.
-# transformers + torch for Moondream 2 and SigLIP.
+# transformers + torch for Moondream 2.
+
+# --- Semantic footage search (Phase 6) ---
+# SigLIP (google/siglip-base-patch16-224) via transformers, on CPU torch. See
+# edge/search/embed.py's module docstring for why plain transformers+torch
+# was chosen here over an onnxruntime export of SigLIP's dual encoder: the
+# call rate (once per keyframe at index time, once per typed query) never
+# competes with the frame-rate-bound ONNX appearance model above.
+transformers
+torch
+pillow
+sentencepiece
 
 # --- Tests (Phase 4 onward) ---
 pytest

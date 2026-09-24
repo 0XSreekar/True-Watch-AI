@@ -44,6 +44,13 @@ def _path(name: str, default: str) -> Path:
     return p if p.is_absolute() else (EDGE_ROOT / p).resolve()
 
 
+def _bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class ConfigError(RuntimeError):
     """Raised when a required value is missing or contradictory."""
 
@@ -74,6 +81,24 @@ class Config:
 
     # --- evidence (Phase 9) ---
     evidence_dir: Path = field(default_factory=lambda: _path("EVIDENCE_DIR", "./var/evidence"))
+
+    # --- semantic footage search (Phase 6) ---
+    # Off by default: mounting the route, and loading SigLIP, only happens when
+    # a deployment opts in. Existing endpoints and tests are unaffected either way.
+    search_enabled: bool = field(default_factory=lambda: _bool("SEARCH_ENABLED", False))
+    embed_model_id: str = field(
+        default_factory=lambda: _str("EMBED_MODEL_ID", "google/siglip-base-patch16-224")
+    )
+    search_clips_dir: Path = field(
+        default_factory=lambda: _path("SEARCH_CLIPS_DIR", "./var/evidence")
+    )
+    search_index_path: Path = field(
+        default_factory=lambda: _path("SEARCH_INDEX_PATH", "./var/search/index.npz")
+    )
+    search_keyframes_per_clip: int = field(
+        default_factory=lambda: _int("SEARCH_KEYFRAMES_PER_CLIP", 3)
+    )
+    search_default_limit: int = field(default_factory=lambda: _int("SEARCH_DEFAULT_LIMIT", 6))
 
     @property
     def is_production(self) -> bool:
