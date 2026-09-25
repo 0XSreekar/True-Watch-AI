@@ -66,6 +66,47 @@ def find_font(explicit: str | None) -> Path | None:
     return None
 
 
+# Measured on 58 Google Fonts Devanagari files: Latin-digit fonts score 0.89-0.99, true Devanagari digits 0.58 or less.
+LATIN_DIGIT_LIMIT = 0.75
+
+
+def latin_digit_score(font_path: Path) -> float:
+    """How Latin the font's Devanagari digits look: the median overlap of each of १-९ with its Latin twin.
+
+    Some Devanagari fonts (Hind, Rajdhani, Teko, Poppins, Sarpanch, Rozha One) draw the Devanagari digit code
+    points with Latin-shaped glyphs. A plate rendered in one of them shows "2638" under the label "२६३८", which
+    teaches the recogniser the wrong glyphs, so --font-dir drops fonts that score high here. Each glyph is cropped
+    to its ink and resized before comparing, so only shape counts, not advance or baseline. Every named weight of a
+    variable font is scored and the worst one is returned.
+    """
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+
+    def glyph(font, char):
+        image = Image.new("L", (240, 240), 0)
+        ImageDraw.Draw(image).text((40, 20), char, font=font, fill=255)
+        box = image.getbbox()
+        if box is None:
+            return np.zeros((64, 64), np.float32)
+        return np.asarray(image.crop(box).resize((64, 64)), dtype=np.float32) / 255.0
+
+    font = ImageFont.truetype(str(font_path), 120)
+    try:
+        names = font.get_variation_names()
+    except OSError:
+        names = []
+    worst = 0.0
+    for name in names or [None]:
+        if name:
+            font.set_variation_by_name(name)
+        overlaps = []
+        for devanagari, latin in zip("१२३४५६७८९", "123456789"):
+            a, b = glyph(font, devanagari), glyph(font, latin)
+            overlaps.append(float(np.minimum(a, b).sum() / max(1e-6, np.maximum(a, b).sum())))
+        worst = max(worst, float(np.median(overlaps)))
+    return worst
+
+
 def load_config(path: Path) -> dict:
     import yaml
 
@@ -100,10 +141,14 @@ def compose(rng: random.Random, config: dict) -> dict:
     serial_width = int(config["serial"]["digits"])
     serial = rng.randint(0, 10**serial_width - 1)
 
-    lot_text = to_devanagari(lot, digits, 2)
+    # Real two-line plates (photographed in Kathmandu) print "zone lot class" over the serial, the lot without a
+    # leading zero and often a dot after the zone ("बा.५८ प" / "४०९३"). plates_real.yaml selects that layout; the
+    # default keeps the original "zone lot" / "class serial" composition byte for byte.
+    real_layout = config.get("layout", {}).get("top_line") == "zone_lot_class"
+    lot_text = to_devanagari(lot, digits, 1 if real_layout else 2)
     serial_text = to_devanagari(serial, digits, serial_width)
 
-    return {
+    fields = {
         "zone": zone,
         "lot": lot_text,
         "vehicle_class": vehicle_class,
@@ -113,6 +158,13 @@ def compose(rng: random.Random, config: dict) -> dict:
         "line2": f"{vehicle_class} {serial_text}",
         "text": f"{zone}{lot_text}{vehicle_class}{serial_text}",
     }
+    if real_layout:
+        one_line = int(config["layout"].get("lines", 2)) == 1  # long front plates: "बा.२० च ४६८०" on one line
+        fields["line1"] = f"{zone} {lot_text} {vehicle_class}" + (f" {serial_text}" if one_line else "")
+        fields["line2"] = "" if one_line else serial_text
+        dot = rng.random() < float(config["layout"].get("zone_dot_probability", 0.0))
+        fields["display1"] = fields["line1"].replace(f"{zone} ", f"{zone}.", 1) if dot else fields["line1"]
+    return fields
 
 
 def render_plate(fields: dict, colours: dict, layout: dict, font_path: Path, rng: random.Random):
@@ -141,27 +193,83 @@ def render_plate(fields: dict, colours: dict, layout: dict, font_path: Path, rng
 
     usable_height = (height - 2 * margin - gap) // 2
     size = max(12, int(usable_height * 0.82))
+    # A list of fonts (--font-dir) draws one per plate, plus a weight, a painted-or-embossed finish and a stroke
+    # width. Every extra draw happens only on this branch, so a single-font run consumes the random stream exactly
+    # as before and --seed 42 still reproduces the original corpus.
+    varied = isinstance(font_path, (list, tuple))
+    if varied:
+        font_path = rng.choice(font_path)
+        size = max(12, int(size * rng.uniform(0.82, 1.0)))
     try:
         font = ImageFont.truetype(str(font_path), size)
     except OSError:
         return None
+    stroke = 0
+    variation = None
+    if varied:
+        try:
+            names = font.get_variation_names()
+        except OSError:
+            names = []
+        if names:
+            variation = rng.choice(names)
+            font.set_variation_by_name(variation)
+        stroke = rng.choice((0, 0, 0, 1, 2)) * supersample
+
+    # Real-layout plates paint the serial larger than the top line: bands of 42% / 58% of the text height, fonts
+    # scaled 0.84x / 1.16x and shrunk further if a line would overrun the plate. The default layout keeps two equal
+    # bands and one font, exactly as before.
+    bands = [(margin, usable_height), (margin + usable_height + gap, usable_height)]
+    fonts = [font, font]
+    if "display1" in fields and not fields["line2"]:
+        bands = [(margin, height - 2 * margin)]
+        line_size = max(12, int((height - 2 * margin) * 0.78))
+        while True:
+            line_font = ImageFont.truetype(str(font_path), line_size)
+            if variation:
+                line_font.set_variation_by_name(variation)
+            box = draw.textbbox((0, 0), fields["display1"], font=line_font)
+            if box[2] - box[0] <= width - 2 * margin or line_size <= 12:
+                break
+            line_size = int(line_size * 0.92)
+        fonts = [line_font]
+    elif "display1" in fields:
+        top = int(2 * usable_height * 0.42)
+        bands = [(margin, top), (margin + top + gap, 2 * usable_height - top)]
+        fonts = []
+        for scale, line in ((0.84, fields["display1"]), (1.16, fields["line2"])):
+            line_size = max(12, int(size * scale))
+            while True:
+                line_font = ImageFont.truetype(str(font_path), line_size)
+                if variation:
+                    line_font.set_variation_by_name(variation)
+                box = draw.textbbox((0, 0), line, font=line_font)
+                if box[2] - box[0] <= width - 2 * margin or line_size <= 12:
+                    break
+                line_size = int(line_size * 0.92)
+            fonts.append(line_font)
 
     offsets = layout.get("emboss_offset_px", [1, 2])
     emboss = int(rng.choice(offsets)) * supersample
+    if varied and rng.random() < 0.35:
+        emboss = 0  # painted plate: no pressed relief
 
-    for index, line in enumerate((fields["line1"], fields["line2"])):
+    for index, line in enumerate(l for l in (fields.get("display1", fields["line1"]), fields["line2"]) if l):
+        font = fonts[index]
+        band_top, band_height = bands[index]
         box = draw.textbbox((0, 0), line, font=font)
         text_width = box[2] - box[0]
         text_height = box[3] - box[1]
         x = (width - text_width) // 2 - box[0]
-        y = margin + index * (usable_height + gap) + (usable_height - text_height) // 2 - box[1]
+        y = band_top + (band_height - text_height) // 2 - box[1]
 
         # Emboss: a dark copy and a light copy under the flat glyph. This is what makes a
         # synthetic plate look pressed rather than printed, and printed-looking plates are
         # why naive synthetic corpora fail on real photographs.
-        draw.text((x + emboss, y + emboss), line, font=font, fill=(0, 0, 0))
-        draw.text((x - emboss, y - emboss), line, font=font, fill=(255, 255, 255))
-        draw.text((x, y), line, font=font, fill=text_colour)
+        if emboss:
+            draw.text((x + emboss, y + emboss), line, font=font, fill=(0, 0, 0))
+            draw.text((x - emboss, y - emboss), line, font=font, fill=(255, 255, 255))
+        draw.text((x, y), line, font=font, fill=text_colour, stroke_width=stroke, stroke_fill=text_colour)
 
     if layout.get("rivets"):
         rivet_radius = max(2, int(6 * supersample * 0.6))
@@ -208,6 +316,12 @@ def main() -> int:
     ap.add_argument("--config", default=str(HERE / "plates.yaml"), help="plate composition config")
     ap.add_argument("--font", default=None, help="explicit path to a Devanagari ttf")
     ap.add_argument(
+        "--font-dir",
+        default=None,
+        help="render each plate in a font drawn from every ttf in this directory (with random weight, stroke and "
+        "painted or embossed finish); check glyph coverage with --check-font first",
+    )
+    ap.add_argument(
         "--labels",
         default=str(HERE / "labels"),
         help="where the PaddleOCR recognition labels are written; move it with --out when "
@@ -221,12 +335,26 @@ def main() -> int:
     args = ap.parse_args()
 
     font_path = find_font(args.font)
-    if args.check_font:
-        return check_font(font_path)
-    if font_path is None:
-        log("ERROR", "no Devanagari font found", fix="see datasets/plates/fonts/README.md")
-        return 2
-    log("INFO", "font resolved", font=str(font_path))
+    if args.font_dir:
+        fonts = sorted(Path(args.font_dir).glob("*.ttf"))
+        if args.check_font:
+            return max([check_font(path) for path in fonts] or [2])
+        dropped = [path for path in fonts if latin_digit_score(path) > LATIN_DIGIT_LIMIT]
+        for path in dropped:
+            log("WARN", "font dropped: Devanagari digits drawn as Latin", font=path.name)
+        fonts = [path for path in fonts if path not in dropped]
+        if not fonts:
+            log("ERROR", "no usable ttf files in --font-dir", font_dir=args.font_dir)
+            return 2
+        log("INFO", "fonts resolved", count=len(fonts), dropped=len(dropped), font_dir=args.font_dir)
+        font_path = fonts
+    else:
+        if args.check_font:
+            return check_font(font_path)
+        if font_path is None:
+            log("ERROR", "no Devanagari font found", fix="see datasets/plates/fonts/README.md")
+            return 2
+        log("INFO", "font resolved", font=str(font_path))
 
     config = load_config(Path(args.config))
     layout = config["layout"]
@@ -260,9 +388,13 @@ def main() -> int:
         fields = compose(rng, config)
         charset.update(fields["text"])
 
+        # Real-layout plates carry their line texts as a third column (build_line_labels.py reads it).
+        label = fields["text"] + (
+            f"\t{fields['line1']}" + (f"|{fields['line2']}" if fields["line2"] else "") if "display1" in fields else ""
+        )
         if target.exists() and not args.force:
             counts["skipped"] += 1
-            rows.append((f"out/images/{name}", fields["text"], fields["serial_int"]))
+            rows.append((f"out/images/{name}", label, fields["serial_int"]))
             continue
 
         colours = weighted_choice(rng, config["colour_series"])
@@ -284,7 +416,7 @@ def main() -> int:
             log("ERROR", "write failed", path=str(target))
             continue
 
-        rows.append((f"out/images/{name}", fields["text"], fields["serial_int"]))
+        rows.append((f"out/images/{name}", label, fields["serial_int"]))
         counts["written"] += 1
 
         if counts["written"] and counts["written"] % 2000 == 0:

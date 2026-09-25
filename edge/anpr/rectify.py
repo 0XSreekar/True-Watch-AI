@@ -26,13 +26,17 @@ MIN_WORKING_WIDTH = 240  # recognition below this width degrades sharply
 LINE_VALLEY_MIN_GAP_FRACTION = 0.12  # a real inter-line gap is at least this tall
 BORDER_TRIM_FRACTION = 0.06  # rows dropped at top and bottom before measuring ink (the printed border)
 BORDER_TRIM_X_FRACTION = 0.05  # columns dropped at left and right, for the same reason
+# A plate whose source shape is at least this wide is a one-line plate ("बा.२० च ४६८०"). Measured on hand-transcribed
+# Kathmandu crops: two-line plates 1.45-2.04, one-line plates 2.37-2.54 (tilted, so the box under-states them).
+ONE_LINE_MIN_ASPECT = 2.3
 TWO_LINE_MAX_ASPECT = 2.6  # width/height at or below this is a two-line plate shape (Nepali 520x300 = 1.73)
 
 
 @dataclass(frozen=True)
 class RectifyResult:
-    image: np.ndarray  # RECT_WIDTH x RECT_HEIGHT, perspective-corrected and upscaled
+    image: np.ndarray  # RECT_WIDTH x RECT_HEIGHT (one-line plates: RECT_WIDTH x their own height), perspective-corrected
     used_quad: bool  # True if a 4-point contour was found; False if the crop rect was used
+    one_line: bool = False  # the source shape is a one-line plate, so the warp kept its aspect
 
 
 def _order_corners(points: np.ndarray) -> np.ndarray:
@@ -70,27 +74,40 @@ def _find_quad(gray: np.ndarray) -> np.ndarray | None:
     return best
 
 
-def rectify(plate_bgr: np.ndarray) -> RectifyResult:
-    """Warp `plate_bgr` onto a RECT_WIDTH x RECT_HEIGHT canonical plate."""
+def _source_aspect(source: np.ndarray) -> float:
+    """Width over height of the plate as photographed: mean of opposite edges of the ordered quad."""
+    top, right, bottom, left = (np.linalg.norm(source[(i + 1) % 4] - source[i]) for i in range(4))
+    return float((top + bottom) / max(1e-6, left + right))
+
+
+def rectify(plate_bgr: np.ndarray, layout: str | None = None) -> RectifyResult:
+    """Warp `plate_bgr` onto a RECT_WIDTH x RECT_HEIGHT canonical plate.
+
+    A one-line plate (source aspect >= ONE_LINE_MIN_ASPECT, or layout="one") keeps its own aspect instead: squeezing a
+    4:1 plate into the 1.73:1 two-line canvas stretched its glyphs to over twice their height and made the line splitter
+    cut 43% of synthetic one-line plates through the text. layout="two" forces the canonical canvas.
+    """
     if plate_bgr.size == 0:
         raise ValueError("rectify() received an empty crop")
     gray = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2GRAY) if plate_bgr.ndim == 3 else plate_bgr
     quad = _find_quad(gray)
     height, width = gray.shape[:2]
 
-    destination = np.float32([[0, 0], [RECT_WIDTH, 0], [RECT_WIDTH, RECT_HEIGHT], [0, RECT_HEIGHT]])
     if quad is not None:
         source = _order_corners(quad)
         used_quad = True
     else:
         source = np.float32([[0, 0], [width, 0], [width, height], [0, height]])
         used_quad = False
+    one_line = layout == "one" or (layout is None and _source_aspect(source) >= ONE_LINE_MIN_ASPECT)
+    out_height = max(24, int(round(RECT_WIDTH / max(ONE_LINE_MIN_ASPECT, _source_aspect(source))))) if one_line else RECT_HEIGHT
+    destination = np.float32([[0, 0], [RECT_WIDTH, 0], [RECT_WIDTH, out_height], [0, out_height]])
 
     matrix = cv2.getPerspectiveTransform(source, destination)
     warped = cv2.warpPerspective(
-        plate_bgr, matrix, (RECT_WIDTH, RECT_HEIGHT), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
+        plate_bgr, matrix, (RECT_WIDTH, out_height), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
     )
-    return RectifyResult(image=warped, used_quad=used_quad)
+    return RectifyResult(image=warped, used_quad=used_quad, one_line=one_line)
 
 
 def upscale_for_recognition(image: np.ndarray, min_width: int = MIN_WORKING_WIDTH) -> np.ndarray:
@@ -187,9 +204,13 @@ def split_lines(image: np.ndarray) -> list[np.ndarray]:
     return [top, bottom]
 
 
-def prepare_lines(plate_bgr: np.ndarray) -> tuple[list[np.ndarray], bool]:
-    """The full rectify -> split -> upscale pipeline. Returns (line images, used_quad)."""
-    rectified = rectify(plate_bgr)
-    lines = split_lines(rectified.image)
+def prepare_lines(plate_bgr: np.ndarray, layout: str | None = None) -> tuple[list[np.ndarray], bool]:
+    """The full rectify -> split -> upscale pipeline. Returns (line images, used_quad).
+
+    layout None decides one-line versus two-line from the plate's shape; "one" / "two" force either reading, which
+    recognise.read_plate uses as a fallback when the first reading does not parse as a plate.
+    """
+    rectified = rectify(plate_bgr, layout)
+    lines = [rectified.image] if rectified.one_line else split_lines(rectified.image)
     upscaled = [upscale_for_recognition(line) for line in lines]
     return upscaled, rectified.used_quad

@@ -231,3 +231,31 @@ def test_routing_prefers_the_head_whose_reading_is_a_valid_plate():
     devanagari_noise = [LineReading("बप", 0.90)]
     assert _route_by_grammar(devanagari_noise, bhutan) == "latin"
     assert _route_by_grammar([LineReading("क", 0.5)], [LineReading("X", 0.5)]) is None
+
+
+# --- One-line plates ------------------------------------------------------------------------
+
+
+def test_rectify_keeps_a_one_line_plate_at_its_own_aspect():
+    # A 4.3:1 plate squeezed into the 1.73:1 two-line canvas had its glyphs stretched to over twice their height.
+    plate = _bordered_plate([(40, 80)], width=520, height=120)
+    result = rectify.rectify(plate)
+    assert result.one_line
+    assert result.image.shape[1] == rectify.RECT_WIDTH
+    assert result.image.shape[0] < rectify.RECT_HEIGHT // 2
+
+
+def test_prepare_lines_never_splits_a_one_line_plate():
+    # One text band plus the Devanagari headline above it looked like two lines to the splitter: 43% of synthetic
+    # one-line plates were cut through the text before the source shape was consulted.
+    plate = _bordered_plate([(22, 34), (40, 95)], width=520, height=120)
+    lines, _ = rectify.prepare_lines(plate)
+    assert len(lines) == 1
+
+
+def test_prepare_lines_layout_override_forces_the_other_reading():
+    two_line = _bordered_plate([(55, 125), (175, 245)])
+    assert len(rectify.prepare_lines(two_line)[0]) == 2
+    assert len(rectify.prepare_lines(two_line, "one")[0]) == 1
+    one_line = _bordered_plate([(40, 80)], width=520, height=120)
+    assert rectify.rectify(one_line, "two").image.shape[:2] == (rectify.RECT_HEIGHT, rectify.RECT_WIDTH)

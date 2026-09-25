@@ -193,3 +193,31 @@ def recognise_plate(line_images: Sequence[np.ndarray]) -> RecognitionResult:
         line_confidences=[round(line.confidence, 4) for line in chosen],
         lines=chosen,
     )
+
+
+def read_plate(plate_bgr: np.ndarray) -> RecognitionResult:
+    """Rectify, split and recognise one plate crop, trying the other line layout when the first reading fails.
+
+    The plate's shape picks one-line or two-line first (rectify.ONE_LINE_MIN_ASPECT). A tilted one-line plate or a
+    loosely cropped two-line plate can land on the wrong side of that threshold; when the first reading does not parse
+    as a plate and the other layout's reading does, the other layout wins.
+    """
+    try:
+        from . import rectify
+        from .postprocess import validate_bhutan, validate_nepal
+    except ImportError:  # run as a top-level module (tests, evaluate.py from edge/anpr)
+        import rectify
+        from postprocess import validate_bhutan, validate_nepal
+
+    def parses(result: RecognitionResult) -> bool:
+        check = validate_nepal if result.script == "devanagari" else validate_bhutan
+        return check(result.text).valid
+
+    first_lines, _ = rectify.prepare_lines(plate_bgr)
+    first = recognise_plate(first_lines)
+    if parses(first):
+        return first
+    other_layout = "two" if len(first_lines) == 1 else "one"
+    second = recognise_plate(rectify.prepare_lines(plate_bgr, other_layout)[0])
+    return second if parses(second) else first
+

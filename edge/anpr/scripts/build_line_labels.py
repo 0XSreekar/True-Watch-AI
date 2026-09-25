@@ -101,22 +101,25 @@ def process_split(split: str, config: dict, lists_dir: Path, images_root: Path, 
     skipped_parse = 0
     with out_label.open("w", encoding="utf-8") as out:
         for index, row in enumerate(rows):
-            rel_path, _, text = row.partition("\t")
-            fields = split_text_into_fields(text, config)
+            rel_path, _, rest = row.partition("\t")
+            text, _, explicit = rest.partition("\t")
+            # A third column "line1|line2" (real-layout synthetic plates, hand-transcribed real plates) states the
+            # line texts outright; without it they are recovered from the joined string the old layout implies.
+            # A third column without "|" is a one-line plate and must come back from the splitter unsplit.
+            fields = tuple(explicit.split("|")) if explicit else split_text_into_fields(text, config)
             if fields is None:
                 skipped_parse += 1
                 continue
-            line1_text, line2_text = fields
             image = cv2.imread(str(images_root / rel_path))
             if image is None:
                 skipped_parse += 1
                 continue
             lines, _used_quad = rectify.prepare_lines(image)
-            if len(lines) != 2:
+            if len(lines) != len(fields):
                 skipped_split += 1
                 continue
             stem = Path(rel_path).stem
-            for line_index, (line_img, line_text) in enumerate(zip(lines, (line1_text, line2_text)), start=1):
+            for line_index, (line_img, line_text) in enumerate(zip(lines, fields), start=1):
                 out_name = f"{stem}_l{line_index}.jpg"
                 cv2.imwrite(str(out_images / out_name), line_img)
                 out.write(f"{split}/{out_name}\t{line_text}\n")
@@ -129,7 +132,7 @@ def process_split(split: str, config: dict, lists_dir: Path, images_root: Path, 
         split=split,
         rows=len(rows),
         written=written,
-        skipped_no_2line_split=skipped_split,
+        skipped_line_count_mismatch=skipped_split,
         skipped_unparseable_text=skipped_parse,
     )
     return written, skipped_split, skipped_parse
