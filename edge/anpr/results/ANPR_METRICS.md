@@ -117,7 +117,7 @@ rectify -> line split -> recognise -> postprocess), on the SAME 2,076-image
 synthetic validation split as section 1, with the fine-tuned model loaded through
 `ANPR_DEVANAGARI_MODEL_DIR`:
 
-| Metric | Pretrained (section 1.1) | **Fine-tuned** |
+| Metric | Pretrained (section 1.1) | **Fine-tuned, round 1** |
 |---|---|---|
 | Exact-match rate | 35.60% | **77.26%** |
 | Mean CER | 0.4626 | **0.1106** |
@@ -129,19 +129,47 @@ synthetic validation split as section 1, with the fine-tuned model loaded throug
 | far, beyond-25m proxy (<120px) | 629 | 24.80% | **70.11%** | 0.1415 |
 
 Latin-model baseline on the same images is unchanged (section 1.2: 0.00%).
-Summaries: `eval_synthetic_pretrained.json`, `eval_synthetic_finetuned.json`,
+
+### 2.1 Line-split fix and round 2
+
+About 12% of plates did not split cleanly into two lines, and a single-line
+recogniser cannot read an unsplit plate. `rectify.py` now measures ink inside the
+printed border (commit c00538a), which cuts unsplit plates from 11.8% to 2.6%.
+Round 2 then continued from round 1's `best_accuracy` on line crops re-cut with the
+fixed splitter: 35,880 crops from 17,940 of 18,424 training plates, learning rate
+1.5e-4 (half of round 1), otherwise the same schedule
+(`edge/anpr/configs/devanagari_ppocrv5_mobile_rec_lines2_cpu.yml`; 1,121 iterations
+in 4 h 03 min on the M5 CPU). Per-line validation inside training: exact 0.9313,
+normalised edit similarity 0.9756 (round 1: 0.9194, 0.9697).
+
+All four rows below run the current pipeline (fixed splitter) on the same 2,076
+validation plates, so the pretrained row is re-measured, not copied from section 1.1:
+
+| Model | Exact-match | Mean CER | near | mid (under 25 m) | far |
+|---|---|---|---|---|---|
+| Pretrained | 41.38% | 0.3783 | 51.27% | 43.82% | 28.30% |
+| Round 1 | 86.37% | 0.0562 | 92.06% | 89.72% | 76.31% |
+| Round 2, `best_accuracy` (step 997) | 87.76% | 0.0490 | 93.33% | 90.45% | 78.70% |
+| **Round 2, final (step 1,121) — published** | **87.91%** | **0.0481** | 93.17% | 90.33% | 79.49% |
+
+The two round-2 checkpoints differ by three plates, which is within noise; the final
+one is published because it is ahead overall and on the far bucket. Choosing between
+them on this split makes the published figure slightly optimistic.
+
+Summaries: `eval_synthetic_pretrained.json` (section 1.1), `eval_synthetic_pretrained_splitfix.json`,
+`eval_synthetic_finetuned_round1.json`, `eval_synthetic_finetuned.json` (round 2, published) and
 `eval_synthetic_latin.json` in this directory.
 
 Published: [sreekar12/truewatch-anpr-devanagari](https://huggingface.co/sreekar12/truewatch-anpr-devanagari),
 pinned in `hf_ocr_model.json` (commit sha and per-file sha256).
 
-**Verdict against the 85% target — fine-tuned:**
-- Synthetic, under 25 m (near + mid proxies, 1,447 plates): 80.4% exact —
-  **NOT MET** (target 85%). The largest remaining loss is the line split: about
-  12% of plates do not split cleanly into two lines, and those cannot be read
-  correctly by a single-line recogniser.
+**Verdict against the 85% target — fine-tuned, round 2:**
+- Synthetic, under 25 m (near + mid proxies, 1,447 plates): 91.6% exact —
+  **MET on synthetic plates** (target 85%; round 1 with the fixed splitter 90.7%,
+  round 1 before it 80.4%).
 - Real plates: **INSUFFICIENT SAMPLE** (section 1.3). No synthetic figure is
-  extrapolated to real plates.
+  extrapolated to real plates, so the slide-5 target is not claimed as met for
+  real traffic.
 
 ## Running the measurement
 

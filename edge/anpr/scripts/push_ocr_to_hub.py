@@ -112,9 +112,12 @@ def build_model_card(
         "- 20,500 synthetically rendered plate images "
         "(`datasets/plates/gen_plates.py`, seed 42) with the generator's own "
         "train/validation split; training used per-line crops cut by the "
-        "same line-splitting code the pipeline runs at inference (31,922 "
-        "line crops from the 15,961 training plates whose lines split "
-        "cleanly; plates that did not split were skipped, never mislabelled).",
+        "same line-splitting code the pipeline runs at inference, in two "
+        "rounds: round 1 from the pretrained head (31,922 line crops from "
+        "15,961 training plates), round 2 from round 1's weights at half the "
+        "learning rate on crops re-cut with the improved line splitter "
+        "(35,880 line crops from 17,940 training plates). Plates that did not "
+        "split were skipped, never mislabelled.",
         "- No real photographs of plates were used for training or evaluation. "
         "The corpus's composition (zone codes, vehicle-class letters, colour "
         "series) follows a documented specification with several fields "
