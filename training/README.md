@@ -149,6 +149,41 @@ python -m pytest tests -q
 7. The Hugging Face upload reads `HF_TOKEN` from Kaggle Secrets and is skipped, with a message, when it
    is absent; the upload can then be done from the Mac with `export_onnx.py --push-to-hub`.
 
+### On Google Colab, instead (or when a Kaggle session runs out mid-lineage)
+
+The same notebook, `notebooks/kaggle_train.ipynb`, runs on Colab: a platform-detection cell right
+after the parameters picks Kaggle or Colab paths automatically (Kaggle: `/kaggle/input` exists, or
+`KAGGLE_KERNEL_RUN_TYPE` is set; Colab: `import google.colab` succeeds), so the rest of the notebook
+-- `find_inputs()`, `unpack_shards()`, `restore()`, the two `train.py` calls, evaluation, export and
+packaging -- is unchanged either way. Use this to move the remaining training to an A100 or L4 at a
+Kaggle session boundary, without forking the notebook.
+
+1. Open `https://colab.research.google.com/github/0XSreekar/True-Watch-AI/blob/fix/phase1-2-complete/training/notebooks/kaggle_train.ipynb`.
+2. Runtime -> Change runtime type -> GPU -> A100 (Colab Pro/Pro+) or L4.
+3. Add secrets (key icon, left sidebar, with notebook access switched on for each): `KAGGLE_API_TOKEN`
+   (or `KAGGLE_USERNAME` + `KAGGLE_KEY`), required to download the dataset and earlier Kaggle output;
+   `HF_TOKEN` and `HF_MODEL_REPO`, optional, to push the exported ONNX to the Hugging Face Hub from
+   Colab instead of from the Mac.
+4. Runtime -> Run all. The platform cell mounts Google Drive at `/content/drive`; everything that must
+   survive a disconnect (run directories, logs, the packaged results) lives under
+   `/content/drive/MyDrive/truewatch` from then on. A dataset-fetch cell right after the repository is
+   cloned downloads `truewatch_ds_shards/` from `KAGGLE_BUILD_KERNEL` and the earlier session's
+   `runs/{day,ir}` and results from `KAGGLE_PREV_KERNELS` with `scripts/fetch_kaggle_outputs.py`, which
+   skips any shard tar already present at its recorded size -- change those two parameters if the build
+   or the earlier training session used a different Kaggle kernel slug.
+5. Checkpoints train to local disk (`/content/work/runs`), not straight to Drive: Ultralytics'
+   atomic-rename-on-save is not guaranteed on Drive's FUSE mount. `sync_runs_to_drive()` copies them to
+   `/content/drive/MyDrive/truewatch/runs` after every stage call and again at packaging, and the same
+   platform cell restores from there at the start of a (re)connected session.
+6. If Colab disconnects: reopen the notebook and Run all again. Nothing above repeats work already
+   done -- the run directories come back from Drive, and the dataset fetch only asks Kaggle for shards
+   that are missing or short.
+7. `COLAB_SESSION_HOURS` in the platform cell (default 12, a Colab Pro session) feeds the same budget
+   math as Kaggle's `SESSION_HOURS` (`remaining_train_hours()`, `--max-hours`); raise it for Pro+'s
+   longer sessions or lower it for the free tier's shorter, unpredictable ones.
+8. `WORKERS`, passed to `train.py` as `--workers` when set, defaults to `os.cpu_count()` on Colab (an
+   A100 runtime has ~12 vCPUs) and to `train.py`'s own config default on Kaggle.
+
 ## Checkpoint and resume
 
 Ultralytics writes `last.pt` at the end of **every epoch**, and the optimiser, EMA, scaler, epoch and

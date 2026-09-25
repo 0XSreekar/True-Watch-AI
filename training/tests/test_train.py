@@ -1239,6 +1239,68 @@ def test_notebook_helpers_find_inputs_at_any_depth_and_budget_the_session(tmp_pa
     assert abs(left - (12.0 - 3.0 - 0.75 - 0.25)) < 0.01
 
 
+def test_notebook_detects_kaggle_and_colab_and_keeps_both_secret_paths():
+    text = "\n".join(notebook_code_cells())
+    assert 'ON_KAGGLE = Path("/kaggle/input").exists()' in text
+    assert "import google.colab" in text and "ON_COLAB = True" in text
+    assert "UserSecretsClient" in text          # Kaggle secrets, unchanged in the parameters cell
+    assert "from google.colab import userdata" in text   # Colab secrets, in the platform cell
+
+
+def test_notebook_colab_branch_redirects_every_path_the_kaggle_branch_sets():
+    cells = notebook_code_cells()
+    platform_cell = next(c for c in cells if "ON_KAGGLE and ON_COLAB" in c)
+    colab_branch = platform_cell[platform_cell.index("if ON_COLAB:"):]
+    for name in ("INPUT_ROOT", "WORK", "CODE", "RUNS", "OUT", "SESSION_HOURS", "PERSIST"):
+        assert f"{name} = " in colab_branch, f"platform cell never reassigns {name} for Colab"
+    assert "drive.mount(" in colab_branch
+    assert "def secret(name):" in colab_branch    # overrides the Kaggle-secrets version for this branch only
+    assert "WORKERS = os.cpu_count()" in colab_branch
+
+
+def test_notebook_fetches_kaggle_inputs_on_colab_only_after_the_clone():
+    cells = notebook_code_cells()
+    clone_idx = next(i for i, c in enumerate(cells) if "git clone --depth 1" in c)
+    fetch_idx = next(i for i, c in enumerate(cells) if "fetch_kaggle_outputs" in c)
+    assert fetch_idx > clone_idx, "the fetch cell must run after the repo (and fetch_kaggle_outputs.py) is cloned"
+    fetch_cell = cells[fetch_idx]
+    assert fetch_cell.strip().startswith("if ON_COLAB:")
+    assert "FK.fetch_dataset_shards(KAGGLE_BUILD_KERNEL" in fetch_cell
+    assert "FK.fetch_prev_run_outputs(kernel" in fetch_cell
+    assert "KAGGLE_API_TOKEN" in fetch_cell
+
+
+def test_notebook_train_calls_use_workers_flag_and_sync_to_drive_after_each_stage():
+    cells = notebook_code_cells()
+    train_calls = [c for c in cells if "training/scripts/train.py --stage" in c and "--dry-run" not in c]
+    assert len(train_calls) == 2
+    for cell in train_calls:
+        assert "{WORKERS_FLAG}" in cell
+        assert "sync_runs_to_drive()" in cell
+
+
+def test_notebook_packaging_copies_outputs_to_drive_on_colab():
+    text = "\n".join(notebook_code_cells())
+    assert "if ON_COLAB:" in text and "persist_out = PERSIST / \"outputs\"" in text
+    assert "shutil.copytree(OUT, persist_out)" in text
+
+
+def test_notebook_unpacking_frees_shard_disk_space_on_colab_only():
+    cells = notebook_code_cells()
+    unpack_cell = next(c for c in cells if "def unpack_shards" in c)
+    assert "if ON_COLAB:" in unpack_cell and "path.unlink(missing_ok=True)" in unpack_cell
+
+
+def test_notebook_top_markdown_names_the_colab_url_and_required_secret():
+    import json
+
+    nb = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+    top_markdown = "".join(nb["cells"][0]["source"])
+    assert nb["cells"][0]["cell_type"] == "markdown"
+    assert "colab.research.google.com/github/0XSreekar/True-Watch-AI/blob/fix/phase1-2-complete/training/notebooks/kaggle_train.ipynb" in top_markdown
+    assert "KAGGLE_API_TOKEN" in top_markdown
+
+
 # --------------------------------------------------------------------------------------------
 # reporting rules for this file itself
 # --------------------------------------------------------------------------------------------
@@ -1252,6 +1314,8 @@ def test_notebook_helpers_find_inputs_at_any_depth_and_budget_the_session(tmp_pa
     C.TRAINING_ROOT / "configs" / "data.yaml",
     C.TRAINING_ROOT / "requirements.txt",
     C.TRAINING_ROOT / "notebooks" / "kaggle_train.ipynb",
+    C.TRAINING_ROOT / "scripts" / "fetch_kaggle_outputs.py",
+    C.TRAINING_ROOT / "tests" / "test_fetch_kaggle_outputs.py",
 ])
 def test_owned_files_carry_no_forbidden_strings(path):
     text = path.read_text(encoding="utf-8").lower()
