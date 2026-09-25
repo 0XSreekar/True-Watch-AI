@@ -185,3 +185,49 @@ def test_apply_corrections_with_no_table_is_a_no_op(tmp_path, monkeypatch):
     corrected, corrections = postprocess.apply_corrections("9२", char_confidences=[0.1, 0.1])
     assert corrected == "9२"
     assert corrections == []
+
+
+def _bordered_plate(line_rows, width=520, height=300, border=8):
+    """A light plate with a heavy printed border and dark text bands at the given row ranges."""
+    image = np.full((height, width, 3), 225, dtype=np.uint8)
+    image[:border, :] = image[-border:, :] = 15
+    image[:, :border] = image[:, -border:] = 15
+    for top, bottom in line_rows:
+        for x in range(40, width - 40, 36):  # separate glyph blocks, like characters
+            image[top:bottom, x:x + 24] = 25
+    return image
+
+
+def test_split_lines_ignores_a_heavy_border_that_outweighs_the_text():
+    # The regression behind 11.8% unsplit validation plates: the border rows carried more ink
+    # than either text line, so the lines looked too faint to count as a second band.
+    image = _bordered_plate([(55, 125), (175, 245)])
+    lines = rectify.split_lines(image)
+    assert len(lines) == 2
+    cut = lines[0].shape[0]
+    assert 125 <= cut <= 175, f"cut at row {cut}, expected inside the inter-line gap"
+
+
+def test_split_lines_keeps_a_bordered_single_line_plate_whole():
+    # A long single-line plate (Bhutan-style proportions) must not be cut in half.
+    image = _bordered_plate([(40, 80)], width=520, height=120)
+    assert len(rectify.split_lines(image)) == 1
+
+
+def test_nepal_grammar_accepts_the_provincial_format_from_the_mock_data():
+    # backend/src/data/mockData.js carries "प्र १ ख २३४५": a 3-code-point zone and a 1-digit lot.
+    result = postprocess.validate_nepal("प्र१ख२३४५")
+    assert result.valid
+    assert result.fields["zone"] == "प्र" and result.fields["lot"] == "१"
+
+
+def test_routing_prefers_the_head_whose_reading_is_a_valid_plate():
+    from anpr.recognise import LineReading, _route_by_grammar
+
+    nepali = [LineReading("बा १२", 0.40), LineReading("च ४५६७", 0.40)]
+    latin_noise = [LineReading("8A 12", 0.95), LineReading("F 4567", 0.95)]
+    assert _route_by_grammar(nepali, latin_noise) == "devanagari"
+    bhutan = [LineReading("BP-1-A1234", 0.60)]
+    devanagari_noise = [LineReading("बप", 0.90)]
+    assert _route_by_grammar(devanagari_noise, bhutan) == "latin"
+    assert _route_by_grammar([LineReading("क", 0.5)], [LineReading("X", 0.5)]) is None

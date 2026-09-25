@@ -142,6 +142,32 @@ def _choose_script(devanagari_lines: Sequence[LineReading], latin_lines: Sequenc
     return "devanagari" if devanagari_conf >= latin_conf else "latin"
 
 
+def _route_by_grammar(devanagari_lines: Sequence[LineReading], latin_lines: Sequence[LineReading]) -> str | None:
+    """A reading that parses as a whole plate in its own script's grammar decides the route.
+
+    Script characters and confidence alone sent 1.4% of synthetic Nepali plates to the Latin head
+    (a degraded Devanagari line can look like Latin letters to it). A complete, valid Nepali plate
+    from the Devanagari head, or a valid Bhutan BP-N-ANNNN plate from the Latin head, is much
+    stronger evidence. Returns None when neither or both parse, leaving the decision to
+    _choose_script.
+    """
+    try:  # imported as anpr.recognise (tests, the edge app) or as a top-level module (the anpr scripts)
+        from .postprocess import validate_bhutan, validate_nepal
+    except ImportError:
+        from postprocess import validate_bhutan, validate_nepal
+
+    def joined(lines: Sequence[LineReading]) -> str:
+        return unicodedata.normalize("NFC", "".join(line.text.replace(" ", "") for line in lines))
+
+    nepal = validate_nepal(joined(devanagari_lines)).valid
+    bhutan = validate_bhutan("".join(line.text for line in latin_lines).replace(" ", "")).valid
+    if nepal and not bhutan:
+        return "devanagari"
+    if bhutan and not nepal:
+        return "latin"
+    return None
+
+
 def recognise_plate(line_images: Sequence[np.ndarray]) -> RecognitionResult:
     """Recognise a plate's line images (from rectify.prepare_lines) and route by script."""
     if not line_images:
@@ -154,7 +180,7 @@ def recognise_plate(line_images: Sequence[np.ndarray]) -> RecognitionResult:
         devanagari_lines.append(devanagari)
         latin_lines.append(latin)
 
-    script = _choose_script(devanagari_lines, latin_lines)
+    script = _route_by_grammar(devanagari_lines, latin_lines) or _choose_script(devanagari_lines, latin_lines)
     chosen = devanagari_lines if script == "devanagari" else latin_lines
 
     # DATASET_SPEC.md section 6.4: the ground-truth string is the plate's

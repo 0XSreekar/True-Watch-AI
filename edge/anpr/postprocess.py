@@ -34,11 +34,15 @@ CONFUSIONS_PATH = HERE / "data" / "confusions.json"
 _DEVANAGARI_DIGIT = re.compile(r"[०-९]")
 _DEVANAGARI_LETTER = re.compile(r"[ऀ-ॡॢ-॥॰-ॿ]")
 
+# Zone: a zone or province code, up to 4 code points so conjuncts such as "प्र" (प + virama + र,
+# the provincial format in backend/src/data/mockData.js "प्र १ ख २३४५") are accepted; lot: 1-2
+# digits (provincial plates use one); class: one letter, optionally with a vowel sign; serial: 1-4
+# digits. The synthetic corpus (2-code-point zones, 2-digit lots, 4-digit serials) is a subset.
 NEPAL_PLATE_RE = re.compile(
-    r"^(?P<zone>[ऀ-ॡ॰-ॿ]{1,2})"
-    r"(?P<lot>[०-९]{2})"
-    r"(?P<vehicle_class>[ऀ-ॡ॰-ॿ])"
-    r"(?P<serial>[०-९]{4})$"
+    r"^(?P<zone>[ऀ-ॡ॰-ॿ]{1,4})"
+    r"(?P<lot>[०-९]{1,2})"
+    r"(?P<vehicle_class>[क-ह][ऀ-ःा-ौ]?)"
+    r"(?P<serial>[०-९]{1,4})$"
 )
 
 BHUTAN_PLATE_RE = re.compile(r"^(?P<prefix>BP)-(?P<district>\d)-(?P<letter>[A-Z])(?P<serial>\d{4})$")
