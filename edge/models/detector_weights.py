@@ -250,6 +250,10 @@ def open_session(path: Path, provider: str = "CPUExecutionProvider"):
         raise DetectorWeightsError(f"ONNX_PROVIDER={provider!r} is not available in this onnxruntime build; available: {available}")
     options = ort.SessionOptions()
     options.log_severity_level = 3
+    # The pipeline alternates detector runs with OpenCV optical flow on the same cores. onnxruntime's
+    # default keeps its worker threads spinning after each run, which starves the flow computation;
+    # measured on an Apple M5 CPU it roughly doubled the detector's own wall time as well.
+    options.add_session_config_entry("session.intra_op.allow_spinning", "0")
     return ort.InferenceSession(str(path), sess_options=options, providers=[provider])
 
 
