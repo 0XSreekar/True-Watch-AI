@@ -47,6 +47,7 @@ RAW_MAX_DET = 10000  # boxes kept per image before our own NMS; above the 8400 a
 NMS_MAX_TIME_IMG = 3600.0  # seconds per image Ultralytics' NMS may take before it gives up (default 0.05)
 DEFAULT_CONF_FLOOR = 0.001  # Ultralytics' own validation floor; AP needs the whole curve
 DEFAULT_MAX_DET = 300       # detections kept per image after our own NMS (Ultralytics' default)
+PREDICT_CHUNK = 256         # images per predict() call; bounds memory (see predict_raw)
 
 
 @dataclass
@@ -119,8 +120,17 @@ def predict_raw(
 
     paths, hw, boxes, conf, cls = [], [], [], [], []
     cap_hits: list[str] = []
+
+    def results():
+        # One predict() call over the whole list keeps every decoded frame alive until it returns
+        # (about 11 MB per image on this corpus: 12,218 validation images peaked above 60 GB and
+        # were killed). Bounded chunks release them; the boxes are identical either way.
+        for start in range(0, len(images), PREDICT_CHUNK):
+            chunk = [str(p) for p in images[start:start + PREDICT_CHUNK]]
+            yield from model.predict(source=chunk, **kwargs)
+
     with no_nms_time_limit():
-        for i, result in enumerate(model.predict(source=[str(p) for p in images], **kwargs)):
+        for i, result in enumerate(results()):
             h, w = result.orig_shape
             paths.append(str(result.path))
             hw.append((h, w))
