@@ -113,8 +113,9 @@ def predict_raw(
         batch=batch,
         verbose=False,
         stream=True,
-        half=half,
     )
+    if half:  # only passed when wanted: Ultralytics warns on every call that `half` is deprecated
+        kwargs["half"] = True
     if device not in (None, ""):
         kwargs["device"] = device
 
