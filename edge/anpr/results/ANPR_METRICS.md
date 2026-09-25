@@ -97,26 +97,51 @@ exactly, where the Latin-only baseline (1.2) reads zero.
 
 ## 2. After fine-tuning
 
-**Not yet run.** `edge/anpr/notebooks/kaggle_ocr_finetune.ipynb` fine-tunes
-`devanagari_PP-OCRv5_mobile_rec` on the full 20,000+ synthetic train split on
-Kaggle's free GPU tier. This section is filled in by pasting the notebook's
-`finetuned_eval.json` output (produced by the SAME `evaluate.py` used for
-section 1, so the two are directly comparable) once the orchestrator has run
-it — this agent explicitly did not run it or upload anything, per the task's
-instructions.
+Fine-tuned locally on CPU (Apple M5, PaddlePaddle 3.3.1 CPU build, PaddleOCR v3.3.0
+`tools/train.py`, 8 threads), because the Kaggle GPU quota was in use by detector
+training. Config: `edge/anpr/configs/devanagari_ppocrv5_mobile_rec_lines_cpu.yml`
+(pretrained `devanagari_PP-OCRv5_mobile_rec` weights, 1 epoch, Adam, cosine LR from
+3e-4, no warmup, batch 32; 997 iterations in 3 h 25 min at ~2.7 samples/s).
 
-| Metric | Devanagari head (fine-tuned) |
-|---|---|
-| Exact-match rate | NOT YET MEASURED |
-| Mean CER | NOT YET MEASURED |
+**Training data is per-line crops, not whole plates.** A first run fed whole
+two-line plates into the single-line 48x320 input; the untouched pretrained model
+scores exact-match 0.0 on that input, so that run was stopped at step 250 and the
+data rebuilt with `edge/anpr/scripts/build_line_labels.py`, which cuts each plate
+with the same `rectify.prepare_lines()` the pipeline runs at inference: 31,922 line
+crops from the 15,961 of 18,424 training plates that split into two lines (the rest
+skipped, never mislabelled). Per-line validation inside training: exact 0.9194,
+normalised edit similarity 0.9697.
 
-| Bucket (proxy) | Count | Exact-match | Mean CER |
-|---|---|---|---|
-| near (>= 200px, proxy) | — | — | — |
-| mid, under-25m proxy (120-199px) | — | — | — |
-| far, beyond-25m proxy (<120px) | — | — | — |
+End to end through the full pipeline (`evaluate.py`, detection-free crops ->
+rectify -> line split -> recognise -> postprocess), on the SAME 2,076-image
+synthetic validation split as section 1, with the fine-tuned model loaded through
+`ANPR_DEVANAGARI_MODEL_DIR`:
 
-**Verdict against the 85% target — fine-tuned: NOT YET MEASURED.**
+| Metric | Pretrained (section 1.1) | **Fine-tuned** |
+|---|---|---|
+| Exact-match rate | 35.60% | **77.26%** |
+| Mean CER | 0.4626 | **0.1106** |
+
+| Bucket (proxy) | Count | Exact-match, pretrained | **Exact-match, fine-tuned** | Mean CER, fine-tuned |
+|---|---|---|---|---|
+| near (>= 200px, proxy) | 630 | 44.60% | **82.38%** | 0.0861 |
+| mid, under-25m proxy (120-199px) | 817 | 36.96% | **78.82%** | 0.1058 |
+| far, beyond-25m proxy (<120px) | 629 | 24.80% | **70.11%** | 0.1415 |
+
+Latin-model baseline on the same images is unchanged (section 1.2: 0.00%).
+Summaries: `eval_synthetic_pretrained.json`, `eval_synthetic_finetuned.json`,
+`eval_synthetic_latin.json` in this directory.
+
+Published: [sreekar12/truewatch-anpr-devanagari](https://huggingface.co/sreekar12/truewatch-anpr-devanagari),
+pinned in `hf_ocr_model.json` (commit sha and per-file sha256).
+
+**Verdict against the 85% target — fine-tuned:**
+- Synthetic, under 25 m (near + mid proxies, 1,447 plates): 80.4% exact —
+  **NOT MET** (target 85%). The largest remaining loss is the line split: about
+  12% of plates do not split cleanly into two lines, and those cannot be read
+  correctly by a single-line recogniser.
+- Real plates: **INSUFFICIENT SAMPLE** (section 1.3). No synthetic figure is
+  extrapolated to real plates.
 
 ## Running the measurement
 
