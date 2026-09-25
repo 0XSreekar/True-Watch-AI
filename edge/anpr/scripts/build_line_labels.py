@@ -114,7 +114,7 @@ def process_split(split: str, config: dict, lists_dir: Path, images_root: Path, 
             if image is None:
                 skipped_parse += 1
                 continue
-            layout = "three" if len(fields) == 3 else ("one" if len(fields) == 1 else None)
+            layout = {1: "one", 2: "two", 3: "three"}.get(len(fields))  # the label says how many lines to cut
             lines, _used_quad = rectify.prepare_lines(image, layout)
             if len(lines) != len(fields):
                 skipped_split += 1
