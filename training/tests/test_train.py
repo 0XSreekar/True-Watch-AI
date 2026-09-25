@@ -1260,3 +1260,31 @@ def test_owned_files_carry_no_forbidden_strings(path):
     hits = [b for b in banned if b in text]
     assert not hits, f"{path.name} contains {hits}"
     assert not re.search(r"[^\x00-\x7f]", path.read_text(encoding="utf-8")), f"{path.name} has non-ASCII text (emoji check)"
+
+
+def test_a_bare_release_weights_name_is_downloaded_on_a_fresh_machine(tmp_path, monkeypatch):
+    # Kaggle clones the repository fresh: `--model yolo11n.pt` names a release asset, not a local file.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(T, "WEIGHTS_DIR", tmp_path / "weights")
+    fetched = []
+
+    def fake_download(name, local):
+        fetched.append(name)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.write_bytes(b"weights")
+        return str(local)
+
+    monkeypatch.setattr(T, "download_release_weights", fake_download)
+    args = SimpleNamespace(model="yolo11n.pt")
+    path, how = T.resolve_init_weights(args, SimpleNamespace(stage="day", model="yolo11s.pt"), None, dry_run=False)
+    assert fetched == ["yolo11n.pt"] and Path(path) == tmp_path / "weights" / "yolo11n.pt" and "downloaded" in how
+    # Second call finds it in training/weights without downloading again.
+    path2, how2 = T.resolve_init_weights(args, SimpleNamespace(stage="day", model="yolo11s.pt"), None, dry_run=False)
+    assert fetched == ["yolo11n.pt"] and path2 == path and "training/weights" in how2
+
+
+@pytest.mark.parametrize("model", ["runs/x/best.pt", "missing_custom.pt", "yolo11n.onnx"])
+def test_a_missing_non_release_model_path_is_still_a_usage_error(tmp_path, monkeypatch, model):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(T.UsageError, match="does not exist"):
+        T.resolve_init_weights(SimpleNamespace(model=model), SimpleNamespace(stage="day", model="yolo11s.pt"), None, dry_run=False)

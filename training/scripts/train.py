@@ -1628,9 +1628,17 @@ def resolve_init_weights(args: argparse.Namespace, cfg: StageConfig, paths: RunP
     """(path or name, description) of the weights a fresh run starts from."""
     if args.model:
         path = Path(args.model)
-        if not path.exists():
-            raise UsageError(f"--model {path} does not exist")
-        return str(path.resolve()), f"--model {path}"
+        if path.exists():
+            return str(path.resolve()), f"--model {path}"
+        if path.parent == Path(".") and ULTRALYTICS_ASSET_RE.fullmatch(path.name):
+            # A bare release asset name (e.g. yolo11n.pt) on a fresh machine: fetch it like the config model.
+            local = WEIGHTS_DIR / path.name
+            if local.exists():
+                return str(local), f"--model {path.name} (training/weights)"
+            if dry_run:
+                return str(local), f"--model {path.name} (not on disk; a real run would download it to {local})"
+            return download_release_weights(path.name, local), f"--model {path.name} (downloaded)"
+        raise UsageError(f"--model {path} does not exist")
     if cfg.stage == "ir":
         best = paths.run_dir.parent / "day" / "weights" / "best.pt"
         if not best.exists():
@@ -1650,6 +1658,15 @@ def resolve_init_weights(args: argparse.Namespace, cfg: StageConfig, paths: RunP
         return str(local), f"config model {name} (training/weights)"
     if dry_run:
         return str(local), f"config model {name} (not on disk; a real run would download it to {local})"
+    return download_release_weights(name, local), f"config model {name} (downloaded)"
+
+
+# Ultralytics release asset names, e.g. yolo11n.pt, yolo11s.pt, yolov8m.pt: the only bare names fetched automatically.
+ULTRALYTICS_ASSET_RE = re.compile(r"yolo(v?\d+)[nsmlx]\.pt")
+
+
+def download_release_weights(name: str, local: Path) -> str:
+    """Download an Ultralytics release asset to `local`; any failure is a usage error naming the manual fix."""
     say(f"{name} is not on disk; downloading it to {local} (needs internet)")
     from ultralytics.utils.downloads import attempt_download_asset
 
@@ -1660,7 +1677,7 @@ def resolve_init_weights(args: argparse.Namespace, cfg: StageConfig, paths: RunP
         raise UsageError(f"could not download {name}: {exc}. Place the file at {local} or pass --model PATH.") from exc
     if not local.exists():
         raise UsageError(f"{name} could not be fetched; place it at {local} or pass --model PATH")
-    return str(local), f"config model {name} (downloaded)"
+    return str(local)
 
 
 def ultralytics_args(train_args: Mapping[str, Any]) -> Any:
