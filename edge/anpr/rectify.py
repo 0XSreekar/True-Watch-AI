@@ -145,7 +145,53 @@ def _row_ink_profile(image: np.ndarray) -> np.ndarray:
     return _ink_mask(image).sum(axis=1).astype("float64")
 
 
-def split_lines(image: np.ndarray) -> list[np.ndarray]:
+def split_lines(image: np.ndarray, max_lines: int = 2) -> list[np.ndarray]:
+    """Split a rectified plate into line images, top to bottom: 1 or 2 by default, up to 3 with max_lines=3.
+
+    A province plate prints three lines ("बागमती प्रदेश-०२" / "०३१ प" / "२०५०"); max_lines=3 tries _split_three first.
+    It is opt-in: forced onto synthetic two-line plates it cut 8% of them in three, so recognise.read_plate only asks
+    for it when the two-line reading does not parse as a plate (it finds three lines on 80% of province plates).
+    """
+    if max_lines >= 3:
+        three = _split_three(image)
+        if three is not None:
+            return three
+    return _split_once(image, allow_shape_fallback=True)
+
+
+def _split_three(image: np.ndarray) -> list[np.ndarray] | None:
+    """Cut a province plate at the emptiest row of its upper half and of its lower half, or return None.
+
+    Only reached through max_lines=3, i.e. when a label says three lines or when a two-line reading failed the plate
+    grammar, so a wrong cut costs one rejected reading rather than a misread plate.
+    """
+    height, width = image.shape[:2]
+    y0, y1 = int(height * BORDER_TRIM_FRACTION), int(height * (1.0 - BORDER_TRIM_FRACTION))
+    x0, x1 = int(width * BORDER_TRIM_X_FRACTION), int(width * (1.0 - BORDER_TRIM_X_FRACTION))
+    core = _ink_mask(image)[y0:y1, x0:x1]
+    core_h = core.shape[0]
+    if core_h < 36:
+        return None
+    profile = core.sum(axis=1).astype("float64")
+    size = max(3, (core_h // 60) | 1)
+    smoothed = np.convolve(profile, np.ones(size) / size, mode="same")
+    peak = float(smoothed.max())
+    if peak <= 0:
+        return None
+    first = int(core_h * 0.15) + int(np.argmin(smoothed[int(core_h * 0.15):int(core_h * 0.48)]))
+    second = int(core_h * 0.48) + int(np.argmin(smoothed[int(core_h * 0.48):int(core_h * 0.85)]))
+    bands = (smoothed[:first], smoothed[first:second], smoothed[second:])
+    if min(len(b) for b in bands) < 4 or min(float(b.max()) for b in bands) < 0.05 * peak:
+        return None
+    for valley, left, right in ((first, bands[0], bands[1]), (second, bands[1], bands[2])):
+        weaker = min(float(left.max()), float(right.max()))
+        if 1.0 - float(smoothed[valley]) / weaker < 0.5:
+            return None
+    cuts = (y0 + first, y0 + second)
+    return [image[:cuts[0], :], image[cuts[0]:cuts[1], :], image[cuts[1]:, :]]
+
+
+def _split_once(image: np.ndarray, allow_shape_fallback: bool) -> list[np.ndarray]:
     """Split a rectified plate into 1 or 2 line images at the gap between its text lines.
 
     Returns line crops top-to-bottom. A plate with no two-line structure (a Bhutan single-line
@@ -194,7 +240,7 @@ def split_lines(image: np.ndarray) -> list[np.ndarray]:
         and core_h - valley >= min_gap
     )
     two_line_shape = width / max(1, height) <= TWO_LINE_MAX_ASPECT
-    if not confident and not (two_line_shape and depth >= 0.2):
+    if not confident and not (allow_shape_fallback and two_line_shape and depth >= 0.2):
         return [image]
 
     cut = y0 + valley
@@ -207,10 +253,14 @@ def split_lines(image: np.ndarray) -> list[np.ndarray]:
 def prepare_lines(plate_bgr: np.ndarray, layout: str | None = None) -> tuple[list[np.ndarray], bool]:
     """The full rectify -> split -> upscale pipeline. Returns (line images, used_quad).
 
-    layout None decides one-line versus two-line from the plate's shape; "one" / "two" force either reading, which
-    recognise.read_plate uses as a fallback when the first reading does not parse as a plate.
+    layout None decides one-line versus two-line from the plate's shape; "one" / "two" force either reading and
+    "three" allows a province plate's third line. recognise.read_plate uses them as fallbacks when the first reading
+    does not parse as a plate.
     """
-    rectified = rectify(plate_bgr, layout)
-    lines = [rectified.image] if rectified.one_line else split_lines(rectified.image)
+    rectified = rectify(plate_bgr, "two" if layout == "three" else layout)
+    if rectified.one_line:
+        lines = [rectified.image]
+    else:
+        lines = split_lines(rectified.image, max_lines=3 if layout == "three" else 2)
     upscaled = [upscale_for_recognition(line) for line in lines]
     return upscaled, rectified.used_quad

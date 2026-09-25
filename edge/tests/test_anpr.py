@@ -259,3 +259,29 @@ def test_prepare_lines_layout_override_forces_the_other_reading():
     assert len(rectify.prepare_lines(two_line, "one")[0]) == 1
     one_line = _bordered_plate([(40, 80)], width=520, height=120)
     assert rectify.rectify(one_line, "two").image.shape[:2] == (rectify.RECT_HEIGHT, rectify.RECT_WIDTH)
+
+
+def test_nepal_grammar_accepts_real_province_plates():
+    assert postprocess.validate_nepal("बागमतीप्रदेश०२०३७प१६४३").valid
+    assert postprocess.validate_nepal("प्रदेश३०२०१३प७१७३").valid
+    assert not postprocess.validate_nepal("बागमतीप्रदेश०२३७प१६४३").valid  # the lot is three digits
+
+
+def test_latin_grammar_accepts_embossed_nepali_plates_and_drops_the_header():
+    assert postprocess.strip_latin_header("BAGMATI B AC 5763") == "BAC5763"
+    assert postprocess.validate_latin("BAGMATIBAC5763").valid
+    assert postprocess.validate_latin("BP-1-A1234").valid
+    assert not postprocess.validate_latin("BAC576").valid
+
+
+def test_strip_latin_header_drops_stray_edge_characters():
+    assert postprocess.strip_latin_header("EBAB3985") == "BAB3985"
+    assert postprocess.strip_latin_header("BAC5297)") == "BAC5297"
+
+
+def test_three_line_split_is_opt_in_and_finds_a_province_plate():
+    # Header, lot line and serial line, like "बागमती प्रदेश-०२" / "०३१ प" / "२०५०".
+    province = _bordered_plate([(30, 60), (95, 150), (190, 270)])
+    assert len(rectify.split_lines(province, max_lines=3)) == 3
+    two_line = _bordered_plate([(55, 125), (175, 245)])
+    assert len(rectify.split_lines(two_line)) == 2

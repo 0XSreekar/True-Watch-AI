@@ -152,15 +152,15 @@ def _route_by_grammar(devanagari_lines: Sequence[LineReading], latin_lines: Sequ
     _choose_script.
     """
     try:  # imported as anpr.recognise (tests, the edge app) or as a top-level module (the anpr scripts)
-        from .postprocess import validate_bhutan, validate_nepal
+        from .postprocess import validate_latin, validate_nepal
     except ImportError:
-        from postprocess import validate_bhutan, validate_nepal
+        from postprocess import validate_latin, validate_nepal
 
     def joined(lines: Sequence[LineReading]) -> str:
         return unicodedata.normalize("NFC", "".join(line.text.replace(" ", "") for line in lines))
 
     nepal = validate_nepal(joined(devanagari_lines)).valid
-    bhutan = validate_bhutan("".join(line.text for line in latin_lines).replace(" ", "")).valid
+    bhutan = validate_latin("".join(line.text for line in latin_lines).replace(" ", "")).valid
     if nepal and not bhutan:
         return "devanagari"
     if bhutan and not nepal:
@@ -187,6 +187,12 @@ def recognise_plate(line_images: Sequence[np.ndarray]) -> RecognitionResult:
     # characters with inter-field spaces removed; joining lines with no
     # separator reproduces the same convention for a predicted string.
     text = unicodedata.normalize("NFC", "".join(line.text.replace(" ", "") for line in chosen))
+    if script == "latin":
+        try:
+            from .postprocess import strip_latin_header
+        except ImportError:
+            from postprocess import strip_latin_header
+        text = strip_latin_header(text)  # an embossed plate's printed "BAGMATI" is not part of the registration
     return RecognitionResult(
         text=text,
         script=script,
@@ -204,20 +210,27 @@ def read_plate(plate_bgr: np.ndarray) -> RecognitionResult:
     """
     try:
         from . import rectify
-        from .postprocess import validate_bhutan, validate_nepal
+        from .postprocess import validate_latin, validate_nepal
     except ImportError:  # run as a top-level module (tests, evaluate.py from edge/anpr)
         import rectify
-        from postprocess import validate_bhutan, validate_nepal
+        from postprocess import validate_latin, validate_nepal
 
     def parses(result: RecognitionResult) -> bool:
-        check = validate_nepal if result.script == "devanagari" else validate_bhutan
+        check = validate_nepal if result.script == "devanagari" else validate_latin
         return check(result.text).valid
 
     first_lines, _ = rectify.prepare_lines(plate_bgr)
     first = recognise_plate(first_lines)
     if parses(first):
         return first
-    other_layout = "two" if len(first_lines) == 1 else "one"
-    second = recognise_plate(rectify.prepare_lines(plate_bgr, other_layout)[0])
-    return second if parses(second) else first
+    # Province plates (three printed lines) first, then the other one-line / two-line reading.
+    fallbacks = ("three", "one") if len(first_lines) == 2 else ("two", "three")
+    for layout in fallbacks:
+        lines = rectify.prepare_lines(plate_bgr, layout)[0]
+        if len(lines) == len(first_lines) and layout != "one":
+            continue  # the forced layout produced the same split; its reading would be the same
+        candidate = recognise_plate(lines)
+        if parses(candidate):
+            return candidate
+    return first
 

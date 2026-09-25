@@ -130,7 +130,40 @@ def to_devanagari(number: int, digits: list[str], width: int) -> str:
     return "".join(digits[int(ch)] for ch in text)
 
 
+def compose_province(rng: random.Random, config: dict) -> dict:
+    """Province plate: header "बागमती प्रदेश-०२", then lot (3 digits) + class, then the serial.
+
+    Three printed lines (motorbikes) or two, with lot, class and serial on one line (cars). The registration text
+    joins everything without spaces or hyphens: "बागमतीप्रदेश०२०३१प२०५०".
+    """
+    digits = config["digits"]
+    province = weighted_choice(rng, config["provinces"])
+    office = to_devanagari(rng.randint(1, int(config["province_office_max"])), digits, 2)
+    lot = to_devanagari(rng.randint(1, int(config["province_lot_max"])), digits, 3)
+    classes = config["vehicle_classes"]["confirmed"] + config["vehicle_classes"]["unverified"]
+    vehicle_class = rng.choice(classes)
+    serial = rng.randint(0, 10 ** int(config["serial"]["digits"]) - 1)
+    serial_text = to_devanagari(serial, digits, int(config["serial"]["digits"]))
+    header = f"{province['name']} {office}"
+    three = int(config["layout"].get("lines", 3)) == 3
+    lines = [header, f"{lot} {vehicle_class}", serial_text] if three else [header, f"{lot} {vehicle_class} {serial_text}"]
+    shown_header = f"{province['name']}-{office}" if rng.random() < 0.7 else header
+    return {
+        "serial_int": serial,
+        "text": f"{province['name']}{office}{lot}{vehicle_class}{serial_text}".replace(" ", ""),
+        "line1": lines[0],
+        "line2": lines[1],
+        "lines": lines,
+        "display_lines": [shown_header] + lines[1:],
+        # Band share of the text height and font scale per line: a small header over larger numbers.
+        "bands": [0.24, 0.33, 0.43] if three else [0.36, 0.64],
+        "scales": [0.55, 0.95, 1.2] if three else [0.62, 1.0],
+    }
+
+
 def compose(rng: random.Random, config: dict) -> dict:
+    if config.get("layout", {}).get("top_line") == "province":
+        return compose_province(rng, config)
     digits = config["digits"]
     zones = config["zones"]["confirmed"] + config["zones"]["unverified"]
     classes = config["vehicle_classes"]["confirmed"] + config["vehicle_classes"]["unverified"]
@@ -221,7 +254,25 @@ def render_plate(fields: dict, colours: dict, layout: dict, font_path: Path, rng
     # bands and one font, exactly as before.
     bands = [(margin, usable_height), (margin + usable_height + gap, usable_height)]
     fonts = [font, font]
-    if "display1" in fields and not fields["line2"]:
+    if "display_lines" in fields:
+        # Province plates: N bands sized by fields["bands"], each line's font scaled and shrunk to fit.
+        text_height = height - 2 * margin - gap * (len(fields["display_lines"]) - 1)
+        bands, fonts, top = [], [], margin
+        for share, scale, line in zip(fields["bands"], fields["scales"], fields["display_lines"]):
+            band = int(text_height * share)
+            bands.append((top, band))
+            top += band + gap
+            line_size = max(12, int(band * 0.8 * min(1.0, scale + 0.15)))
+            while True:
+                line_font = ImageFont.truetype(str(font_path), line_size)
+                if variation:
+                    line_font.set_variation_by_name(variation)
+                box = draw.textbbox((0, 0), line, font=line_font)
+                if (box[2] - box[0] <= width - 2 * margin and box[3] - box[1] <= band * 1.05) or line_size <= 12:
+                    break
+                line_size = int(line_size * 0.92)
+            fonts.append(line_font)
+    elif "display1" in fields and not fields["line2"]:
         bands = [(margin, height - 2 * margin)]
         line_size = max(12, int((height - 2 * margin) * 0.78))
         while True:
@@ -254,7 +305,8 @@ def render_plate(fields: dict, colours: dict, layout: dict, font_path: Path, rng
     if varied and rng.random() < 0.35:
         emboss = 0  # painted plate: no pressed relief
 
-    for index, line in enumerate(l for l in (fields.get("display1", fields["line1"]), fields["line2"]) if l):
+    shown = fields.get("display_lines") or [l for l in (fields.get("display1", fields["line1"]), fields["line2"]) if l]
+    for index, line in enumerate(shown):
         font = fonts[index]
         band_top, band_height = bands[index]
         box = draw.textbbox((0, 0), line, font=font)
@@ -358,6 +410,15 @@ def main() -> int:
 
     config = load_config(Path(args.config))
     layout = config["layout"]
+    if layout.get("top_line") == "province":
+        from PIL import features
+
+        if not features.check("raqm"):
+            # Without complex shaping "प्रदेश" renders with a visible virama and "लुम्बिनी" with its vowel sign after the
+            # consonants: glyph shapes no real plate has, so the corpus would teach the wrong thing.
+            log("ERROR", "province plates need Pillow with libraqm", fix="brew install libraqm; "
+                "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib python3 gen_plates.py ...")
+            return 2
     out_root = Path(args.out).resolve()
     images_dir = out_root / "images"
     clean_dir = out_root / "clean"
@@ -389,9 +450,12 @@ def main() -> int:
         charset.update(fields["text"])
 
         # Real-layout plates carry their line texts as a third column (build_line_labels.py reads it).
-        label = fields["text"] + (
-            f"\t{fields['line1']}" + (f"|{fields['line2']}" if fields["line2"] else "") if "display1" in fields else ""
-        )
+        if "lines" in fields:
+            label = fields["text"] + "\t" + "|".join(fields["lines"])
+        else:
+            label = fields["text"] + (
+                f"\t{fields['line1']}" + (f"|{fields['line2']}" if fields["line2"] else "") if "display1" in fields else ""
+            )
         if target.exists() and not args.force:
             counts["skipped"] += 1
             rows.append((f"out/images/{name}", label, fields["serial_int"]))

@@ -47,6 +47,42 @@ NEPAL_PLATE_RE = re.compile(
 
 BHUTAN_PLATE_RE = re.compile(r"^(?P<prefix>BP)-(?P<district>\d)-(?P<letter>[A-Z])(?P<serial>\d{4})$")
 
+# Province plates as photographed in the Kathmandu valley (2026-09-26 transcriptions): a province header, a two-digit
+# office code, a three-digit lot, a class letter and the serial, e.g. "बागमती प्रदेश-०२ / ०३७ प / १६४३" ->
+# "बागमतीप्रदेश०२०३७प१६४३", or with the older numbered header "प्रदेश ३-०२ / ०१३ प / ७१७३".
+NEPAL_PROVINCES = ("कोशी", "मधेश", "मधेस", "बागमती", "गण्डकी", "लुम्बिनी", "कर्णाली", "सुदूरपश्चिम")
+NEPAL_PROVINCE_RE = re.compile(
+    r"^(?P<province>(?:" + "|".join(NEPAL_PROVINCES) + r")?प्रदेश[०-९]?)"
+    r"(?P<office>[०-९]{2})"
+    r"(?P<lot>[०-९]{3})"
+    r"(?P<vehicle_class>[क-ह][ऀ-ःा-ौ]?)"
+    r"(?P<serial>[०-९]{1,4})$"
+)
+
+# Embossed Nepali plates are Latin: a province letter, one or two class letters and four digits ("B AC 5763"), under a
+# small printed province name ("BAGMATI") that is not part of the registration.
+NEPAL_EMBOSSED_RE = re.compile(r"^(?P<province>[A-Z])(?P<letters>[A-Z]{1,2})(?P<serial>\d{4})$")
+_EMBOSSED_HEADERS = ("SUDURPASHCHIM", "SUDURPASCHIM", "BAGMATI", "GANDAKI", "LUMBINI", "KARNALI", "MADHESH", "MADHES", "KOSHI")
+
+
+def strip_latin_header(text: str) -> str:
+    """Canonical Latin reading of an embossed plate: "BAGMATI B AC 5763" -> "BAC5763".
+
+    Upper-cases, keeps letters and digits only, drops a leading printed province name, and when the rest still does
+    not parse but ends in a registration (a stray bolt or edge read as "E" or ")" in "EBAB3985"), keeps that ending.
+    Bhutan plates keep their hyphens: validate_bhutan is tried on the raw reading first.
+    """
+    text = re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFC", text).upper())
+    for header in _EMBOSSED_HEADERS:
+        if text.startswith(header) and len(text) > len(header):
+            text = text[len(header):]
+            break
+    if not NEPAL_EMBOSSED_RE.match(text):
+        tail = re.search(r"[A-Z]{2,3}\d{4}$", text)
+        if tail and NEPAL_EMBOSSED_RE.match(tail.group(0)):
+            return tail.group(0)
+    return text
+
 
 @dataclass(frozen=True)
 class GrammarResult:
@@ -57,7 +93,7 @@ class GrammarResult:
 
 def validate_nepal(text: str) -> GrammarResult:
     text = unicodedata.normalize("NFC", text)
-    match = NEPAL_PLATE_RE.match(text)
+    match = NEPAL_PLATE_RE.match(text) or NEPAL_PROVINCE_RE.match(text)
     if not match:
         return GrammarResult(valid=False, script="devanagari", fields={})
     return GrammarResult(valid=True, script="devanagari", fields=match.groupdict())
@@ -71,9 +107,20 @@ def validate_bhutan(text: str) -> GrammarResult:
     return GrammarResult(valid=True, script="latin", fields=match.groupdict())
 
 
+def validate_latin(text: str) -> GrammarResult:
+    """A Latin reading is a plate if it is a Bhutan plate or, header stripped, an embossed Nepali plate."""
+    bhutan = validate_bhutan(text)
+    if bhutan.valid:
+        return bhutan
+    match = NEPAL_EMBOSSED_RE.match(strip_latin_header(text))
+    if not match:
+        return GrammarResult(valid=False, script="latin", fields={})
+    return GrammarResult(valid=True, script="latin", fields=match.groupdict())
+
+
 def validate(text: str, script: str) -> GrammarResult:
     if script == "latin":
-        return validate_bhutan(text)
+        return validate_latin(text)
     return validate_nepal(text)
 
 
