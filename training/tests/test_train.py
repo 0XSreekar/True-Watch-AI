@@ -1239,17 +1239,58 @@ def test_notebook_helpers_find_inputs_at_any_depth_and_budget_the_session(tmp_pa
     assert abs(left - (12.0 - 3.0 - 0.75 - 0.25)) < 0.01
 
 
-def test_notebook_detects_kaggle_and_colab_and_keeps_both_secret_paths():
+def _platform_detection(kaggle_mount: bool, colab_importable: bool, env: dict) -> dict:
+    """Run the notebook's platform-detection lines under simulated conditions."""
+    import types
+
+    cell = next(c for c in notebook_code_cells() if 'ON_KAGGLE = Path("/kaggle/input").exists()' in c)
+    snippet = cell[cell.index("ON_KAGGLE = "):cell.index("if ON_COLAB:")]
+
+    class FakePath:
+        def __init__(self, raw):
+            self.raw = raw
+
+        def exists(self):
+            return kaggle_mount if self.raw == "/kaggle/input" else False
+
+        def is_dir(self):
+            return self.raw == "/content" and not kaggle_mount and colab_importable
+
+    fake_os = types.SimpleNamespace(environ=env)
+    saved = {k: sys.modules.get(k) for k in ("google", "google.colab")}
+    try:
+        if colab_importable:
+            sys.modules["google"] = types.ModuleType("google")
+            sys.modules["google.colab"] = types.ModuleType("google.colab")
+        else:
+            sys.modules["google.colab"] = None  # makes the import raise ImportError
+        namespace = {"Path": FakePath, "os": fake_os}
+        exec(snippet, namespace)
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = value
+    return {"kaggle": namespace["ON_KAGGLE"], "colab": namespace["ON_COLAB"]}
+
+
+def test_notebook_platform_detection_prefers_kaggle_even_with_the_colab_package_installed():
+    # Kaggle's image ships google.colab; a session there must still be Kaggle, never "both".
+    assert _platform_detection(True, True, {"KAGGLE_KERNEL_RUN_TYPE": "Batch"}) == {"kaggle": True, "colab": False}
+    assert _platform_detection(False, True, {"COLAB_RELEASE_TAG": "release"}) == {"kaggle": False, "colab": True}
+    assert _platform_detection(False, False, {}) == {"kaggle": False, "colab": False}
+
+
+def test_notebook_keeps_both_secret_paths():
     text = "\n".join(notebook_code_cells())
-    assert 'ON_KAGGLE = Path("/kaggle/input").exists()' in text
-    assert "import google.colab" in text and "ON_COLAB = True" in text
     assert "UserSecretsClient" in text          # Kaggle secrets, unchanged in the parameters cell
     assert "from google.colab import userdata" in text   # Colab secrets, in the platform cell
 
 
 def test_notebook_colab_branch_redirects_every_path_the_kaggle_branch_sets():
     cells = notebook_code_cells()
-    platform_cell = next(c for c in cells if "ON_KAGGLE and ON_COLAB" in c)
+    platform_cell = next(c for c in cells if 'ON_KAGGLE = Path("/kaggle/input").exists()' in c)
     colab_branch = platform_cell[platform_cell.index("if ON_COLAB:"):]
     for name in ("INPUT_ROOT", "WORK", "CODE", "RUNS", "OUT", "SESSION_HOURS", "PERSIST"):
         assert f"{name} = " in colab_branch, f"platform cell never reassigns {name} for Colab"
