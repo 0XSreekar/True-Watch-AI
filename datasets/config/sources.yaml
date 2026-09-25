@@ -80,6 +80,57 @@ sources:
     modalities: [visible, lwir]
     default_dest: var/datasets/llvip
 
+  # Section 1.7: elevated-view and thermal sources for the border-camera viewpoint, all converted
+  # by 12_convert_extra.py --dataset <name>. Third-party Kaggle mirrors of the originals.
+  hituav:
+    enabled: true
+    kind: kaggle
+    kaggle_ref: pandrii000/hituav-a-highaltitude-infrared-thermal-dataset
+    mirror_of: "HIT-UAV (https://github.com/suojiashun/HIT-UAV-Infrared-Thermal-Dataset)"
+    third_party_mirror: true
+    marker: [images/train, labels/train, dataset.yaml]
+    licence: "CC BY 4.0 (original repository)"
+    redistribution: attribution_required
+    modalities: [lwir]
+    default_dest: var/datasets/hituav
+
+  aaupdt:
+    enabled: true
+    kind: kaggle
+    kaggle_ref: noorulhuda90/aaupdt
+    mirror_of: "AAU-PD-T, Aalborg University Visual Analysis and Perception lab"
+    third_party_mirror: true
+    marker: [Train, Test, Annotation_Format.txt]
+    licence: open_question        # OQ-15: described as publicly available; no licence is named
+    redistribution: assume_forbidden
+    modalities: [lwir]
+    default_dest: var/datasets/aaupdt
+
+  birdsai:
+    enabled: true
+    kind: kaggle
+    kaggle_ref: manitagarwal/birdsai
+    mirror_of: "BIRDSAI / Conservation Drones, LILA BC (https://lila.science/datasets/conservationdrones/)"
+    third_party_mirror: true
+    marker: [TestReal]
+    frame_step: 10                # consecutive video frames are near-identical
+    licence: "CDLA-Permissive-1.0 (LILA BC)"
+    redistribution: assume_forbidden
+    modalities: [lwir]
+    default_dest: var/datasets/birdsai
+
+  visdrone:
+    enabled: true
+    kind: kaggle
+    kaggle_ref: kushagrapandya/visdrone-dataset
+    mirror_of: "VisDrone2019-DET, AISKYEYE, Tianjin University (https://github.com/VisDrone/VisDrone-Dataset)"
+    third_party_mirror: true
+    marker: [VisDrone.yaml]
+    licence: "CC BY-NC-SA 3.0, academic use only"
+    redistribution: assume_forbidden
+    modalities: [visible]
+    default_dest: var/datasets/visdrone
+
   kaist:
     enabled: false
     disabled_reason: >-

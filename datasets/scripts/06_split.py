@@ -212,7 +212,55 @@ def build_assignment(records: list[dict], config: dict, seed: int, log: Logger, 
         if key in assignment and assignment[key] == "test":
             raise SequenceSeparationError(f"LLVIP scene {key} holds both official train and test frames")
         assignment[key] = "val" if key in to_val else "train"
+    # Elevated-view and thermal sources (section 1.7), one generic rule per source.
+    for name, rule in sorted((config.get("extra_sources") or {}).items()):
+        assign_extra_source(name, rule, records, assignment, seed, counters)
     return assignment
+
+
+def assign_extra_source(name: str, rule: dict, records: list[dict], assignment: dict[str, str], seed: int,
+                        counters: Counters) -> None:
+    """policy `official`: official_to maps each official split to ours; an optional `carve` moves a
+    frame-weighted share of one official split's sequences to val (the rest keep official_to).
+    policy `resplit`: the official split is ignored (it separates neighbouring frames of one
+    sequence) and whole sequences are carved into train/val/test by `proportions`."""
+    sizes: Counter = Counter()
+    official_of: dict[str, set[str]] = defaultdict(set)
+    for record in records:
+        if record.get("source") != name:
+            continue
+        sizes[record["sequence_key"]] += 1
+        official_of[record["sequence_key"]].add(record.get("official_split", "unknown"))
+    if not sizes:
+        return
+    rng = random.Random(f"{seed}-{name}")
+    if rule.get("policy") == "resplit":
+        shares = rule["proportions"]
+        remaining = dict(sizes)
+        to_val = carve(remaining, float(shares["val"]), rng)
+        for key in to_val:
+            remaining.pop(key)
+        test_share = float(shares["test"]) / max(1e-9, 1.0 - float(shares["val"]))
+        to_test = carve(remaining, test_share, rng)
+        for key in sizes:
+            assignment[key] = "val" if key in to_val else ("test" if key in to_test else "train")
+        counters.bump(f"{name}.resplit_sequences", len(sizes))
+        return
+    route = rule.get("official_to", {})
+    carve_rule = rule.get("carve") or {}
+    carve_pool = {k: v for k, v in sizes.items() if official_of[k] == {carve_rule.get("official")}} if carve_rule else {}
+    to_val = carve(carve_pool, float(carve_rule.get("val", 0.0)), rng) if carve_pool else set()
+    for key in sizes:
+        officials = official_of[key]
+        if len(officials) != 1:
+            raise SequenceSeparationError(f"{name} sequence {key} spans official splits {sorted(officials)}")
+        official = next(iter(officials))
+        if key in to_val:
+            assignment[key] = "val"
+        elif official in route:
+            assignment[key] = route[official]
+        else:
+            counters.bump(f"{name}.official_{official}_unrouted")
 
 
 def decimate_flir_test(records: list[dict], step: int, counters: Counters) -> tuple[list[dict], list[dict]]:

@@ -78,6 +78,15 @@ idd:
   official_test: unused
   sequence_key: drive_folder
 
+# Section 1.7. Elevated-view and thermal sources (12_convert_extra.py), split by 06_split.py's
+# assign_extra_source(). `resplit` ignores an official split that separates neighbouring frames
+# of one sequence and carves whole sequences (frame-weighted, seeded) instead.
+extra_sources:
+  hituav:   {policy: resplit, proportions: {train: 0.70, val: 0.15, test: 0.15}}
+  birdsai:  {policy: resplit, proportions: {train: 0.70, val: 0.15, test: 0.15}}
+  aaupdt:   {policy: official, official_to: {train: train, test: test}, carve: {official: test, val: 0.5}}
+  visdrone: {policy: official, official_to: {train: train, val: val, test: test}}
+
 # Sections 3.3 and 3.5. Read by 07_negatives.py and 08_tile_farfield.py through
 # _lib.plan_object_tiles, so both see the same tile plan.
 composition:

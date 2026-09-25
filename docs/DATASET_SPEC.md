@@ -199,6 +199,37 @@ procedure rather than a guess.
 
 ---
 
+### 1.7 Elevated-view and thermal sources (added after the first training run)
+
+The first detector run (20 epochs, blended validation P 0.836, R 0.593) is precise but misses
+small and distant objects. All Phase 1 sources are dashcam (IDD, FLIR) or street-level CCTV
+(LLVIP); a border camera is elevated and looks down at small people on roads, trails, fences and
+river banks. Four sources that cover that view are added, each converted by
+`12_convert_extra.py --dataset <name>`; licences were checked at the original release.
+
+| source | licence (original) | content | class map |
+|---|---|---|---|
+| **HIT-UAV** | CC BY 4.0 | 2,898 LWIR frames from a UAV at 60-130 m, camera 30-90 deg, day and night | Person -> person, Bicycle -> two_wheeler, Car -> car; OtherVehicle and DontCare dropped as unlabelled objects |
+| **AAU-PD-T** | "publicly available", no licence named: **OQ-15** | 2,941 LWIR frames from fixed cameras about 9 m above sports fields, in snow, wind, shadow and similar-temperature conditions | person -> person |
+| **BIRDSAI** (real videos only) | CDLA-Permissive-1.0 | aerial LWIR night video over wildlife reserves; humans and animals | human (class 1) -> person; animals (class 0) are unlabelled, so animal-only frames are hard negatives |
+| **VisDrone2019-DET** | CC BY-NC-SA 3.0, academic use | 8,629 visible drone frames of Asian streets | pedestrian, people -> person; bicycle, motor, tricycle, awning-tricycle -> two_wheeler; car, van -> car; truck, bus -> truck; ignored regions and "others" dropped as unlabelled objects |
+
+Two facts were established by drawing boxes on real frames rather than read from documentation:
+BIRDSAI class 1 is a human and class 0 an animal, and a BIRDSAI CSV frame number is the position
+in that video's sorted image list, not the number in the file name (video 0000000011's images
+start at `_0000000087` while its CSV starts at frame 0). BIRDSAI keeps every 10th annotated frame
+(`sources.yaml birdsai.frame_step`), since consecutive frames are near-identical.
+
+Considered and not added: TinyPerson (the original release names no licence; VisDrone covers
+the same tiny-person case), M3FD (data licence unclear), PDIWS (paper withdrawn, no licence).
+
+Splitting (`splits.yaml extra_sources`): HIT-UAV's official split places neighbouring frames of
+one flight in different splits, so HIT-UAV is re-split by flight (the first four fields of the
+file name); BIRDSAI is re-split by video; VisDrone keeps its official split, which is already by
+clip; AAU-PD-T's official train goes to train, and half of its official test frames (which carry
+no camera id) go to val. The added LWIR raises the IR share, so the balance rule (section 2.7)
+drops fewer IDD drives.
+
 ## 2. Split policy
 
 Three splits plus one gate set. The policy exists to make two specific failures structurally
@@ -821,6 +852,8 @@ Nothing below is asserted as fact anywhere else in this document.
 - **OQ-8 — zone-letter orthography**: the exact akshara for each of the fourteen zones. Only `बा` is
   confirmed, by `MEASUREMENTS.md` §4.
 - **OQ-9 — vehicle-class letter inventory**. Only `प` is confirmed, by `MEASUREMENTS.md` §4.
+- **OQ-15 — AAU-PD-T terms.** The Aalborg release and its Kaggle mirror describe the data as
+  publicly available but name no licence. It is used for research training only, never re-hosted.
 - **OQ-10 — plate colour series to ownership class mapping.**
 - **OQ-11 — the cart outcome.** Resolved by running the §1.5 procedure, not by discussion. Until
   the review sheet is filled in, every build withdraws class 4.
