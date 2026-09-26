@@ -34,14 +34,66 @@ CONFUSIONS_PATH = HERE / "data" / "confusions.json"
 _DEVANAGARI_DIGIT = re.compile(r"[०-९]")
 _DEVANAGARI_LETTER = re.compile(r"[ऀ-ॡॢ-॥॰-ॿ]")
 
+# Zone: a zone or province code, up to 4 code points so conjuncts such as "प्र" (प + virama + र,
+# the provincial format in backend/src/data/mockData.js "प्र १ ख २३४५") are accepted; lot: 1-2
+# digits (provincial plates use one); class: one letter, optionally with a vowel sign; serial: 1-4
+# digits. The synthetic corpus (2-code-point zones, 2-digit lots, 4-digit serials) is a subset.
 NEPAL_PLATE_RE = re.compile(
-    r"^(?P<zone>[ऀ-ॡ॰-ॿ]{1,2})"
-    r"(?P<lot>[०-९]{2})"
-    r"(?P<vehicle_class>[ऀ-ॡ॰-ॿ])"
-    r"(?P<serial>[०-९]{4})$"
+    r"^(?P<zone>[ऀ-ॡ॰-ॿ]{1,4})"
+    r"(?P<lot>[०-९]{1,2})"
+    r"(?P<vehicle_class>[क-ह][ऀ-ःा-ौ]?)"
+    r"(?P<serial>[०-९]{1,4})$"
 )
 
 BHUTAN_PLATE_RE = re.compile(r"^(?P<prefix>BP)-(?P<district>\d)-(?P<letter>[A-Z])(?P<serial>\d{4})$")
+
+# Province plates as photographed in the Kathmandu valley (2026-09-26 transcriptions): a province header, a two-digit
+# office code, a three-digit lot, a class letter and the serial, e.g. "बागमती प्रदेश-०२ / ०३७ प / १६४३" ->
+# "बागमतीप्रदेश०२०३७प१६४३", or with the older numbered header "प्रदेश ३-०२ / ०१३ प / ७१७३".
+NEPAL_PROVINCES = ("कोशी", "मधेश", "मधेस", "बागमती", "गण्डकी", "लुम्बिनी", "कर्णाली", "सुदूरपश्चिम")
+NEPAL_PROVINCE_RE = re.compile(
+    r"^(?P<province>(?:" + "|".join(NEPAL_PROVINCES) + r")?प्रदेश[०-९]?)"
+    r"(?P<office>[०-९]{2})"
+    r"(?P<lot>[०-९]{3})"
+    r"(?P<vehicle_class>[क-ह][ऀ-ःा-ौ]?)"
+    r"(?P<serial>[०-९]{1,4})$"
+)
+
+# An inline province plate prints the number on one line and the small header above its gap; read on its own, the
+# number line is lot + class + serial, and the header crop is province name + "प्रदेश" (+ digit) + office code.
+PROVINCE_CORE_RE = re.compile(r"^[०-९]{3}[क-ह][ऀ-ःा-ौ]?[०-९]{1,4}$")
+PROVINCE_HEADER_RE = re.compile(r"^(?:" + "|".join(NEPAL_PROVINCES) + r")?प्रदेश[०-९]?[०-९]{2}$")
+
+
+def province_header(text: str) -> str | None:
+    """A header reading cleaned to "बागमतीप्रदेश०२" when it is one, else None (spaces, hyphens, dots dropped)."""
+    text = re.sub(r"[\s.\-]", "", unicodedata.normalize("NFC", text))
+    return text if PROVINCE_HEADER_RE.match(text) else None
+
+
+# Embossed Nepali plates are Latin: a province letter, one or two class letters and four digits ("B AC 5763"), under a
+# small printed province name ("BAGMATI") that is not part of the registration.
+NEPAL_EMBOSSED_RE = re.compile(r"^(?P<province>[A-Z])(?P<letters>[A-Z]{1,2})(?P<serial>\d{4})$")
+_EMBOSSED_HEADERS = ("SUDURPASHCHIM", "SUDURPASCHIM", "BAGMATI", "GANDAKI", "LUMBINI", "KARNALI", "MADHESH", "MADHES", "KOSHI")
+
+
+def strip_latin_header(text: str) -> str:
+    """Canonical Latin reading of an embossed plate: "BAGMATI B AC 5763" -> "BAC5763".
+
+    Upper-cases, keeps letters and digits only, drops a leading printed province name, and when the rest still does
+    not parse but ends in a registration (a stray bolt or edge read as "E" or ")" in "EBAB3985"), keeps that ending.
+    Bhutan plates keep their hyphens: validate_bhutan is tried on the raw reading first.
+    """
+    text = re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFC", text).upper())
+    for header in _EMBOSSED_HEADERS:
+        if text.startswith(header) and len(text) > len(header):
+            text = text[len(header):]
+            break
+    if not NEPAL_EMBOSSED_RE.match(text):
+        tail = re.search(r"[A-Z]{2,3}\d{4}$", text)
+        if tail and NEPAL_EMBOSSED_RE.match(tail.group(0)):
+            return tail.group(0)
+    return text
 
 
 @dataclass(frozen=True)
@@ -53,7 +105,7 @@ class GrammarResult:
 
 def validate_nepal(text: str) -> GrammarResult:
     text = unicodedata.normalize("NFC", text)
-    match = NEPAL_PLATE_RE.match(text)
+    match = NEPAL_PLATE_RE.match(text) or NEPAL_PROVINCE_RE.match(text)
     if not match:
         return GrammarResult(valid=False, script="devanagari", fields={})
     return GrammarResult(valid=True, script="devanagari", fields=match.groupdict())
@@ -67,9 +119,47 @@ def validate_bhutan(text: str) -> GrammarResult:
     return GrammarResult(valid=True, script="latin", fields=match.groupdict())
 
 
+# Zonal codes of old-style plates (datasets/plates/plates.yaml, confirmed and unverified) plus codes seen on photographs.
+KNOWN_ZONES = frozenset(("बा", "मे", "को", "सा", "ज", "ना", "ग", "धौ", "लु", "रा", "भे", "से", "म", "क", "स", "प्र"))
+
+
+def extract_nepal_plate(text: str) -> str | None:
+    """The longest stretch of a Devanagari reading that is a whole plate, or None.
+
+    A background strip or a hallucinated province header read as an extra line ("बतपरेश०४बा२च९५८५") leaves junk around
+    a correct registration; a plate cannot contain that junk, so the grammar can cut it away.
+    """
+    text = unicodedata.normalize("NFC", text)
+    best, best_rank = None, None
+    for start in range(len(text)):
+        for end in range(start + 1, len(text) + 1):
+            piece = text[start:end]
+            match = NEPAL_PROVINCE_RE.match(piece) or NEPAL_PLATE_RE.match(piece)
+            if not match:
+                continue
+            # The loose grammar also accepts junk ("परेश०४बा२": a four-letter "zone", "बा" as the class), so a known
+            # zone code and a full four-digit serial rank first and length only breaks ties.
+            fields = match.groupdict()
+            rank = ("province" in fields or fields.get("zone") in KNOWN_ZONES, len(fields["serial"]) == 4, len(piece))
+            if best_rank is None or rank > best_rank:
+                best, best_rank = piece, rank
+    return best
+
+
+def validate_latin(text: str) -> GrammarResult:
+    """A Latin reading is a plate if it is a Bhutan plate or, header stripped, an embossed Nepali plate."""
+    bhutan = validate_bhutan(text)
+    if bhutan.valid:
+        return bhutan
+    match = NEPAL_EMBOSSED_RE.match(strip_latin_header(text))
+    if not match:
+        return GrammarResult(valid=False, script="latin", fields={})
+    return GrammarResult(valid=True, script="latin", fields=match.groupdict())
+
+
 def validate(text: str, script: str) -> GrammarResult:
     if script == "latin":
-        return validate_bhutan(text)
+        return validate_latin(text)
     return validate_nepal(text)
 
 

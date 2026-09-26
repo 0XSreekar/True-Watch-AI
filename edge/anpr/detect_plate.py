@@ -76,7 +76,9 @@ class PlateCandidate:
 
 
 def _class_name(detection: VehicleDetection) -> str:
-    return str(getattr(detection, "cls", "") or "").lower()
+    # The fusion pipeline's Detection names the field `class_name` (edge/pipeline/types.py); other callers use `cls`.
+    # Reading only `cls` made every real vehicle look class-less, so no plate was ever scanned.
+    return str(getattr(detection, "class_name", "") or getattr(detection, "cls", "") or "").lower()
 
 
 def _track_id(detection: VehicleDetection) -> int | None:

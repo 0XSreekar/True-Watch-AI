@@ -67,6 +67,7 @@ def load_labels(path: Path) -> list[tuple[str, str]]:
         if not raw.strip():
             continue
         image_path, _, text = raw.partition("\t")
+        text = text.split("\t")[0]  # an optional third column holds per-line texts (build_line_labels.py)
         if not text:
             continue
         rows.append((image_path, unicodedata.normalize("NFC", text)))
@@ -139,7 +140,7 @@ def evaluate(rows: list[tuple[str, str]], images_root: Path, limit: int | None, 
             )
             used_script = script
         else:
-            result = recognise.recognise_plate(lines)
+            result = recognise.read_plate(image)
             hypothesis = result.text
             used_script = result.script
 

@@ -185,3 +185,136 @@ def test_apply_corrections_with_no_table_is_a_no_op(tmp_path, monkeypatch):
     corrected, corrections = postprocess.apply_corrections("9२", char_confidences=[0.1, 0.1])
     assert corrected == "9२"
     assert corrections == []
+
+
+def _bordered_plate(line_rows, width=520, height=300, border=8):
+    """A light plate with a heavy printed border and dark text bands at the given row ranges."""
+    image = np.full((height, width, 3), 225, dtype=np.uint8)
+    image[:border, :] = image[-border:, :] = 15
+    image[:, :border] = image[:, -border:] = 15
+    for top, bottom in line_rows:
+        for x in range(40, width - 40, 36):  # separate glyph blocks, like characters
+            image[top:bottom, x:x + 24] = 25
+    return image
+
+
+def test_split_lines_ignores_a_heavy_border_that_outweighs_the_text():
+    # The regression behind 11.8% unsplit validation plates: the border rows carried more ink
+    # than either text line, so the lines looked too faint to count as a second band.
+    image = _bordered_plate([(55, 125), (175, 245)])
+    lines = rectify.split_lines(image)
+    assert len(lines) == 2
+    cut = lines[0].shape[0]
+    assert 125 <= cut <= 175, f"cut at row {cut}, expected inside the inter-line gap"
+
+
+def test_split_lines_keeps_a_bordered_single_line_plate_whole():
+    # A long single-line plate (Bhutan-style proportions) must not be cut in half.
+    image = _bordered_plate([(40, 80)], width=520, height=120)
+    assert len(rectify.split_lines(image)) == 1
+
+
+def test_nepal_grammar_accepts_the_provincial_format_from_the_mock_data():
+    # backend/src/data/mockData.js carries "प्र १ ख २३४५": a 3-code-point zone and a 1-digit lot.
+    result = postprocess.validate_nepal("प्र१ख२३४५")
+    assert result.valid
+    assert result.fields["zone"] == "प्र" and result.fields["lot"] == "१"
+
+
+def test_routing_prefers_the_head_whose_reading_is_a_valid_plate():
+    from anpr.recognise import LineReading, _route_by_grammar
+
+    nepali = [LineReading("बा १२", 0.40), LineReading("च ४५६७", 0.40)]
+    latin_noise = [LineReading("8A 12", 0.95), LineReading("F 4567", 0.95)]
+    assert _route_by_grammar(nepali, latin_noise) == "devanagari"
+    bhutan = [LineReading("BP-1-A1234", 0.60)]
+    devanagari_noise = [LineReading("बप", 0.90)]
+    assert _route_by_grammar(devanagari_noise, bhutan) == "latin"
+    assert _route_by_grammar([LineReading("क", 0.5)], [LineReading("X", 0.5)]) is None
+
+
+# --- One-line plates ------------------------------------------------------------------------
+
+
+def test_rectify_keeps_a_one_line_plate_at_its_own_aspect():
+    # A 4.3:1 plate squeezed into the 1.73:1 two-line canvas had its glyphs stretched to over twice their height.
+    plate = _bordered_plate([(40, 80)], width=520, height=120)
+    result = rectify.rectify(plate)
+    assert result.one_line
+    assert result.image.shape[1] == rectify.RECT_WIDTH
+    assert result.image.shape[0] < rectify.RECT_HEIGHT // 2
+
+
+def test_prepare_lines_never_splits_a_one_line_plate():
+    # One text band plus the Devanagari headline above it looked like two lines to the splitter: 43% of synthetic
+    # one-line plates were cut through the text before the source shape was consulted.
+    plate = _bordered_plate([(22, 34), (40, 95)], width=520, height=120)
+    lines, _ = rectify.prepare_lines(plate)
+    assert len(lines) == 1
+
+
+def test_prepare_lines_layout_override_forces_the_other_reading():
+    two_line = _bordered_plate([(55, 125), (175, 245)])
+    assert len(rectify.prepare_lines(two_line)[0]) == 2
+    assert len(rectify.prepare_lines(two_line, "one")[0]) == 1
+    one_line = _bordered_plate([(40, 80)], width=520, height=120)
+    assert rectify.rectify(one_line, "two").image.shape[:2] == (rectify.RECT_HEIGHT, rectify.RECT_WIDTH)
+
+
+def test_nepal_grammar_accepts_real_province_plates():
+    assert postprocess.validate_nepal("बागमतीप्रदेश०२०३७प१६४३").valid
+    assert postprocess.validate_nepal("प्रदेश३०२०१३प७१७३").valid
+    assert not postprocess.validate_nepal("बागमतीप्रदेश०२३७प१६४३").valid  # the lot is three digits
+
+
+def test_latin_grammar_accepts_embossed_nepali_plates_and_drops_the_header():
+    assert postprocess.strip_latin_header("BAGMATI B AC 5763") == "BAC5763"
+    assert postprocess.validate_latin("BAGMATIBAC5763").valid
+    assert postprocess.validate_latin("BP-1-A1234").valid
+    assert not postprocess.validate_latin("BAC576").valid
+
+
+def test_strip_latin_header_drops_stray_edge_characters():
+    assert postprocess.strip_latin_header("EBAB3985") == "BAB3985"
+    assert postprocess.strip_latin_header("BAC5297)") == "BAC5297"
+
+
+def test_three_line_split_is_opt_in_and_finds_a_province_plate():
+    # Header, lot line and serial line, like "बागमती प्रदेश-०२" / "०३१ प" / "२०५०".
+    province = _bordered_plate([(30, 60), (95, 150), (190, 270)])
+    assert len(rectify.split_lines(province, max_lines=3)) == 3
+    two_line = _bordered_plate([(55, 125), (175, 245)])
+    assert len(rectify.split_lines(two_line)) == 2
+
+
+def test_extract_nepal_plate_cuts_junk_around_a_registration():
+    assert postprocess.extract_nepal_plate("बतपरेश०४बा२च९५८५") == "बा२च९५८५"
+    assert postprocess.extract_nepal_plate("बा१६च९३४५बागमतीरदेश०") == "बा१६च९३४५"
+    assert postprocess.extract_nepal_plate("ह६") is None
+
+
+def test_deskew_levels_a_tilted_two_line_plate():
+    plate = _bordered_plate([(55, 125), (175, 245)])
+    canvas = np.full((460, 680, 3), 225, dtype=np.uint8)
+    canvas[80:380, 80:600] = plate
+    matrix = cv2.getRotationMatrix2D((340, 230), 15, 1.0)
+    tilted = cv2.warpAffine(canvas, matrix, (680, 460), borderValue=(225, 225, 225))
+    assert len(rectify.prepare_lines(tilted, level=True)[0]) == 2
+
+
+def test_province_header_and_core_patterns():
+    assert postprocess.province_header("बागमती प्रदेश-०२") == "बागमतीप्रदेश०२"
+    assert postprocess.province_header("प्रदेश ३-०१") == "प्रदेश३०१"
+    assert postprocess.province_header("बा२च") is None
+    assert postprocess.PROVINCE_CORE_RE.match("०४७प४१९३")
+    assert postprocess.validate_nepal("बागमतीप्रदेश०२" + "०४७प४१९३").valid
+
+
+def test_detection_with_class_name_field_is_plate_bearing():
+    # The fusion pipeline's Detection carries `class_name`, not `cls`.
+    class PipelineDetection:
+        def __init__(self):
+            self.bbox = (10.0, 10.0, 90.0, 90.0)
+            self.class_name = "car"
+            self.track_id = 3
+    assert detect_plate.is_plate_bearing(PipelineDetection())

@@ -97,26 +97,117 @@ exactly, where the Latin-only baseline (1.2) reads zero.
 
 ## 2. After fine-tuning
 
-**Not yet run.** `edge/anpr/notebooks/kaggle_ocr_finetune.ipynb` fine-tunes
-`devanagari_PP-OCRv5_mobile_rec` on the full 20,000+ synthetic train split on
-Kaggle's free GPU tier. This section is filled in by pasting the notebook's
-`finetuned_eval.json` output (produced by the SAME `evaluate.py` used for
-section 1, so the two are directly comparable) once the orchestrator has run
-it — this agent explicitly did not run it or upload anything, per the task's
-instructions.
+Fine-tuned locally on CPU (Apple M5, PaddlePaddle 3.3.1 CPU build, PaddleOCR v3.3.0
+`tools/train.py`, 8 threads), because the Kaggle GPU quota was in use by detector
+training. Config: `edge/anpr/configs/devanagari_ppocrv5_mobile_rec_lines_cpu.yml`
+(pretrained `devanagari_PP-OCRv5_mobile_rec` weights, 1 epoch, Adam, cosine LR from
+3e-4, no warmup, batch 32; 997 iterations in 3 h 25 min at ~2.7 samples/s).
 
-| Metric | Devanagari head (fine-tuned) |
-|---|---|
-| Exact-match rate | NOT YET MEASURED |
-| Mean CER | NOT YET MEASURED |
+**Training data is per-line crops, not whole plates.** A first run fed whole
+two-line plates into the single-line 48x320 input; the untouched pretrained model
+scores exact-match 0.0 on that input, so that run was stopped at step 250 and the
+data rebuilt with `edge/anpr/scripts/build_line_labels.py`, which cuts each plate
+with the same `rectify.prepare_lines()` the pipeline runs at inference: 31,922 line
+crops from the 15,961 of 18,424 training plates that split into two lines (the rest
+skipped, never mislabelled). Per-line validation inside training: exact 0.9194,
+normalised edit similarity 0.9697.
 
-| Bucket (proxy) | Count | Exact-match | Mean CER |
-|---|---|---|---|
-| near (>= 200px, proxy) | — | — | — |
-| mid, under-25m proxy (120-199px) | — | — | — |
-| far, beyond-25m proxy (<120px) | — | — | — |
+End to end through the full pipeline (`evaluate.py`, detection-free crops ->
+rectify -> line split -> recognise -> postprocess), on the SAME 2,076-image
+synthetic validation split as section 1, with the fine-tuned model loaded through
+`ANPR_DEVANAGARI_MODEL_DIR`:
 
-**Verdict against the 85% target — fine-tuned: NOT YET MEASURED.**
+| Metric | Pretrained (section 1.1) | **Fine-tuned, round 1** |
+|---|---|---|
+| Exact-match rate | 35.60% | **77.26%** |
+| Mean CER | 0.4626 | **0.1106** |
+
+| Bucket (proxy) | Count | Exact-match, pretrained | **Exact-match, fine-tuned** | Mean CER, fine-tuned |
+|---|---|---|---|---|
+| near (>= 200px, proxy) | 630 | 44.60% | **82.38%** | 0.0861 |
+| mid, under-25m proxy (120-199px) | 817 | 36.96% | **78.82%** | 0.1058 |
+| far, beyond-25m proxy (<120px) | 629 | 24.80% | **70.11%** | 0.1415 |
+
+Latin-model baseline on the same images is unchanged (section 1.2: 0.00%).
+
+### 2.1 Line-split fix and round 2
+
+About 12% of plates did not split cleanly into two lines, and a single-line
+recogniser cannot read an unsplit plate. `rectify.py` now measures ink inside the
+printed border (commit c00538a), which cuts unsplit plates from 11.8% to 2.6%.
+Round 2 then continued from round 1's `best_accuracy` on line crops re-cut with the
+fixed splitter: 35,880 crops from 17,940 of 18,424 training plates, learning rate
+1.5e-4 (half of round 1), otherwise the same schedule
+(`edge/anpr/configs/devanagari_ppocrv5_mobile_rec_lines2_cpu.yml`; 1,121 iterations
+in 4 h 03 min on the M5 CPU). Per-line validation inside training: exact 0.9313,
+normalised edit similarity 0.9756 (round 1: 0.9194, 0.9697).
+
+All four rows below run the current pipeline (fixed splitter) on the same 2,076
+validation plates, so the pretrained row is re-measured, not copied from section 1.1:
+
+| Model | Exact-match | Mean CER | near | mid (under 25 m) | far |
+|---|---|---|---|---|---|
+| Pretrained | 41.38% | 0.3783 | 51.27% | 43.82% | 28.30% |
+| Round 1 | 86.37% | 0.0562 | 92.06% | 89.72% | 76.31% |
+| Round 2, `best_accuracy` (step 997) | 87.76% | 0.0490 | 93.33% | 90.45% | 78.70% |
+| **Round 2, final (step 1,121) — published** | **87.91%** | **0.0481** | 93.17% | 90.33% | 79.49% |
+
+The two round-2 checkpoints differ by three plates, which is within noise; the final
+one is published because it is ahead overall and on the far bucket. Choosing between
+them on this split makes the published figure slightly optimistic.
+
+Summaries: `eval_synthetic_pretrained.json` (section 1.1), `eval_synthetic_pretrained_splitfix.json`,
+`eval_synthetic_finetuned_round1.json`, `eval_synthetic_finetuned.json` (round 2, published) and
+`eval_synthetic_latin.json` in this directory.
+
+Published: [sreekar12/truewatch-anpr-devanagari](https://huggingface.co/sreekar12/truewatch-anpr-devanagari),
+pinned in `hf_ocr_model.json` (commit sha and per-file sha256).
+
+**Verdict against the 85% target — fine-tuned, round 2:**
+- Synthetic, under 25 m (near + mid proxies, 1,447 plates): 91.6% exact —
+  **MET on synthetic plates** (target 85%; round 1 with the fixed splitter 90.7%,
+  round 1 before it 80.4%).
+- Real plates: **INSUFFICIENT SAMPLE** (section 1.3). No synthetic figure is
+  extrapolated to real plates, so the slide-5 target is not claimed as met for
+  real traffic.
+
+### 2.2 Real photographs, real layouts and rounds 3 to G3
+
+**Real test sets.** Crops of distinct vehicles from the Hugging Face dataset `mukulboro/nepali-private-license-plates`
+(CC BY 4.0; Kathmandu University parking-lot photographs taken with the owners' permission), each transcribed twice,
+independently. *Strict* (57 plates) keeps plates both readings agree on exactly with both confident;
+*extended* (147 plates) keeps every exact agreement. One crop per vehicle, never used for training, and every
+training plate whose text matched a test plate was removed. The sets are small: treat differences of a few points as noise.
+
+**What the photographs showed.** Real two-line plates print zone, lot and class on the top line over a larger serial;
+most private plates are red with white text; one-line plates, two- and three-line province plates and embossed Latin
+plates are common; many crops are tilted and 50-100 px tall. The pipeline now keeps one-line plates at their own
+aspect, splits province plates in three when a two-line reading fails, levels tilted crops (`rectify.deskew`), accepts
+province and embossed registrations, and cuts a reading down to the most plausible registration inside it when junk
+surrounds it (`recognise.read_plate`). All rows below use that same final pipeline.
+
+**Training rounds.** Round 3 added 44 open-licence fonts (fonts that draw Devanagari digits with Latin shapes are
+dropped automatically); round 4 the real layouts, one-line plates and the first real line crops; rounds G1-G3 ran on a
+Kaggle T4 (PaddlePaddle 3.3.1, same PaddleOCR v3.3.0) with province plates, more verified real crops from
+`ishworsubedii/vehicle-number-plate-datasetnepal` (Apache-2.0) and from a training subset of the CC BY 4.0 set, and
+repeat views of verified plates matched to their text.
+
+Exact-match / mean CER:
+
+| Model | Real, strict | Real, extended | Synthetic, original | Synthetic, 44 fonts | Synthetic, real layout | Synthetic, one-line | Synthetic, province |
+|---|---|---|---|---|---|---|---|
+| Round 2 (published until 2026-09-26) | 24.6% / 0.569 | 10.2% / 0.684 | 88.1% / 0.046 | 56.4% / 0.135 | 29.7% / 0.254 | 11.8% / 0.465 | 0.0% / 0.806 |
+| Round G1 | 36.8% / 0.350 | 20.4% / 0.446 | 87.1% / 0.051 | 80.3% / 0.079 | 78.3% / 0.075 | 57.7% / 0.168 | 36.4% / 0.281 |
+| Round G2 | 36.8% / 0.353 | 23.1% / 0.425 | 87.4% / 0.051 | 80.6% / 0.078 | 79.0% / 0.073 | 58.9% / 0.160 | 39.5% / 0.252 |
+| **Round G3 — published** | 38.6% / 0.347 | 25.2% / 0.413 | 87.8% / 0.051 | 81.4% / 0.076 | 79.8% / 0.069 | 60.7% / 0.151 | 40.9% / 0.244 |
+
+Published: [sreekar12/truewatch-anpr-devanagari](https://huggingface.co/sreekar12/truewatch-anpr-devanagari) revision
+`a428bfb` (`hf_ocr_model.json`).
+
+**Verdict against the 85% target:** met on synthetic plates under the 25 m proxy (section 2.1); **NOT MET on real
+photographs** (38.6% strict, 25.2% extended). The limits are the amount of real training data
+(a few hundred verified lines from under a hundred vehicles), crop resolution and tilt, and province headers that are
+too small to read at range. Labelled plates from the deployment cameras are the next step that matters.
 
 ## Running the measurement
 

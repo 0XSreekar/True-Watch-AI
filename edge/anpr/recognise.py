@@ -142,6 +142,32 @@ def _choose_script(devanagari_lines: Sequence[LineReading], latin_lines: Sequenc
     return "devanagari" if devanagari_conf >= latin_conf else "latin"
 
 
+def _route_by_grammar(devanagari_lines: Sequence[LineReading], latin_lines: Sequence[LineReading]) -> str | None:
+    """A reading that parses as a whole plate in its own script's grammar decides the route.
+
+    Script characters and confidence alone sent 1.4% of synthetic Nepali plates to the Latin head
+    (a degraded Devanagari line can look like Latin letters to it). A complete, valid Nepali plate
+    from the Devanagari head, or a valid Bhutan BP-N-ANNNN plate from the Latin head, is much
+    stronger evidence. Returns None when neither or both parse, leaving the decision to
+    _choose_script.
+    """
+    try:  # imported as anpr.recognise (tests, the edge app) or as a top-level module (the anpr scripts)
+        from .postprocess import validate_latin, validate_nepal
+    except ImportError:
+        from postprocess import validate_latin, validate_nepal
+
+    def joined(lines: Sequence[LineReading]) -> str:
+        return unicodedata.normalize("NFC", "".join(line.text.replace(" ", "") for line in lines))
+
+    nepal = validate_nepal(joined(devanagari_lines)).valid
+    bhutan = validate_latin("".join(line.text for line in latin_lines).replace(" ", "")).valid
+    if nepal and not bhutan:
+        return "devanagari"
+    if bhutan and not nepal:
+        return "latin"
+    return None
+
+
 def recognise_plate(line_images: Sequence[np.ndarray]) -> RecognitionResult:
     """Recognise a plate's line images (from rectify.prepare_lines) and route by script."""
     if not line_images:
@@ -154,16 +180,128 @@ def recognise_plate(line_images: Sequence[np.ndarray]) -> RecognitionResult:
         devanagari_lines.append(devanagari)
         latin_lines.append(latin)
 
-    script = _choose_script(devanagari_lines, latin_lines)
+    script = _route_by_grammar(devanagari_lines, latin_lines) or _choose_script(devanagari_lines, latin_lines)
     chosen = devanagari_lines if script == "devanagari" else latin_lines
 
     # DATASET_SPEC.md section 6.4: the ground-truth string is the plate's
     # characters with inter-field spaces removed; joining lines with no
     # separator reproduces the same convention for a predicted string.
     text = unicodedata.normalize("NFC", "".join(line.text.replace(" ", "") for line in chosen))
+    if script == "latin":
+        try:
+            from .postprocess import strip_latin_header
+        except ImportError:
+            from postprocess import strip_latin_header
+        text = strip_latin_header(text)  # an embossed plate's printed "BAGMATI" is not part of the registration
     return RecognitionResult(
         text=text,
         script=script,
         line_confidences=[round(line.confidence, 4) for line in chosen],
         lines=chosen,
     )
+
+
+def read_plate(plate_bgr: np.ndarray) -> RecognitionResult:
+    """Rectify, split and recognise one plate crop, falling back to other readings when the first fails the grammar.
+
+    The plate's shape picks one-line or two-line first (rectify.ONE_LINE_MIN_ASPECT). Tilted plates (levelled by
+    rectify.deskew), province plates (three lines) and plates on the wrong side of the shape threshold are recovered by
+    later attempts; a reading that parses as a plate is only ever replaced by nothing, never by a later attempt.
+    """
+    try:
+        from . import rectify
+        from .postprocess import validate_latin, validate_nepal
+    except ImportError:  # run as a top-level module (tests, evaluate.py from edge/anpr)
+        import rectify
+        from postprocess import validate_latin, validate_nepal
+
+    def parses(result: RecognitionResult) -> bool:
+        check = validate_nepal if result.script == "devanagari" else validate_latin
+        return check(result.text).valid
+
+    # Every reading is tried in order until one parses as a plate: as photographed, then levelled (deskew), then the
+    # other line layouts. Only when none parses is a reading cut down to a plate it contains (_rescue), so a clean
+    # parse always beats a rescued one.
+    attempts: list[RecognitionResult] = []
+    first_lines, _ = rectify.prepare_lines(plate_bgr)
+    first = recognise_plate(first_lines)
+    attempts.append(first)
+    if parses(first):
+        return first
+    other = ("three", "one") if len(first_lines) == 2 else ("two", "three")
+    for layout, level in ((None, True),) + tuple((l, False) for l in other) + tuple((l, True) for l in other):
+        lines = rectify.prepare_lines(plate_bgr, layout, level=level)[0]
+        candidate = recognise_plate(lines)
+        attempts.append(candidate)
+        if parses(candidate):
+            return candidate
+    for candidate in attempts:
+        combined = _with_inline_header(plate_bgr, candidate)
+        if combined is not None:
+            return combined
+    for candidate in attempts:
+        rescued = _rescue(candidate)
+        if rescued is not None:
+            return rescued
+    return first
+
+
+# Where an inline province plate's small header is read from, as fractions (x0, y0, x1, y1) of the plate crop. Must
+# match HEADER_BOX in datasets/plates/gen_plates.py, whose header crops are the training data for exactly this crop.
+HEADER_BOX = (0.22, 0.0, 0.82, 0.5)
+
+
+def _with_inline_header(plate_bgr: np.ndarray, result: RecognitionResult) -> RecognitionResult | None:
+    """Complete a bare province number ("०४७प४१९३") with the header printed small above its gap.
+
+    Most province plates in the Kathmandu photographs print "बागमती प्रदेश-०२" above the middle of a one-line number, so
+    the two cannot be read in order as one line. The header crop is read on its own and accepted only if it is a
+    province header and the joined text parses as a plate.
+    """
+    try:
+        from .postprocess import PROVINCE_CORE_RE, province_header, validate_nepal
+    except ImportError:
+        from postprocess import PROVINCE_CORE_RE, province_header, validate_nepal
+    if result.script != "devanagari" or not PROVINCE_CORE_RE.match(result.text):
+        return None
+    height, width = plate_bgr.shape[:2]
+    x0, y0, x1, y1 = HEADER_BOX
+    crop = plate_bgr[int(y0 * height):max(int(y0 * height) + 2, int(y1 * height)),
+                     int(x0 * width):max(int(x0 * width) + 2, int(x1 * width))]
+    devanagari, _latin = recognise_line(crop)
+    header = province_header(devanagari.text)
+    if header is None or not validate_nepal(header + result.text).valid:
+        return None
+    lines = [devanagari] + list(result.lines)
+    return RecognitionResult(text=header + result.text, script="devanagari",
+                             line_confidences=[round(l.confidence, 4) for l in lines], lines=lines)
+
+
+def _rescue(result: RecognitionResult) -> RecognitionResult | None:
+    """A reading that fails the grammar but holds a whole plate: keep the plate, drop the junk around it.
+
+    First by dropping whole lines (a background strip read as an extra line), then by cutting the joined text down to
+    its longest grammatical stretch.
+    """
+    if result.script != "devanagari" or not result.lines:
+        return None
+    try:
+        from .postprocess import extract_nepal_plate, validate_nepal
+    except ImportError:
+        from postprocess import extract_nepal_plate, validate_nepal
+
+    def joined(lines):
+        return unicodedata.normalize("NFC", "".join(line.text.replace(" ", "") for line in lines))
+
+    n = len(result.lines)
+    for size in range(n - 1, 0, -1):  # contiguous runs of lines, longest first
+        for start in range(0, n - size + 1):
+            run = result.lines[start:start + size]
+            if validate_nepal(joined(run)).valid:
+                return RecognitionResult(text=joined(run), script="devanagari",
+                                         line_confidences=[round(l.confidence, 4) for l in run], lines=list(run))
+    piece = extract_nepal_plate(result.text)
+    if piece is None:
+        return None
+    return RecognitionResult(text=piece, script="devanagari", line_confidences=result.line_confidences, lines=result.lines)
+
