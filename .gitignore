@@ -67,3 +67,7 @@ training/runs/
 training/**/runs/
 /runs/
 training/results/cache/
+
+# Demo clips built locally by edge/pipeline/make_samples.py. Dataset licences are not read as permitting
+# redistribution, so media never enters git.
+samples/*.mp4

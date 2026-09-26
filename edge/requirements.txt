@@ -20,8 +20,10 @@ numpy
 # training/, not here — see training/README.md for the licence note.
 onnxruntime
 
-# --- Tracking and tiling (Phases 5, 6) ---
-# lap / scipy for ByteTrack association, sahi for tiled far-field inference.
+# --- Tracking (Phase 3) ---
+# ByteTrack is implemented in pipeline/tracking.py; scipy (BSD) supplies the Hungarian solver.
+# Far-field tiling is implemented in pipeline/appearance.py, so no tiling package is needed.
+scipy
 
 # --- ANPR, face, explanation, search (Phase 7) ---
 # paddleocr / paddlepaddle for PP-OCRv5 Devanagari.
