@@ -25,9 +25,23 @@ onnxruntime
 # Far-field tiling is implemented in pipeline/appearance.py, so no tiling package is needed.
 scipy
 
-# --- ANPR, face, explanation, search (Phase 7) ---
-# paddleocr / paddlepaddle for PP-OCRv5 Devanagari.
-# YuNet ships with OpenCV's model zoo.
+# --- ANPR, face (Phase 5) ---
+# PP-OCRv5 Devanagari and Latin recognition, served through paddleocr's
+# TextRecognition (recognition-only: edge/anpr/detect_plate.py and rectify.py
+# do plate localisation and line splitting with classical CV, not a second
+# detector model). CPU-only, free, Apache-2.0. paddlepaddle is the runtime
+# paddleocr needs to run; see edge/README.md for why this is the pretrained-
+# serving path here instead of an ONNX export.
+paddlepaddle
+paddleocr
+# cryptography.fernet seals the unblurred face crop at rest (edge/face/privacy.py).
+cryptography
+# YuNet (edge/face/detect.py) uses cv2.FaceDetectorYN — already covered by the
+# opencv-python-headless pin above. Its weights are fetched at first use by
+# edge/face/yunet_weights.py, the same pinned-URL/SHA-256 pattern as the
+# appearance detector in edge/models/detector_weights.py.
+
+# --- explanation, search (Phase 7) ---
 # transformers + torch for Moondream 2 and SigLIP.
 
 # --- Tests (Phase 4 onward) ---
