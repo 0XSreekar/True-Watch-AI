@@ -171,6 +171,44 @@ pinned in `hf_ocr_model.json` (commit sha and per-file sha256).
   extrapolated to real plates, so the slide-5 target is not claimed as met for
   real traffic.
 
+### 2.2 Real photographs, real layouts and rounds 3 to G3
+
+**Real test sets.** Crops of distinct vehicles from the Hugging Face dataset `mukulboro/nepali-private-license-plates`
+(CC BY 4.0; Kathmandu University parking-lot photographs taken with the owners' permission), each transcribed twice,
+independently. *Strict* (57 plates) keeps plates both readings agree on exactly with both confident;
+*extended* (147 plates) keeps every exact agreement. One crop per vehicle, never used for training, and every
+training plate whose text matched a test plate was removed. The sets are small: treat differences of a few points as noise.
+
+**What the photographs showed.** Real two-line plates print zone, lot and class on the top line over a larger serial;
+most private plates are red with white text; one-line plates, two- and three-line province plates and embossed Latin
+plates are common; many crops are tilted and 50-100 px tall. The pipeline now keeps one-line plates at their own
+aspect, splits province plates in three when a two-line reading fails, levels tilted crops (`rectify.deskew`), accepts
+province and embossed registrations, and cuts a reading down to the most plausible registration inside it when junk
+surrounds it (`recognise.read_plate`). All rows below use that same final pipeline.
+
+**Training rounds.** Round 3 added 44 open-licence fonts (fonts that draw Devanagari digits with Latin shapes are
+dropped automatically); round 4 the real layouts, one-line plates and the first real line crops; rounds G1-G3 ran on a
+Kaggle T4 (PaddlePaddle 3.3.1, same PaddleOCR v3.3.0) with province plates, more verified real crops from
+`ishworsubedii/vehicle-number-plate-datasetnepal` (Apache-2.0) and from a training subset of the CC BY 4.0 set, and
+repeat views of verified plates matched to their text.
+
+Exact-match / mean CER:
+
+| Model | Real, strict | Real, extended | Synthetic, original | Synthetic, 44 fonts | Synthetic, real layout | Synthetic, one-line | Synthetic, province |
+|---|---|---|---|---|---|---|---|
+| Round 2 (published until 2026-09-26) | 24.6% / 0.569 | 10.2% / 0.684 | 88.1% / 0.046 | 56.4% / 0.135 | 29.7% / 0.254 | 11.8% / 0.465 | 0.0% / 0.806 |
+| Round G1 | 36.8% / 0.350 | 20.4% / 0.446 | 87.1% / 0.051 | 80.3% / 0.079 | 78.3% / 0.075 | 57.7% / 0.168 | 36.4% / 0.281 |
+| Round G2 | 36.8% / 0.353 | 23.1% / 0.425 | 87.4% / 0.051 | 80.6% / 0.078 | 79.0% / 0.073 | 58.9% / 0.160 | 39.5% / 0.252 |
+| **Round G3 — published** | 38.6% / 0.347 | 25.2% / 0.413 | 87.8% / 0.051 | 81.4% / 0.076 | 79.8% / 0.069 | 60.7% / 0.151 | 40.9% / 0.244 |
+
+Published: [sreekar12/truewatch-anpr-devanagari](https://huggingface.co/sreekar12/truewatch-anpr-devanagari) revision
+`a428bfb` (`hf_ocr_model.json`).
+
+**Verdict against the 85% target:** met on synthetic plates under the 25 m proxy (section 2.1); **NOT MET on real
+photographs** (38.6% strict, 25.2% extended). The limits are the amount of real training data
+(a few hundred verified lines from under a hundred vehicles), crop resolution and tilt, and province headers that are
+too small to read at range. Labelled plates from the deployment cameras are the next step that matters.
+
 ## Running the measurement
 
 ```bash
