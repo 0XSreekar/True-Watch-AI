@@ -1,0 +1,73 @@
+{
+  "created": "2026-09-26T01:07:38Z",
+  "date": "2026-09-26",
+  "device": "0",
+  "hard_set": {
+    "entries": 280,
+    "image_set_sha256": "63b2abe3f7b05363a82cfb5deab6cd0be1c4c9f199b552848b967ec015f7209a",
+    "images": 280,
+    "manifest_sha256": "d669d28cfbd8e15c67752d8745a572d6958f8af66170d7bddbe7f9b5f14fdf8c",
+    "partial": false,
+    "resolved": 280
+  },
+  "host": {
+    "cgroup_cpu_limit": 4.0,
+    "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+    "cpu_count_logical": 4,
+    "cpu_count_usable": 4,
+    "machine": "x86_64",
+    "numpy": "2.0.2",
+    "onnxruntime": "1.30.0",
+    "platform": "Linux-6.12.90+-x86_64-with-glibc2.35",
+    "python": "3.12.13",
+    "torch": "2.10.0+cu128"
+  },
+  "n_images": {
+    "day": 80,
+    "ir": 200
+  },
+  "notes": [],
+  "person_ap50": {
+    "day": 0.2135565010666589,
+    "ir": 0.7030475999384691
+  },
+  "person_n_gt_by_bucket": {
+    "day": {
+      "14": 802,
+      "19": 404,
+      "9": 1081
+    },
+    "ir": {
+      "14": 37,
+      "19": 28,
+      "9": 26
+    }
+  },
+  "person_recall_at_report_conf": {
+    "day": {
+      "14": 0.04114713216957606,
+      "19": 0.1311881188118812,
+      "9": 0.0037002775208140612
+    },
+    "ir": {
+      "14": 0.0,
+      "19": 0.0,
+      "9": 0.0
+    }
+  },
+  "schema": "truewatch.hardset-baseline.v1",
+  "settings": {
+    "conf_floor": 0.001,
+    "imgsz": 640,
+    "max_det": 300,
+    "nms_iou": 0.7,
+    "report_conf": 0.35,
+    "size_basis": "input"
+  },
+  "split": "val",
+  "ultralytics": "8.4.155",
+  "weights": {
+    "name": "yolo11s.pt",
+    "sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5"
+  }
+}

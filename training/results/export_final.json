@@ -1,0 +1,115 @@
+{
+  "class_names": [
+    "person",
+    "two_wheeler",
+    "car",
+    "truck",
+    "cart"
+  ],
+  "created": "2026-09-26T01:35:47+00:00",
+  "hf": {
+    "private": false,
+    "repo_id": "sreekar12/truewatch-yolo11s",
+    "resolve_url": "https://huggingface.co/sreekar12/truewatch-yolo11s/resolve/9fe209f0d9200d5cf77aecc65144634c1ef4c996/final.onnx",
+    "revision": "9fe209f0d9200d5cf77aecc65144634c1ef4c996",
+    "url": "https://huggingface.co/sreekar12/truewatch-yolo11s"
+  },
+  "host": {
+    "cgroup_cpu_limit": null,
+    "cpu": "Apple M5",
+    "cpu_count_logical": 10,
+    "cpu_count_usable": 10,
+    "machine": "arm64",
+    "numpy": "2.5.3",
+    "onnxruntime": "1.30.0",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.12.14",
+    "torch": "2.14.0"
+  },
+  "onnx": {
+    "dynamic_axes": {
+      "images": {
+        "0": "batch"
+      },
+      "output0": {
+        "0": "batch"
+      }
+    },
+    "file": "final.onnx",
+    "imgsz": 640,
+    "input_names": [
+      "images"
+    ],
+    "input_shapes": {
+      "images": [
+        "batch",
+        3,
+        640,
+        640
+      ]
+    },
+    "ir_version": 8,
+    "onnx_version": "1.23.0",
+    "opset": 17,
+    "output_names": [
+      "output0"
+    ],
+    "output_shapes": {
+      "output0": [
+        "batch",
+        9,
+        8400
+      ]
+    },
+    "sha256": "dd63db0a7b4e5ef6b22687f54953742b6d5012c31b4b6f432656fc7c5f39921b",
+    "simplified": true,
+    "size_bytes": 37949127
+  },
+  "parity": {
+    "box_units": "grid",
+    "by_batch": {
+      "1": 6.198883056640625e-05,
+      "3": 6.103515625e-05
+    },
+    "by_batch_boxes": {
+      "1": 6.198883056640625e-05,
+      "3": 6.103515625e-05
+    },
+    "by_batch_scores": {
+      "1": 1.331661110270943e-07,
+      "3": 1.3774064555605037e-07
+    },
+    "float64_reference": null,
+    "gated_metric": "max |torch - onnxruntime| with box rows divided by each anchor's stride (8/16/32), the head's own units; score rows 0-1; the tolerance applies to this",
+    "input_detail": {
+      "n": 3,
+      "seed": 0
+    },
+    "input_kind": "synthetic",
+    "input_sensitive": true,
+    "input_sensitivity": 8.803436279296875,
+    "max_abs_diff": 6.198883056640625e-05,
+    "max_abs_diff_boxes": 6.198883056640625e-05,
+    "max_abs_diff_scores": 1.3774064555605037e-07,
+    "passed": true,
+    "raw_by_batch": {
+      "1": 0.00146484375,
+      "3": 0.001953125
+    },
+    "raw_max_abs_diff": 0.001953125,
+    "raw_max_abs_diff_boxes_px": 0.001953125,
+    "raw_metric": "max |torch - onnxruntime| over output0 as the graph emits it: box rows in input pixels, score rows 0-1",
+    "tolerance": 0.001
+  },
+  "schema": "truewatch.export.v1",
+  "source_weights": {
+    "path": "runs_v2/ir/weights/best.pt",
+    "sha256": "9c84ced99b63825061f2d7ae33a10a101acf62e5ff37eb64423c952d96ee9e67"
+  },
+  "tag": "final",
+  "tools": {
+    "onnx": "1.23.0",
+    "onnxslim": "0.1.96",
+    "ultralytics": "8.4.155"
+  }
+}

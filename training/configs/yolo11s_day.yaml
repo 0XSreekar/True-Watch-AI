@@ -1,0 +1,80 @@
+# ONE detector, not two: slide 4 replicates IR to 3 channels, so an LWIR frame is the same input tensor as an RGB frame and needs no second architecture.
+# Two models would mean two ONNX graphs on the edge, a day/night router whose errors land at dusk, and two Kaggle lineages inside a 30 GPU-h/week, 6-day budget.
+# The domains already share a representation: MEASUREMENTS.md section 1 measured 89% IR recovery from a visible-only COCO model.
+# One model sees 100% of the corpus; two would each see about half, and the smaller half (IR) is the one carrying the harder 0.75 target.
+# So: one head, mixed day + IR, two stages of ONE lineage. This file is stage 1 ("day", the visible-dominated bulk pass); yolo11s_ir.yaml is stage 2.
+#
+# Stage 1 trains on the FULL mixed corpus from COCO yolo11s.pt. Nothing here is a result: every number below is a setting.
+#
+# TIME BUDGET. An ESTIMATE, not a measurement; train_log.csv records epoch_s, so check it after epoch 1.
+#   Corpus ~70-90k images at 640; truck/cart images repeated -> ~86k epoch-list entries at 80k images.
+#   One T4, AMP, batch 32: the GPU could train YOLO11-s at roughly 100 img/s, but Kaggle's 4 vCPUs must decode a 1280 px JPEG or PNG and
+#   build a 4-image mosaic per sample, so the dataloader, not the GPU, sets the pace: assume ~45 img/s -> ~32 min of training per epoch,
+#   plus ~2-3 min for per-epoch validation on the ~12-15k val images = ~35 min per stage-1 epoch.
+#   Stage 1: 20 epochs x ~35 min = ~11.7 h. Stage 2 (LWIR repeated, ~1.4x the list): 6 epochs x ~48 min = ~4.8 h. Total ~16.5 GPU-h.
+#   A session gives ~10 h of training (12 h cap - 45 min kept for evaluate/export/packaging - start-up and the unused tail of the last epoch),
+#   so: session 1 = ~17 stage-1 epochs; session 2 = the last ~3 stage-1 epochs + all of stage 2 + evaluation. Two sessions, a third as slack,
+#   inside the 30 GPU-h weekly quota. At half the assumed throughput it becomes ~33 h and 4 sessions: if epoch 1 takes over ~50 min, start a
+#   fresh run with a smaller --epochs (it is ignored on resume) rather than let the stage spill into a second week.
+#   The earlier "38 epochs at ~12 min" plan assumed ~60k images at ~85 img/s, which the 4-vCPU dataloader cannot sustain.
+#
+# Augmentation is NEVER set in this file. train.py reads datasets/config/augment.yaml (DATASET_SPEC 4) and applies EVERY key: mosaic, scale,
+# translate, fliplr, hsv_* and close_mosaic as Ultralytics arguments; downscale_upscale, jpeg and motion_blur as the Albumentations list
+# applied to every sample; the infrared_only block per LWIR source image through a dataset hook. It asserts the forbidden block (flipud,
+# perspective, mixup, copy_paste, shear, cutmix, bgr all 0, degrees <= 10) against the final resolved arguments and exits 3 on a violation
+# or on any policy key it cannot apply. Repeating a value here would let the two drift.
+#
+# Ultralytics (AGPL-3.0) is imported only by train.py, inside training/. Sections other than `train` are read by train.py itself.
+
+stage: day
+model: yolo11s.pt        # COCO-pretrained init; resolved to training/weights/yolo11s.pt when present, else downloaded there
+
+close_mosaic_epochs: null  # null = augment.yaml mosaic_close_epochs: DATASET_SPEC 4.1 fixes it at the final 10 epochs, here 10 of 20
+
+schedule:
+  unfreeze_epoch: 3     # 0-based epoch at which the frozen backbone is released; equals warmup_epochs, i.e. the end of warmup
+
+sampling:                # how train_list.txt is built (DATASET_SPEC 3.1: image repeats only, never loss reweighting)
+  rare_classes: [3, 4]   # truck and cart: the classes an image is repeated for
+  rare_repeat: 2         # an image holding a rare class enters the epoch list twice
+  lwir_repeat: 1         # stage 1 weights day and IR by their natural share; stage 2 is the IR-emphasis polish
+  max_repeat: 2          # cap: no image is seen more than twice per epoch, whatever combination of rules applies
+
+train:                   # passed to Ultralytics; every line carries the reason for its value
+  epochs: 20             # bulk pass, ~1.7M image-samples at ~86k per epoch; sized to the time budget above; last 10 without mosaic
+  imgsz: 640             # the edge latency TARGET (YOLO11-s INT8, Jetson hardware not owned) is defined at 640; far field is handled by 640x640 SAHI tiles
+  batch: 32              # fits a 16 GB T4 with AMP at 640; Ultralytics reaches nbs by accumulating 2 steps
+  nbs: 64                # nominal batch size for loss and weight-decay scaling; explicit so a batch override cannot change the optimisation
+  workers: 4             # Kaggle provides 4 vCPU; Ultralytics forces 0 on CPU or MPS regardless
+  optimizer: SGD         # explicit: 'auto' would pick SGD at this size anyway, but a resume must never be able to change it
+  momentum: 0.937        # Ultralytics SGD default, tuned for YOLO fine-tuning; no evidence yet to move it
+  weight_decay: 0.0005   # Ultralytics default; scaled by batch*accumulate/nbs inside the trainer
+  lr0: 0.005             # half the from-scratch 0.01: fine-tuning should perturb pretrained features less
+  lrf: 0.01              # final LR fraction; with cos_lr the rate decays smoothly to lr0*0.01 by the last epoch
+  cos_lr: true           # cosine decay avoids the late-training LR cliff of the linear schedule
+  warmup_epochs: 3       # lets the freshly initialised 5-class head settle before the backbone is unfrozen at epoch 3
+  warmup_momentum: 0.8   # Ultralytics default warmup momentum
+  warmup_bias_lr: 0.05   # bias LR starts at 10x lr0 and decays to lr0 over warmup: Ultralytics' default 10:1 ratio (0.1 : 0.01)
+  amp: true              # mixed precision roughly doubles T4 throughput; ignored on CPU
+  deterministic: false   # bitwise reproducibility costs about 15% speed the weekly GPU budget cannot spare; the seed is still recorded
+  seed: 42               # recorded in args.yaml and used for the --fraction subsample
+  patience: 6            # early stop after 6 epochs without fitness gain (restored across sessions from train_log.csv); see fitness note
+  freeze: 10             # layers 0-9 (backbone through SPPF) frozen for epochs 0-2 so early head gradients cannot wreck COCO features
+  pretrained: true       # load the COCO weights named by `model`
+  cls_remap: true        # Ultralytics copies COCO head rows into the 5-class head by class name (person, car and truck match)
+  cls_pw: 0.0            # no class-weighted loss: DATASET_SPEC 3.1 rules out loss reweighting; balance comes from the epoch list
+  box: 7.5               # Ultralytics default box gain; no evidence yet to move it
+  cls: 0.5               # Ultralytics default classification gain
+  dfl: 1.5               # Ultralytics default distribution-focal gain
+  cache: false           # ~80k images decoded at 640 are ~60 GB, over Kaggle's ~30 GB of RAM; the input mount is read-only for cache=disk
+  plots: false           # training plots cost I/O and time; evaluate.py produces the reported figures
+  val: true              # validate every epoch: it drives best.pt, early stopping and the logged metrics
+  save_period: 5         # extra rollback points every 5 epochs; last.pt is written every epoch and rolled to last_good.pt by train.py
+
+# Notes that belong beside the numbers:
+#  * EMA: Ultralytics always keeps an exponential moving average of the weights; last.pt and best.pt hold the EMA weights. There is no switch.
+#  * Fitness: in the installed Ultralytics 8.4.155 a detection model's fitness is class-mean mAP50-95 alone (weights 0, 0, 0, 1), not the
+#    older 0.1*mAP50 + 0.9*mAP50-95. It is kept as the checkpoint criterion because a person-only fitness would let the vehicle classes die.
+#    AP50 for every class (ap50_person ... ap50_cart) is logged every epoch in train_log.csv, so a dying class is visible to the human.
+#  * The per-epoch validation numbers are computed over the whole val set, day and IR together. They select checkpoints and stop the run;
+#    they are not reported results. evaluate.py reports day and IR separately, on val, with the host recorded.

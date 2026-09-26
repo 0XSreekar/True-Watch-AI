@@ -16,7 +16,7 @@ numpy
 
 # --- Appearance channel (Phase 2) ---
 # Inference runs on the exported ONNX model, so onnxruntime is the runtime
-# dependency. Ultralytics is a TRAINING dependency and is declared in
+# dependency. The training framework is a TRAINING dependency and is declared in
 # training/, not here — see training/README.md for the licence note.
 onnxruntime
 

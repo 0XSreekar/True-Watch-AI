@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from config import ConfigError, load
+from models.detector_weights import DetectorWeightsError, load_at_boot
 from pipeline.ingest import IngestError, frames, probe
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -115,6 +116,13 @@ async def lifespan(app: FastAPI):
         raise
     logging.getLogger().setLevel(cfg.log_level.upper())
     app.state.config = cfg
+    # A configured detector that cannot be downloaded or verified stops the service: running without
+    # the appearance channel while believing it is on would be worse than not starting.
+    try:
+        app.state.detector = load_at_boot(cfg)
+    except DetectorWeightsError as exc:
+        log.error("detector rejected: %s", exc)
+        raise
     log.info(
         "edge service ready: mode=%s source=%s target_fps=%s",
         cfg.ingest_mode,
@@ -158,6 +166,7 @@ def healthz() -> dict:
             "target_fps": cfg.target_fps,
         },
         "pipeline": state.snapshot(),
+        "detector": app.state.detector.describe() if getattr(app.state, "detector", None) else None,
     }
 
 

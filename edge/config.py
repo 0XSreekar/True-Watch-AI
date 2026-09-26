@@ -72,6 +72,18 @@ class Config:
     camera_id: str = field(default_factory=lambda: _str("CAMERA_ID", "RXL-01"))
     post_id: str = field(default_factory=lambda: _str("POST_ID", "RXL"))
 
+    # --- appearance-channel detector (Phase 2); see models/detector_weights.py ---
+    # URL + SHA-256 of the exported ONNX. Both set, or both empty to use the committed manifest.
+    yolo_model_url: str = field(default_factory=lambda: _str("YOLO_MODEL_URL"))
+    yolo_model_sha256: str = field(default_factory=lambda: _str("YOLO_MODEL_SHA256").lower())
+    # training/results/hf_model.json in a repository checkout; a container sets the two values above.
+    yolo_model_manifest: Path = field(
+        default_factory=lambda: _path("YOLO_MODEL_MANIFEST", "../training/results/hf_model.json")
+    )
+    model_cache_dir: Path = field(default_factory=lambda: _path("MODEL_CACHE_DIR", "./models/cache"))
+    yolo_img_size: int = field(default_factory=lambda: _int("YOLO_IMG_SIZE", 640))
+    onnx_provider: str = field(default_factory=lambda: _str("ONNX_PROVIDER", "CPUExecutionProvider"))
+
     # --- evidence (Phase 9) ---
     evidence_dir: Path = field(default_factory=lambda: _path("EVIDENCE_DIR", "./var/evidence"))
 
@@ -95,6 +107,13 @@ class Config:
             raise ConfigError("INGEST_MODE=rtsp requires RTSP_URL to be set")
         if self.target_fps <= 0:
             raise ConfigError(f"TARGET_FPS must be positive, got {self.target_fps}")
+        if bool(self.yolo_model_url) != bool(self.yolo_model_sha256):
+            raise ConfigError(
+                "YOLO_MODEL_URL and YOLO_MODEL_SHA256 must be set together (a URL is only trusted with the "
+                "hash of the file it serves), or both left empty to use YOLO_MODEL_MANIFEST"
+            )
+        if self.yolo_img_size < 32:
+            raise ConfigError(f"YOLO_IMG_SIZE must be at least 32, got {self.yolo_img_size}")
         if self.is_production and not self.ingest_key:
             raise ConfigError(
                 "TRUEWATCH_INGEST_KEY is required in production. "

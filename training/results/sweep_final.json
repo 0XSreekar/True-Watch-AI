@@ -1,0 +1,137 @@
+{
+  "assumptions": {
+    "alerts_per_camera_per_day": 5.0,
+    "budget_fp_per_frame": 7.2337962962962966e-06,
+    "class": "person",
+    "fp_to_alert": 1.0,
+    "fps": 8.0,
+    "frames_per_day": 691200.0,
+    "note": "false-alert proxy at detector level: every unmatched person detection at IoU 0.50 counts as a false alert (fp_to_alert as given); frames are treated as independent trials, so the upper bound is optimistic",
+    "rule_of_three_min_frames": 414720
+  },
+  "created": "2026-09-26T01:09:41+00:00",
+  "empty_frames": null,
+  "grid": {
+    "conf_ceiling": 0.99,
+    "conf_max": 0.99,
+    "conf_min": 0.05,
+    "match_iou": 0.5,
+    "max_det": 300,
+    "n_conf": 20,
+    "nms_iou": [
+      0.5,
+      0.6,
+      0.7,
+      0.8
+    ]
+  },
+  "host": {
+    "cgroup_cpu_limit": 4.0,
+    "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+    "cpu_count_logical": 4,
+    "cpu_count_usable": 4,
+    "machine": "x86_64",
+    "numpy": "2.0.2",
+    "onnxruntime": "1.30.0",
+    "platform": "Linux-6.12.90+-x86_64-with-glibc2.35",
+    "python": "3.12.13",
+    "torch": "2.10.0+cu128"
+  },
+  "imgsz": 640,
+  "index_used": true,
+  "max_det": 300,
+  "n_images": 17542,
+  "notes": [
+    "The false-positive count is a detector-level proxy: every unmatched person detection at IoU 0.50 counts as a false alert (fp_to_alert as given). Fusion, tracking and rules (Phases 4-5) decide what becomes an alert; this is the rate before any of them, and nothing here shows how much they would remove.",
+    "Frames are treated as independent trials. Frames of one sequence are correlated, so the effective sample is smaller than the frame count and the upper bound printed here is optimistic.",
+    "Matching is done once at the confidence floor and then filtered by threshold, as Ultralytics and evaluate.py do, so these counts agree with the evaluation script's precision and recall.",
+    "The val split keeps its natural composition (DATASET_SPEC 3.5): most frames contain people. Its false-positive rate is not the rate on a border camera's empty hours. Pass --empty-dir with --empty-modality for background frames.",
+    "With --preds the inference host is not recorded in the cache; `host` is where this sweep ran."
+  ],
+  "raw_predictions": {
+    "conf_floor": 0.001,
+    "meta": {
+      "conf_floor": 0.001,
+      "imgsz": 640,
+      "max_det": 300,
+      "nms_max_time_img": 3600.0,
+      "raw_cap_hit_examples": [],
+      "raw_cap_hits": 0,
+      "raw_max_det": 10000,
+      "ultralytics": "8.4.155",
+      "weights": "/kaggle/working/runs_v2/ir/weights/best.pt",
+      "weights_sha256": "9c84ced99b63825061f2d7ae33a10a101acf62e5ff37eb64423c952d96ee9e67"
+    },
+    "path": "training/results/cache/preds_final.npz",
+    "sha256": "7acaedec2426fa02881aa6615cc202289a742fd316bd0117fb5260f831a6353d"
+  },
+  "schema": "truewatch.sweep.v1",
+  "size_basis": "input",
+  "slices": {
+    "day": {
+      "f1_optimal": {
+        "conf": 0.25,
+        "f1": 0.606920323478722,
+        "fp_per_frame": 0.6557866184448463,
+        "nms_iou": 0.5,
+        "precision": 0.7911062469398923,
+        "recall": 0.4923021776144816
+      },
+      "false_alert_budget": {
+        "conf": 0.9,
+        "fp_count": 0,
+        "fp_per_frame": 0.0,
+        "fp_per_frame_upper95": 0.00027124773960217,
+        "frames_needed_to_resolve": 414720,
+        "min_frames_any_resolution": 414720,
+        "n_frames": 11060,
+        "nms_iou": 0.5,
+        "note": "0 false positive(s) in 11060 frames is within the budget, but the 95% upper bound 0.000271/frame is not, so these frames cannot show the budget is met. At least 414,720 frames are needed (and only if no false positive appears in them); the rule-of-three minimum is 414,720.",
+        "recall": 0.0052513666099112824,
+        "status": "unresolvable",
+        "vacuous": false
+      },
+      "grid_csv": "training/results/sweep_final_day_grid.csv",
+      "n_empty_frames": 0,
+      "n_frames": 11060,
+      "n_frames_split": 11060,
+      "n_gt": 55795
+    },
+    "ir": {
+      "f1_optimal": {
+        "conf": 0.3,
+        "f1": 0.8250767439398751,
+        "fp_per_frame": 0.3802838630052453,
+        "nms_iou": 0.5,
+        "precision": 0.8634651600753296,
+        "recall": 0.789956420391203
+      },
+      "false_alert_budget": {
+        "conf": 0.9,
+        "fp_count": 0,
+        "fp_per_frame": 0.0,
+        "fp_per_frame_upper95": 0.00046282011724776306,
+        "frames_needed_to_resolve": 414720,
+        "min_frames_any_resolution": 414720,
+        "n_frames": 6482,
+        "nms_iou": 0.5,
+        "note": "0 false positive(s) in 6482 frames is within the budget, but the 95% upper bound 0.000463/frame is not, so these frames cannot show the budget is met. At least 414,720 frames are needed (and only if no false positive appears in them); the rule-of-three minimum is 414,720.",
+        "recall": 0.0007094354920441877,
+        "status": "unresolvable",
+        "vacuous": false
+      },
+      "grid_csv": "training/results/sweep_final_ir_grid.csv",
+      "n_empty_frames": 0,
+      "n_frames": 6482,
+      "n_frames_split": 6482,
+      "n_gt": 19734
+    }
+  },
+  "split": "val",
+  "tag": "final",
+  "ultralytics": "8.4.155",
+  "weights": {
+    "path": "/kaggle/working/runs_v2/ir/weights/best.pt",
+    "sha256": "9c84ced99b63825061f2d7ae33a10a101acf62e5ff37eb64423c952d96ee9e67"
+  }
+}
