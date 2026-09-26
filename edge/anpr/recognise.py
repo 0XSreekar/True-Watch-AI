@@ -236,10 +236,45 @@ def read_plate(plate_bgr: np.ndarray) -> RecognitionResult:
         if parses(candidate):
             return candidate
     for candidate in attempts:
+        combined = _with_inline_header(plate_bgr, candidate)
+        if combined is not None:
+            return combined
+    for candidate in attempts:
         rescued = _rescue(candidate)
         if rescued is not None:
             return rescued
     return first
+
+
+# Where an inline province plate's small header is read from, as fractions (x0, y0, x1, y1) of the plate crop. Must
+# match HEADER_BOX in datasets/plates/gen_plates.py, whose header crops are the training data for exactly this crop.
+HEADER_BOX = (0.22, 0.0, 0.82, 0.5)
+
+
+def _with_inline_header(plate_bgr: np.ndarray, result: RecognitionResult) -> RecognitionResult | None:
+    """Complete a bare province number ("०४७प४१९३") with the header printed small above its gap.
+
+    Most province plates in the Kathmandu photographs print "बागमती प्रदेश-०२" above the middle of a one-line number, so
+    the two cannot be read in order as one line. The header crop is read on its own and accepted only if it is a
+    province header and the joined text parses as a plate.
+    """
+    try:
+        from .postprocess import PROVINCE_CORE_RE, province_header, validate_nepal
+    except ImportError:
+        from postprocess import PROVINCE_CORE_RE, province_header, validate_nepal
+    if result.script != "devanagari" or not PROVINCE_CORE_RE.match(result.text):
+        return None
+    height, width = plate_bgr.shape[:2]
+    x0, y0, x1, y1 = HEADER_BOX
+    crop = plate_bgr[int(y0 * height):max(int(y0 * height) + 2, int(y1 * height)),
+                     int(x0 * width):max(int(x0 * width) + 2, int(x1 * width))]
+    devanagari, _latin = recognise_line(crop)
+    header = province_header(devanagari.text)
+    if header is None or not validate_nepal(header + result.text).valid:
+        return None
+    lines = [devanagari] + list(result.lines)
+    return RecognitionResult(text=header + result.text, script="devanagari",
+                             line_confidences=[round(l.confidence, 4) for l in lines], lines=lines)
 
 
 def _rescue(result: RecognitionResult) -> RecognitionResult | None:

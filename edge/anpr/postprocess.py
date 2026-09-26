@@ -59,6 +59,18 @@ NEPAL_PROVINCE_RE = re.compile(
     r"(?P<serial>[०-९]{1,4})$"
 )
 
+# An inline province plate prints the number on one line and the small header above its gap; read on its own, the
+# number line is lot + class + serial, and the header crop is province name + "प्रदेश" (+ digit) + office code.
+PROVINCE_CORE_RE = re.compile(r"^[०-९]{3}[क-ह][ऀ-ःा-ौ]?[०-९]{1,4}$")
+PROVINCE_HEADER_RE = re.compile(r"^(?:" + "|".join(NEPAL_PROVINCES) + r")?प्रदेश[०-९]?[०-९]{2}$")
+
+
+def province_header(text: str) -> str | None:
+    """A header reading cleaned to "बागमतीप्रदेश०२" when it is one, else None (spaces, hyphens, dots dropped)."""
+    text = re.sub(r"[\s.\-]", "", unicodedata.normalize("NFC", text))
+    return text if PROVINCE_HEADER_RE.match(text) else None
+
+
 # Embossed Nepali plates are Latin: a province letter, one or two class letters and four digits ("B AC 5763"), under a
 # small printed province name ("BAGMATI") that is not part of the registration.
 NEPAL_EMBOSSED_RE = re.compile(r"^(?P<province>[A-Z])(?P<letters>[A-Z]{1,2})(?P<serial>\d{4})$")

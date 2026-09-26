@@ -66,6 +66,17 @@ def find_font(explicit: str | None) -> Path | None:
     return None
 
 
+# Where the small header of an inline province plate is read from, as fractions (x0, y0, x1, y1) of the plate crop.
+# edge/anpr/recognise.py HEADER_BOX must hold the same numbers: the header crops written here are its training data.
+HEADER_BOX = (0.22, 0.0, 0.82, 0.5)
+
+
+def header_crop(image, box=HEADER_BOX):
+    height, width = image.shape[:2]
+    return image[int(box[1] * height):max(int(box[1] * height) + 2, int(box[3] * height)),
+                 int(box[0] * width):max(int(box[0] * width) + 2, int(box[2] * width))]
+
+
 # Measured on 58 Google Fonts Devanagari files: Latin-digit fonts score 0.89-0.99, true Devanagari digits 0.58 or less.
 LATIN_DIGIT_LIMIT = 0.75
 
@@ -145,6 +156,19 @@ def compose_province(rng: random.Random, config: dict) -> dict:
     serial = rng.randint(0, 10 ** int(config["serial"]["digits"]) - 1)
     serial_text = to_devanagari(serial, digits, int(config["serial"]["digits"]))
     header = f"{province['name']} {office}"
+    if config["layout"].get("header") == "inline":
+        # Long plate: "०४७ प   ४१९३" on one line with the small "बागमती प्रदेश-०२" printed above the gap. The plate is
+        # labelled with the number line only (the recogniser learns to read past the header); the header crop is written
+        # separately and read by recognise.read_plate on its own.
+        main = f"{lot} {vehicle_class} {serial_text}"
+        return {
+            "serial_int": serial,
+            "text": f"{province['name']}{office}{lot}{vehicle_class}{serial_text}".replace(" ", ""),
+            "line1": main, "line2": "", "lines": [main],
+            "inline_header": f"{province['name']}-{office}" if rng.random() < 0.7 else header,
+            "header_label": header,
+            "number_parts": (f"{lot} {vehicle_class}", serial_text),
+        }
     three = int(config["layout"].get("lines", 3)) == 3
     lines = [header, f"{lot} {vehicle_class}", serial_text] if three else [header, f"{lot} {vehicle_class} {serial_text}"]
     shown_header = f"{province['name']}-{office}" if rng.random() < 0.7 else header
@@ -254,7 +278,45 @@ def render_plate(fields: dict, colours: dict, layout: dict, font_path: Path, rng
     # bands and one font, exactly as before.
     bands = [(margin, usable_height), (margin + usable_height + gap, usable_height)]
     fonts = [font, font]
-    if "display_lines" in fields:
+    if "inline_header" in fields:
+        left, right = fields["number_parts"]
+        emboss = int(rng.choice(layout.get("emboss_offset_px", [1, 2]))) * supersample
+        if rng.random() < 0.35:
+            emboss = 0
+        band_top, band = margin + int((height - 2 * margin) * 0.22), int((height - 2 * margin) * 0.78)
+        size_main = max(12, int(band * 0.9))
+        while True:
+            big = ImageFont.truetype(str(font_path), size_main)
+            if variation:
+                big.set_variation_by_name(variation)
+            lw = draw.textbbox((0, 0), left, font=big); rw = draw.textbbox((0, 0), right, font=big)
+            gap_w = int(width * 0.18)
+            if (lw[2] - lw[0]) + (rw[2] - rw[0]) + gap_w <= width - 2 * margin or size_main <= 12:
+                break
+            size_main = int(size_main * 0.92)
+        total = (lw[2] - lw[0]) + gap_w + (rw[2] - rw[0])
+        x0 = (width - total) // 2
+        y = band_top + (band - (lw[3] - lw[1])) // 2 - lw[1]
+        gap_x0 = x0 + (lw[2] - lw[0])
+        for text, x, box in ((left, x0 - lw[0], lw), (right, gap_x0 + gap_w - rw[0], rw)):
+            if emboss:
+                draw.text((x + emboss, y + emboss), text, font=big, fill=(0, 0, 0))
+                draw.text((x - emboss, y - emboss), text, font=big, fill=(255, 255, 255))
+            draw.text((x, y), text, font=big, fill=text_colour, stroke_width=stroke, stroke_fill=text_colour)
+        head_size = max(10, int((height - 2 * margin) * 0.24))
+        while True:
+            small = ImageFont.truetype(str(font_path), head_size)
+            hb = draw.textbbox((0, 0), fields["inline_header"], font=small)
+            if hb[2] - hb[0] <= gap_w + 0.5 * (lw[2] - lw[0]) or head_size <= 10:
+                break
+            head_size = int(head_size * 0.92)
+        hx = gap_x0 + gap_w // 2 - (hb[2] - hb[0]) // 2 - hb[0]
+        hy = margin + int((height - 2 * margin) * 0.02) - hb[1]
+        draw.text((hx, hy), fields["inline_header"], font=small, fill=text_colour)
+        # Where recognise.read_plate will crop the header: the same fractions as HEADER_BOX in edge/anpr/recognise.py.
+        fields["header_box_px"] = (hx + hb[0], hy + hb[1], hx + hb[2], hy + hb[3])
+        bands, fonts = [], []
+    elif "display_lines" in fields:
         # Province plates: N bands sized by fields["bands"], each line's font scaled and shrunk to fit.
         text_height = height - 2 * margin - gap * (len(fields["display_lines"]) - 1)
         bands, fonts, top = [], [], margin
@@ -305,7 +367,8 @@ def render_plate(fields: dict, colours: dict, layout: dict, font_path: Path, rng
     if varied and rng.random() < 0.35:
         emboss = 0  # painted plate: no pressed relief
 
-    shown = fields.get("display_lines") or [l for l in (fields.get("display1", fields["line1"]), fields["line2"]) if l]
+    shown = [] if "inline_header" in fields else (
+        fields.get("display_lines") or [l for l in (fields.get("display1", fields["line1"]), fields["line2"]) if l])
     for index, line in enumerate(shown):
         font = fonts[index]
         band_top, band_height = bands[index]
@@ -427,6 +490,7 @@ def main() -> int:
     rng = random.Random(args.seed)
     counts = {"written": 0, "skipped": 0, "failed": 0}
     rows: list[tuple[str, str, int]] = []
+    header_rows: list[tuple[str, str, int]] = []
     charset: set[str] = set()
     stage_counter: dict[str, int] = {}
 
@@ -482,6 +546,10 @@ def main() -> int:
 
         rows.append((f"out/images/{name}", label, fields["serial_int"]))
         counts["written"] += 1
+        if "header_label" in fields:
+            (out_root / "header").mkdir(exist_ok=True)
+            cv2.imwrite(str(out_root / "header" / name), header_crop(degraded), [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+            header_rows.append((f"out/header/{name}", fields["header_label"], fields["serial_int"]))
 
         if counts["written"] and counts["written"] % 2000 == 0:
             log("INFO", "progress", written=counts["written"], target=args.count)
@@ -498,6 +566,10 @@ def main() -> int:
 
     (labels_dir / "rec_gt_train.txt").write_text("\n".join(train_lines) + "\n", encoding="utf-8")
     (labels_dir / "rec_gt_val.txt").write_text("\n".join(val_lines) + "\n", encoding="utf-8")
+    if header_rows:
+        for split, keep in (("train", lambda s: s not in val_serials), ("val", lambda s: s in val_serials)):
+            (labels_dir / f"rec_header_{split}.txt").write_text(
+                "\n".join(f"{p}\t{t}" for p, t, s in header_rows if keep(s)) + "\n", encoding="utf-8")
     (labels_dir / "charset.txt").write_text("\n".join(sorted(charset)) + "\n", encoding="utf-8")
 
     summary = {

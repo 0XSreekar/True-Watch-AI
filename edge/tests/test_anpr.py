@@ -300,3 +300,11 @@ def test_deskew_levels_a_tilted_two_line_plate():
     matrix = cv2.getRotationMatrix2D((340, 230), 15, 1.0)
     tilted = cv2.warpAffine(canvas, matrix, (680, 460), borderValue=(225, 225, 225))
     assert len(rectify.prepare_lines(tilted, level=True)[0]) == 2
+
+
+def test_province_header_and_core_patterns():
+    assert postprocess.province_header("बागमती प्रदेश-०२") == "बागमतीप्रदेश०२"
+    assert postprocess.province_header("प्रदेश ३-०१") == "प्रदेश३०१"
+    assert postprocess.province_header("बा२च") is None
+    assert postprocess.PROVINCE_CORE_RE.match("०४७प४१९३")
+    assert postprocess.validate_nepal("बागमतीप्रदेश०२" + "०४७प४१९३").valid
