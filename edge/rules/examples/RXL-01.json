@@ -1,0 +1,42 @@
+{
+  "camera_id": "RXL-01",
+  "_comment": "Sample operator config for BOP Raxaul — Pillar 42 (backend/src/data/mockData.js CAMERAS[0]). Loaded and hot-reloaded by rules.config.ConfigStore. The HTTP endpoints an operator would edit this through are Phase 8 — for now this file is hand-edited.",
+
+  "fences": [
+    {
+      "name": "pillar-42-line",
+      "points": [[320.0, -10000.0], [320.0, 10000.0]],
+      "direction": "both",
+      "_comment": "Vertical line at x=320, matching the MEASUREMENTS.md section 2 rule-sanity fence."
+    }
+  ],
+
+  "sanctioned_hours": [
+    { "start": "06:00", "end": "20:00" }
+  ],
+
+  "loitering": {
+    "dwell_s": 3.0,
+    "net_displacement_m": 2.0,
+    "net_displacement_px": 90.0,
+    "_comment": "net_displacement_m is used once the homography below is trustworthy; net_displacement_px is the fallback and is what MEASUREMENTS.md section 2 was measured against (no homography existed for that clip)."
+  },
+
+  "direction": {
+    "min_displacement_px": 40.0,
+    "opposing_angle_deg": 90.0
+  },
+
+  "grouping": {
+    "min_size": 4,
+    "radius_m": 3.0,
+    "radius_px": 150.0,
+    "persist_s": 5.0
+  },
+
+  "homography": {
+    "_comment": "Four operator-picked points: a 5m x 5m square marked out on the ground in front of the camera. image_points are pixel coordinates the operator clicked; world_points are the corresponding real-world metres, origin at the near-left corner.",
+    "image_points": [[420.0, 900.0], [860.0, 900.0], [900.0, 620.0], [460.0, 620.0]],
+    "world_points": [[0.0, 0.0], [5.0, 0.0], [5.0, 5.0], [0.0, 5.0]]
+  }
+}
