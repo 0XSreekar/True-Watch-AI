@@ -1,7 +1,7 @@
 {
   "schema": "truewatch.hf_ocr_model.v1",
   "repo_id": "sreekar12/truewatch-anpr-devanagari",
-  "revision": "eb04ab55a419a2001abe5ef3b8bbc41e9e4982fc",
+  "revision": "a428bfb08fd1dfb3c4b6829c910e95f473973fab",
   "base_model": "devanagari_PP-OCRv5_mobile_rec",
   "base_model_license": "Apache-2.0",
   "files": [
@@ -10,35 +10,35 @@
     "inference.yml"
   ],
   "resolve_urls": [
-    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/eb04ab55a419a2001abe5ef3b8bbc41e9e4982fc/inference.json",
-    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/eb04ab55a419a2001abe5ef3b8bbc41e9e4982fc/inference.pdiparams",
-    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/eb04ab55a419a2001abe5ef3b8bbc41e9e4982fc/inference.yml"
+    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/a428bfb08fd1dfb3c4b6829c910e95f473973fab/inference.json",
+    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/a428bfb08fd1dfb3c4b6829c910e95f473973fab/inference.pdiparams",
+    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/a428bfb08fd1dfb3c4b6829c910e95f473973fab/inference.yml"
   ],
   "sha256": {
-    "inference.json": "9738c8d5c70b31ba50b4e649ec3ec16ce81266396c86234f2ad13e3ea1698e8a",
-    "inference.pdiparams": "f749f3c0cbd1569109cff03ebd78bc857e097b5c3f1a4f21394b97f62f9e7b41",
+    "inference.json": "30694bd1e54b80e27ad28ae37d976d39a22128cedb86c6db15214f063a9136b1",
+    "inference.pdiparams": "788353e3d6378158abe63fa4777d8925edb9d20648b37ede4bf5804308f9ac60",
     "inference.yml": "9bd172dd26440c8ce94d1cde5d5baea6aefdc7cf3c5c8492e0beedef656d4e54"
   },
   "metrics": {
     "finetuned": {
       "count": 2076,
-      "exact_match_rate": 0.8791,
-      "mean_cer": 0.0481,
+      "exact_match_rate": 0.8776,
+      "mean_cer": 0.0515,
       "buckets": {
         "near (proxy: plate >= 200px wide)": {
           "count": 630,
-          "exact_match_rate": 0.9317,
-          "mean_cer": 0.0227
+          "exact_match_rate": 0.9381,
+          "mean_cer": 0.0243
         },
         "mid, under 25 m proxy (120-199px)": {
           "count": 817,
-          "exact_match_rate": 0.9033,
-          "mean_cer": 0.0377
+          "exact_match_rate": 0.896,
+          "mean_cer": 0.0411
         },
         "far, beyond 25 m proxy (<120px)": {
           "count": 629,
-          "exact_match_rate": 0.7949,
-          "mean_cer": 0.087
+          "exact_match_rate": 0.7933,
+          "mean_cer": 0.0922
         }
       }
     },
@@ -65,5 +65,5 @@
       }
     }
   },
-  "published_at": "2026-09-25T17:33:15Z"
+  "published_at": "2026-09-26T05:57:29Z"
 }

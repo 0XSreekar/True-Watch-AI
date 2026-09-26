@@ -117,6 +117,9 @@ def process_split(split: str, config: dict, lists_dir: Path, images_root: Path, 
             layout = {1: "one", 2: "two", 3: "three"}.get(len(fields))  # the label says how many lines to cut
             lines, _used_quad = rectify.prepare_lines(image, layout)
             if len(lines) != len(fields):
+                # A tilted photograph splits across its text; levelled it often splits cleanly.
+                lines, _used_quad = rectify.prepare_lines(image, layout, level=True)
+            if len(lines) != len(fields):
                 skipped_split += 1
                 continue
             stem = Path(rel_path).stem

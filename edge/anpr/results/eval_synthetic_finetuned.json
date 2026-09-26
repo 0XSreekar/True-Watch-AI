@@ -1,23 +1,23 @@
 {
   "summary": {
     "count": 2076,
-    "exact_match_rate": 0.8791,
-    "mean_cer": 0.0481,
+    "exact_match_rate": 0.8776,
+    "mean_cer": 0.0515,
     "buckets": {
       "near (proxy: plate >= 200px wide)": {
         "count": 630,
-        "exact_match_rate": 0.9317,
-        "mean_cer": 0.0227
+        "exact_match_rate": 0.9381,
+        "mean_cer": 0.0243
       },
       "mid, under 25 m proxy (120-199px)": {
         "count": 817,
-        "exact_match_rate": 0.9033,
-        "mean_cer": 0.0377
+        "exact_match_rate": 0.896,
+        "mean_cer": 0.0411
       },
       "far, beyond 25 m proxy (<120px)": {
         "count": 629,
-        "exact_match_rate": 0.7949,
-        "mean_cer": 0.087
+        "exact_match_rate": 0.7933,
+        "mean_cer": 0.0922
       }
     }
   },
