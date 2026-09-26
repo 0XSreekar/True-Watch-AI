@@ -16,13 +16,13 @@ programmer, is the one who edits fence points at a post.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .direction import DirectionConfig
 from .fence import FenceLine
 from .grouping import GroupingConfig
-from .homography import Homography, HomographyError
+from .homography import Homography, HomographyError, HomographyFrameError
 from .hours import HoursConfig, SanctionedWindow
 from .loitering import LoiteringConfig
 
@@ -105,11 +105,20 @@ class CameraRuleConfig:
         homography_obj = None
         homography_raw = raw.get("homography")
         if homography_raw:
+            frame_size = homography_raw.get("frame_size")
+            if (not isinstance(frame_size, (list, tuple)) or len(frame_size) != 2
+                    or not all(isinstance(v, (int, float)) and v > 0 for v in frame_size)):
+                raise RuleConfigError(
+                    f"homography for {camera_id} needs \"frame_size\": [width, height], the resolution its "
+                    f"image_points were picked on (got {frame_size!r}); without it the calibration cannot be "
+                    "rescaled to the live stream"
+                )
             try:
                 homography_obj = Homography.calibrate(
                     camera_id=camera_id,
                     image_points=[tuple(p) for p in homography_raw["image_points"]],
                     world_points=[tuple(p) for p in homography_raw["world_points"]],
+                    frame_size=(int(frame_size[0]), int(frame_size[1])),
                 )
             except HomographyError as exc:
                 raise RuleConfigError(f"bad homography calibration for {camera_id}: {exc}") from exc
@@ -123,6 +132,19 @@ class CameraRuleConfig:
             grouping=grouping_cfg,
             homography=homography_obj,
         )
+
+    def for_frame(self, width: int, height: int) -> "CameraRuleConfig":
+        """This config with its homography expressed in `width` x `height` pixels.
+
+        Raises RuleConfigError (with the reason) when the homography cannot be
+        applied to that frame size; see Homography.for_frame.
+        """
+        if self.homography is None:
+            return self
+        try:
+            return replace(self, homography=self.homography.for_frame(width, height))
+        except HomographyFrameError as exc:
+            raise RuleConfigError(str(exc)) from exc
 
 
 def load_file(path: Path) -> CameraRuleConfig:

@@ -20,6 +20,11 @@ fit carries a `ResidualReport` computed by reprojecting the same four points
 back through the fitted matrix. A judge — or an operator — can see the error
 in metres and as a percentage of the calibration span before anything
 downstream (loitering, grouping, DORI) trusts it.
+
+Pixel coordinates only mean something at the resolution they were clicked on.
+Every calibration therefore records `frame_size` (width, height), and
+`for_frame()` rescales it to the resolution the camera is actually delivering,
+or refuses — never silently applies a 1080p calibration to a 640x512 stream.
 """
 
 from __future__ import annotations
@@ -39,8 +44,18 @@ Point = tuple[float, float]
 RESIDUAL_TOLERANCE_PCT = 5.0
 
 
+# Largest relative difference between the calibration's aspect ratio and the
+# live frame's for which a plain rescale is still valid. Beyond it the stream
+# is cropped or letterboxed differently, and a rescale would be wrong.
+ASPECT_TOLERANCE = 0.01
+
+
 class HomographyError(ValueError):
     """Calibration input was degenerate: too few points, or collinear."""
+
+
+class HomographyFrameError(HomographyError):
+    """The calibration cannot be applied to the live frame size."""
 
 
 def _dlt(image_points: Sequence[Point], world_points: Sequence[Point]) -> np.ndarray:
@@ -137,6 +152,7 @@ class Homography:
     matrix: np.ndarray  # image (u, v) -> world (x, y) metres
     inverse: np.ndarray  # world (x, y) metres -> image (u, v)
     residual: ResidualReport
+    frame_size: tuple[int, int] | None = None  # (width, height) the image points were picked on
 
     @classmethod
     def calibrate(
@@ -144,6 +160,7 @@ class Homography:
         camera_id: str,
         image_points: Sequence[Point],
         world_points: Sequence[Point],
+        frame_size: tuple[int, int] | None = None,
     ) -> "Homography":
         matrix = _dlt(image_points, world_points)
         try:
@@ -151,7 +168,46 @@ class Homography:
         except np.linalg.LinAlgError as exc:
             raise HomographyError("fitted homography is not invertible") from exc
         residual = _residual_report(matrix, image_points, world_points)
-        return cls(camera_id=camera_id, matrix=matrix, inverse=inverse, residual=residual)
+        if frame_size is not None:
+            fw, fh = (int(v) for v in frame_size)
+            if fw <= 0 or fh <= 0:
+                raise HomographyError(f"frame_size must be positive (width, height), got {frame_size!r}")
+            frame_size = (fw, fh)
+        return cls(camera_id=camera_id, matrix=matrix, inverse=inverse, residual=residual,
+                   frame_size=frame_size)
+
+    def for_frame(self, width: int, height: int) -> "Homography":
+        """This calibration expressed in the pixels of a `width` x `height` frame.
+
+        Same size: returned as is. Same aspect ratio (within ASPECT_TOLERANCE):
+        rescaled — image point p at the calibration size is p * (w / W, h / H)
+        live, so H_live = H_cal @ diag(W / w, H / h, 1); the metre residual is
+        unchanged. No recorded frame size, or a different aspect ratio:
+        HomographyFrameError, because the pixel-to-metre mapping cannot be
+        known and guessing it is what produces false loitering and grouping.
+        """
+        width, height = int(width), int(height)
+        if self.frame_size is None:
+            raise HomographyFrameError(
+                f"homography for {self.camera_id} does not record the frame size its image points were "
+                f"picked on; add \"frame_size\": [width, height] to its calibration before using it on a "
+                f"{width}x{height} stream"
+            )
+        cw, ch = self.frame_size
+        if (cw, ch) == (width, height):
+            return self
+        if abs((cw / ch) / (width / height) - 1.0) > ASPECT_TOLERANCE:
+            raise HomographyFrameError(
+                f"homography for {self.camera_id} was calibrated on {cw}x{ch} (aspect {cw / ch:.3f}) but the "
+                f"stream is {width}x{height} (aspect {width / height:.3f}); the view is cropped or reframed, "
+                f"so re-pick the four ground points on the live view"
+            )
+        sx, sy = width / cw, height / ch
+        scale_in = np.diag([1.0 / sx, 1.0 / sy, 1.0])
+        scale_out = np.diag([sx, sy, 1.0])
+        return Homography(camera_id=self.camera_id, matrix=self.matrix @ scale_in,
+                          inverse=scale_out @ self.inverse, residual=self.residual,
+                          frame_size=(width, height))
 
     def to_world_m(self, u: float, v: float) -> Point:
         """Pixel -> (x, y) metres on the ground plane."""

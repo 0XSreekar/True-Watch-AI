@@ -15,7 +15,7 @@ The per-camera direction baseline is re-learnt periodically from all confirmed t
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from pipeline.events import EventSink, build_event
@@ -48,6 +48,7 @@ class ServiceStats:
     rule_fires: dict = field(default_factory=dict)          # rule name -> distinct (track, rule) firings
     rule_events: int = 0                                    # firings that cleared the throttle
     rule_suppressed: int = 0                                # firings the throttle refused (budget)
+    homography_error: str | None = None                     # why the calibration was refused, if it was
     last_timings_ms: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -61,6 +62,7 @@ class ServiceStats:
             "rule_fires": dict(self.rule_fires),
             "rule_events": self.rule_events,
             "rule_suppressed": self.rule_suppressed,
+            "homography_error": self.homography_error,
             "last_timings_ms": {k: round(v, 2) for k, v in self.last_timings_ms.items()},
         }
 
@@ -103,6 +105,7 @@ class CameraService:
         self._fired: set[tuple[int, str]] = set()           # (track_id, rule) pairs already counted
         self._rules_error: str | None = None
         self.fired_by_track: dict[int, list[str]] = {}
+        self._sized: tuple[int, tuple[int, int], CameraRuleConfig] | None = None
 
     def close(self) -> None:
         self.pipeline.close()
@@ -132,6 +135,24 @@ class CameraService:
         self._rules_error = None
         return cfg
 
+    def sized_config(self, cfg: CameraRuleConfig, frame_size: tuple[int, int]) -> CameraRuleConfig:
+        """`cfg` with its homography rescaled to the live frame; refused (pixel thresholds) if it can't be.
+
+        Refusing the homography is the rule engine's documented fallback for an untrustworthy one
+        (rules/homography.py px_to_metres): thresholds revert to pixels instead of using a wrong scale.
+        """
+        if self._sized is not None and self._sized[0] == id(cfg) and self._sized[1] == frame_size:
+            return self._sized[2]
+        try:
+            sized = cfg.for_frame(*frame_size)
+            self.stats.homography_error = None
+        except RuleConfigError as exc:
+            log.error("camera %s: homography refused, rules use pixel thresholds: %s", self.camera_id, exc)
+            self.stats.homography_error = str(exc)
+            sized = replace(cfg, homography=None)
+        self._sized = (id(cfg), frame_size, sized)
+        return sized
+
     def _learn_baseline(self, tracks: list[RuleTrack]) -> None:
         for t in tracks:
             self._seen_tracks[t.track_id] = t
@@ -157,6 +178,8 @@ class CameraService:
         agreed = [t for t in all_tracks if t.track_id in self.last_fused]
         if not agreed:
             return []
+        h, w = f.image.shape[:2]
+        cfg = self.sized_config(cfg, (w, h))
         self.stats.rule_evaluations += 1
         verdicts = evaluate_camera(agreed, cfg, self.baseline)
         by_id = {t.track_id: t for t in agreed}

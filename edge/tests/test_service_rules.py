@@ -83,3 +83,55 @@ def test_tentative_tracks_never_reach_the_rules():
 
 def test_ground_point_reads_corner_boxes():
     assert ground_point((10.0, 20.0, 30.0, 80.0)) == (20.0, 80.0)
+
+
+# ---------------------------------------------------------------- homography frame size
+
+SQUARE_1080 = {"image_points": [[420.0, 900.0], [860.0, 900.0], [900.0, 620.0], [460.0, 620.0]],
+               "world_points": [[0.0, 0.0], [5.0, 0.0], [5.0, 5.0], [0.0, 5.0]]}
+
+
+def test_homography_without_frame_size_is_rejected():
+    from rules.config import RuleConfigError
+
+    with pytest.raises(RuleConfigError, match="frame_size"):
+        CameraRuleConfig.from_dict({"camera_id": "C", "homography": dict(SQUARE_1080)})
+
+
+def test_homography_rescales_to_a_same_aspect_stream():
+    cfg = CameraRuleConfig.from_dict({"camera_id": "C", "homography": {**SQUARE_1080, "frame_size": [1920, 1080]}})
+    live = cfg.for_frame(960, 540).homography
+    assert live.frame_size == (960, 540)
+    # the same ground point, clicked at half resolution, maps to the same metres
+    for (u, v), (x, y) in zip(SQUARE_1080["image_points"], SQUARE_1080["world_points"]):
+        wx, wy = live.to_world_m(u / 2, v / 2)
+        assert wx == pytest.approx(x, abs=1e-6) and wy == pytest.approx(y, abs=1e-6)
+    assert cfg.for_frame(1920, 1080).homography is cfg.homography
+
+
+def test_homography_refuses_a_different_aspect_stream():
+    from rules.config import RuleConfigError
+
+    cfg = CameraRuleConfig.from_dict({"camera_id": "C", "homography": {**SQUARE_1080, "frame_size": [1920, 1080]}})
+    with pytest.raises(RuleConfigError, match="1920x1080.*640x512"):
+        cfg.for_frame(640, 512)
+
+
+def test_a_1080p_calibration_on_a_640x512_stream_falls_back_to_pixels_and_no_false_loitering(tmp_path):
+    """The walking object below moves ~120 px in 5 s. Read through a 1080p homography on a 640x512 frame
+    that is well under 2 m, so it used to be flagged as loitering. Refused, the pixel threshold applies."""
+    raw = {"camera_id": "CAM-T", "loitering": {"dwell_s": 3.0, "net_displacement_m": 2.0, "net_displacement_px": 90.0},
+           "homography": {**SQUARE_1080, "frame_size": [1920, 1080]}}
+    svc, sink, _ = run_service(tmp_path, CameraRuleConfig.from_dict(raw), n=130)
+    assert svc.stats.homography_error and "re-pick" in svc.stats.homography_error
+    assert "loitering" not in svc.stats.rule_fires
+    # control: the unscaled 1080p homography applied blindly to the same frames does report loitering
+    from dataclasses import replace
+
+    from rules.homography import Homography
+
+    blind = CameraRuleConfig.from_dict(raw)
+    blind_h = Homography(camera_id="CAM-T", matrix=blind.homography.matrix, inverse=blind.homography.inverse,
+                         residual=blind.homography.residual, frame_size=(320, 256))  # mislabelled as live-size
+    svc2, _, _ = run_service(tmp_path, replace(blind, homography=blind_h), n=130)
+    assert "loitering" in svc2.stats.rule_fires
