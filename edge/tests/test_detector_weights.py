@@ -235,12 +235,22 @@ def test_boot_with_the_manifest_loads_the_detector(served, tmp_path):
 # --------------------------------------------------------------------------------------------
 
 
+# Phase 6 runs two pretrained models through transformers + CPU torch (SigLIP
+# for search, Moondream 2 for explanations). Only those two runtime modules may
+# import torch; the detector path stays ONNX-only and ultralytics stays out of
+# edge/ entirely.
+TORCH_ALLOWED = {"search/embed.py", "vlm/runtime.py"}
+
+
 def test_nothing_in_edge_imports_ultralytics_or_torch():
     offenders = []
     for path in EDGE_ROOT.rglob("*.py"):
         if any(part in {".venv", "venv", "cache"} for part in path.parts):
             continue
+        rel = path.relative_to(EDGE_ROOT).as_posix()
         text = path.read_text(encoding="utf-8")
-        if re.search(r"^\s*(import|from)\s+(ultralytics|torch)\b", text, re.M):
-            offenders.append(str(path.relative_to(EDGE_ROOT)))
+        if re.search(r"^\s*(import|from)\s+ultralytics\b", text, re.M):
+            offenders.append(rel)
+        elif rel not in TORCH_ALLOWED and re.search(r"^\s*(import|from)\s+torch\b", text, re.M):
+            offenders.append(rel)
     assert offenders == []
