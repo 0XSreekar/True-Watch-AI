@@ -202,11 +202,11 @@ def recognise_plate(line_images: Sequence[np.ndarray]) -> RecognitionResult:
 
 
 def read_plate(plate_bgr: np.ndarray) -> RecognitionResult:
-    """Rectify, split and recognise one plate crop, trying the other line layout when the first reading fails.
+    """Rectify, split and recognise one plate crop, falling back to other readings when the first fails the grammar.
 
-    The plate's shape picks one-line or two-line first (rectify.ONE_LINE_MIN_ASPECT). A tilted one-line plate or a
-    loosely cropped two-line plate can land on the wrong side of that threshold; when the first reading does not parse
-    as a plate and the other layout's reading does, the other layout wins.
+    The plate's shape picks one-line or two-line first (rectify.ONE_LINE_MIN_ASPECT). Tilted plates (levelled by
+    rectify.deskew), province plates (three lines) and plates on the wrong side of the shape threshold are recovered by
+    later attempts; a reading that parses as a plate is only ever replaced by nothing, never by a later attempt.
     """
     try:
         from . import rectify
@@ -219,18 +219,54 @@ def read_plate(plate_bgr: np.ndarray) -> RecognitionResult:
         check = validate_nepal if result.script == "devanagari" else validate_latin
         return check(result.text).valid
 
+    # Every reading is tried in order until one parses as a plate: as photographed, then levelled (deskew), then the
+    # other line layouts. Only when none parses is a reading cut down to a plate it contains (_rescue), so a clean
+    # parse always beats a rescued one.
+    attempts: list[RecognitionResult] = []
     first_lines, _ = rectify.prepare_lines(plate_bgr)
     first = recognise_plate(first_lines)
+    attempts.append(first)
     if parses(first):
         return first
-    # Province plates (three printed lines) first, then the other one-line / two-line reading.
-    fallbacks = ("three", "one") if len(first_lines) == 2 else ("two", "three")
-    for layout in fallbacks:
-        lines = rectify.prepare_lines(plate_bgr, layout)[0]
-        if len(lines) == len(first_lines) and layout != "one":
-            continue  # the forced layout produced the same split; its reading would be the same
+    other = ("three", "one") if len(first_lines) == 2 else ("two", "three")
+    for layout, level in ((None, True),) + tuple((l, False) for l in other) + tuple((l, True) for l in other):
+        lines = rectify.prepare_lines(plate_bgr, layout, level=level)[0]
         candidate = recognise_plate(lines)
+        attempts.append(candidate)
         if parses(candidate):
             return candidate
+    for candidate in attempts:
+        rescued = _rescue(candidate)
+        if rescued is not None:
+            return rescued
     return first
+
+
+def _rescue(result: RecognitionResult) -> RecognitionResult | None:
+    """A reading that fails the grammar but holds a whole plate: keep the plate, drop the junk around it.
+
+    First by dropping whole lines (a background strip read as an extra line), then by cutting the joined text down to
+    its longest grammatical stretch.
+    """
+    if result.script != "devanagari" or not result.lines:
+        return None
+    try:
+        from .postprocess import extract_nepal_plate, validate_nepal
+    except ImportError:
+        from postprocess import extract_nepal_plate, validate_nepal
+
+    def joined(lines):
+        return unicodedata.normalize("NFC", "".join(line.text.replace(" ", "") for line in lines))
+
+    n = len(result.lines)
+    for size in range(n - 1, 0, -1):  # contiguous runs of lines, longest first
+        for start in range(0, n - size + 1):
+            run = result.lines[start:start + size]
+            if validate_nepal(joined(run)).valid:
+                return RecognitionResult(text=joined(run), script="devanagari",
+                                         line_confidences=[round(l.confidence, 4) for l in run], lines=list(run))
+    piece = extract_nepal_plate(result.text)
+    if piece is None:
+        return None
+    return RecognitionResult(text=piece, script="devanagari", line_confidences=result.line_confidences, lines=result.lines)
 

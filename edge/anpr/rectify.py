@@ -80,7 +80,48 @@ def _source_aspect(source: np.ndarray) -> float:
     return float((top + bottom) / max(1e-6, left + right))
 
 
-def rectify(plate_bgr: np.ndarray, layout: str | None = None) -> RectifyResult:
+DESKEW_MAX_DEGREES = 30  # parked motorbikes and cars photographed from the side tilt plates this far
+DESKEW_MIN_DEGREES = 2   # below this the axis-aligned crop is already level enough to split
+
+
+def deskew(plate_bgr: np.ndarray) -> np.ndarray:
+    """Level a tilted plate crop when no plate outline was found, and trim it to its text block.
+
+    On hand-transcribed real photographs 36 of 84 readings were much shorter than the plate: an axis-aligned crop of a
+    tilted plate was cut into lines horizontally, across the text. The tilt is the angle at which the ink's row profile
+    is sharpest (text lines give tall, narrow peaks only when level), searched over +/- DESKEW_MAX_DEGREES.
+    """
+    height, width = plate_bgr.shape[:2]
+    if height < 16 or width < 16:
+        return plate_bgr
+    scale = 200.0 / max(width, height)
+    small = cv2.resize(plate_bgr, (max(8, int(width * scale)), max(8, int(height * scale))), interpolation=cv2.INTER_AREA)
+    mask = _ink_mask(small).astype("float32")
+    centre = (mask.shape[1] / 2.0, mask.shape[0] / 2.0)
+    best_angle, best_score = 0.0, -1.0
+    for angle in np.arange(-DESKEW_MAX_DEGREES, DESKEW_MAX_DEGREES + 0.5, 1.0):
+        turned = cv2.warpAffine(mask, cv2.getRotationMatrix2D(centre, float(angle), 1.0), (mask.shape[1], mask.shape[0]))
+        score = float(np.var(turned.sum(axis=1)))
+        if score > best_score:
+            best_angle, best_score = float(angle), score
+    if abs(best_angle) < DESKEW_MIN_DEGREES:
+        return plate_bgr
+    matrix = cv2.getRotationMatrix2D((width / 2.0, height / 2.0), best_angle, 1.0)
+    cos, sin = abs(matrix[0, 0]), abs(matrix[0, 1])
+    new_w, new_h = int(height * sin + width * cos), int(height * cos + width * sin)
+    matrix[0, 2] += new_w / 2.0 - width / 2.0
+    matrix[1, 2] += new_h / 2.0 - height / 2.0
+    turned = cv2.warpAffine(plate_bgr, matrix, (new_w, new_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    # Keep the rotated rectangle of the original crop's text block: rows and columns holding most of the ink.
+    ink = _ink_mask(turned) > 0
+    rows, cols = np.where(ink.sum(axis=1) > 0.02 * ink.shape[1])[0], np.where(ink.sum(axis=0) > 0.02 * ink.shape[0])[0]
+    if len(rows) < 8 or len(cols) < 8:
+        return turned
+    pad_y, pad_x = int(0.08 * (rows[-1] - rows[0])), int(0.04 * (cols[-1] - cols[0]))
+    return turned[max(0, rows[0] - pad_y):rows[-1] + pad_y + 1, max(0, cols[0] - pad_x):cols[-1] + pad_x + 1]
+
+
+def rectify(plate_bgr: np.ndarray, layout: str | None = None, level: bool = False) -> RectifyResult:
     """Warp `plate_bgr` onto a RECT_WIDTH x RECT_HEIGHT canonical plate.
 
     A one-line plate (source aspect >= ONE_LINE_MIN_ASPECT, or layout="one") keeps its own aspect instead: squeezing a
@@ -91,6 +132,11 @@ def rectify(plate_bgr: np.ndarray, layout: str | None = None) -> RectifyResult:
         raise ValueError("rectify() received an empty crop")
     gray = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2GRAY) if plate_bgr.ndim == 3 else plate_bgr
     quad = _find_quad(gray)
+    if quad is None and level:
+        # Opt-in: levelling always misjudged some already-level plates (synthetic one-line exact-match fell from 57.5% to
+        # 41.8% when it ran on every plate), so recognise.read_plate asks for it only after a plain reading failed.
+        plate_bgr = deskew(plate_bgr)
+        gray = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2GRAY) if plate_bgr.ndim == 3 else plate_bgr
     height, width = gray.shape[:2]
 
     if quad is not None:
@@ -250,14 +296,14 @@ def _split_once(image: np.ndarray, allow_shape_fallback: bool) -> list[np.ndarra
     return [top, bottom]
 
 
-def prepare_lines(plate_bgr: np.ndarray, layout: str | None = None) -> tuple[list[np.ndarray], bool]:
+def prepare_lines(plate_bgr: np.ndarray, layout: str | None = None, level: bool = False) -> tuple[list[np.ndarray], bool]:
     """The full rectify -> split -> upscale pipeline. Returns (line images, used_quad).
 
     layout None decides one-line versus two-line from the plate's shape; "one" / "two" force either reading and
     "three" allows a province plate's third line. recognise.read_plate uses them as fallbacks when the first reading
     does not parse as a plate.
     """
-    rectified = rectify(plate_bgr, "two" if layout == "three" else layout)
+    rectified = rectify(plate_bgr, "two" if layout == "three" else layout, level=level)
     if rectified.one_line:
         lines = [rectified.image]
     else:

@@ -107,6 +107,33 @@ def validate_bhutan(text: str) -> GrammarResult:
     return GrammarResult(valid=True, script="latin", fields=match.groupdict())
 
 
+# Zonal codes of old-style plates (datasets/plates/plates.yaml, confirmed and unverified) plus codes seen on photographs.
+KNOWN_ZONES = frozenset(("बा", "मे", "को", "सा", "ज", "ना", "ग", "धौ", "लु", "रा", "भे", "से", "म", "क", "स", "प्र"))
+
+
+def extract_nepal_plate(text: str) -> str | None:
+    """The longest stretch of a Devanagari reading that is a whole plate, or None.
+
+    A background strip or a hallucinated province header read as an extra line ("बतपरेश०४बा२च९५८५") leaves junk around
+    a correct registration; a plate cannot contain that junk, so the grammar can cut it away.
+    """
+    text = unicodedata.normalize("NFC", text)
+    best, best_rank = None, None
+    for start in range(len(text)):
+        for end in range(start + 1, len(text) + 1):
+            piece = text[start:end]
+            match = NEPAL_PROVINCE_RE.match(piece) or NEPAL_PLATE_RE.match(piece)
+            if not match:
+                continue
+            # The loose grammar also accepts junk ("परेश०४बा२": a four-letter "zone", "बा" as the class), so a known
+            # zone code and a full four-digit serial rank first and length only breaks ties.
+            fields = match.groupdict()
+            rank = ("province" in fields or fields.get("zone") in KNOWN_ZONES, len(fields["serial"]) == 4, len(piece))
+            if best_rank is None or rank > best_rank:
+                best, best_rank = piece, rank
+    return best
+
+
 def validate_latin(text: str) -> GrammarResult:
     """A Latin reading is a plate if it is a Bhutan plate or, header stripped, an embossed Nepali plate."""
     bhutan = validate_bhutan(text)

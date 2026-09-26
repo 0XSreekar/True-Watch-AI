@@ -285,3 +285,18 @@ def test_three_line_split_is_opt_in_and_finds_a_province_plate():
     assert len(rectify.split_lines(province, max_lines=3)) == 3
     two_line = _bordered_plate([(55, 125), (175, 245)])
     assert len(rectify.split_lines(two_line)) == 2
+
+
+def test_extract_nepal_plate_cuts_junk_around_a_registration():
+    assert postprocess.extract_nepal_plate("बतपरेश०४बा२च९५८५") == "बा२च९५८५"
+    assert postprocess.extract_nepal_plate("बा१६च९३४५बागमतीरदेश०") == "बा१६च९३४५"
+    assert postprocess.extract_nepal_plate("ह६") is None
+
+
+def test_deskew_levels_a_tilted_two_line_plate():
+    plate = _bordered_plate([(55, 125), (175, 245)])
+    canvas = np.full((460, 680, 3), 225, dtype=np.uint8)
+    canvas[80:380, 80:600] = plate
+    matrix = cv2.getRotationMatrix2D((340, 230), 15, 1.0)
+    tilted = cv2.warpAffine(canvas, matrix, (680, 460), borderValue=(225, 225, 225))
+    assert len(rectify.prepare_lines(tilted, level=True)[0]) == 2

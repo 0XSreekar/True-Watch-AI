@@ -75,6 +75,8 @@ def build_model_card(
     baseline: dict,
     latin_baseline: dict | None,
     sample_count: int,
+    real: dict | None = None,
+    real_baseline: dict | None = None,
 ) -> str:
     def pct(x):
         return "n/a" if x is None else f"{x * 100:.2f}%"
@@ -112,22 +114,27 @@ def build_model_card(
         "- 20,500 synthetically rendered plate images "
         "(`datasets/plates/gen_plates.py`, seed 42) with the generator's own "
         "train/validation split; training used per-line crops cut by the "
-        "same line-splitting code the pipeline runs at inference, in two "
-        "rounds: round 1 from the pretrained head (31,922 line crops from "
-        "15,961 training plates), round 2 from round 1's weights at half the "
-        "learning rate on crops re-cut with the improved line splitter "
-        "(35,880 line crops from 17,940 training plates). Plates that did not "
-        "split were skipped, never mislabelled.",
-        "- No real photographs of plates were used for training or evaluation. "
+        "same line-splitting code the pipeline runs at inference. Later rounds "
+        "add plates rendered in 44 open-licence Devanagari fonts (fonts that draw "
+        "Devanagari digits with Latin shapes are rejected automatically) and in "
+        "the layouts photographed plates actually use: red two-line plates with "
+        "zone, lot and class on the top line, one-line plates, and two- and "
+        "three-line province plates. Plates that did not split were skipped, "
+        "never mislabelled.",
+        "- Real photographs: line crops of hand-transcribed plates (each read "
+        "independently where possible) and of repeat views of those plates matched "
+        "to their verified text, from the Kaggle dataset "
+        "`ishworsubedii/vehicle-number-plate-datasetnepal` (Apache-2.0) and a "
+        "training subset of the Hugging Face dataset "
+        "`mukulboro/nepali-private-license-plates` (CC BY 4.0, Kathmandu "
+        "University parking-lot photographs). Real test plates were never "
+        "trained on; training plates whose text matched a test plate were removed.",
+        "- Synthetic plates follow a documented specification. "
         "The corpus's composition (zone codes, vehicle-class letters, colour "
         "series) follows a documented specification with several fields "
         "explicitly marked unverified against a primary source — see this "
         f"model's source repository, [{SOURCE_REPO_URL}]({SOURCE_REPO_URL}), "
         "`datasets/plates/plates.yaml` and `DATASET_SPEC.md`.",
-        "- This model has NOT been evaluated on real plate photographs. Any "
-        "real-world accuracy figure would require a held-out set of licensed "
-        "real-plate crops that does not yet exist (see the metrics table "
-        "below).",
         "",
         "## Metrics",
         "",
@@ -151,14 +158,43 @@ def build_model_card(
             f"{pct(latin_baseline.get('exact_match_rate'))} | "
             f"{num(latin_baseline.get('mean_cer'))} | {latin_baseline.get('count', 'n/a')} |"
         )
+    if real is not None:
+        lines += [
+            "",
+            "### Real photographs (held out)",
+            "",
+            "Distinct vehicles from `mukulboro/nepali-private-license-plates` (CC BY 4.0), each "
+            "transcribed independently twice; only plates both readings agreed on exactly are "
+            "used, one crop per vehicle. The set is small, so treat these as indicative.",
+            "",
+            "| | Exact-match | Mean CER | Plates |",
+            "|---|---|---|---|",
+        ]
+        if real_baseline is not None:
+            lines.append(
+                f"| Previous published model | {pct(real_baseline.get('exact_match_rate'))} | "
+                f"{num(real_baseline.get('mean_cer'))} | {real_baseline.get('count', 'n/a')} |"
+            )
+        lines.append(
+            f"| **This model** | {pct(real.get('exact_match_rate'))} | {num(real.get('mean_cer'))} | "
+            f"{real.get('count', 'n/a')} |"
+        )
+        lines += [
+            "",
+            "Real-world accuracy is far below the synthetic figures: this is not yet a reliable "
+            "reader of real plates, and the synthetic numbers above must not be read as one.",
+        ]
+    if real is None:
+        lines += [
+            "",
+            "**Real-world plates: INSUFFICIENT SAMPLE.** No licensed real-plate "
+            "photograph set exists yet for this project (source repo "
+            "`DATASET_SPEC.md` section 6.5 requires >= 30 licensed crops with "
+            "recorded source/licence/author before a real-plate rate can be "
+            "reported). The numbers above are synthetic-only and must not be read "
+            "as a real-world accuracy claim.",
+        ]
     lines += [
-        "",
-        "**Real-world plates: INSUFFICIENT SAMPLE.** No licensed real-plate "
-        "photograph set exists yet for this project (source repo "
-        "`DATASET_SPEC.md` section 6.5 requires >= 30 licensed crops with "
-        "recorded source/licence/author before a real-plate rate can be "
-        "reported). The numbers above are synthetic-only and must not be read "
-        "as a real-world accuracy claim.",
         "",
         "## Intended use",
         "",
@@ -190,6 +226,8 @@ def main() -> int:
     ap.add_argument("--metrics-json", required=True, help="finetuned eval JSON (edge/anpr/evaluate.py --out)")
     ap.add_argument("--baseline-json", required=True, help="pretrained baseline eval JSON, same val split")
     ap.add_argument("--latin-baseline-json", default=None, help="optional latin-head baseline eval JSON")
+    ap.add_argument("--real-metrics-json", default=None, help="optional eval JSON on held-out real plate photographs")
+    ap.add_argument("--real-baseline-json", default=None, help="optional eval JSON of the previous model on the same real plates")
     ap.add_argument("--manifest-out", required=True, help="where to write the pinned manifest JSON")
     ap.add_argument("--dry-run", action="store_true", help="build the card/manifest locally, do not call the Hub")
     args = ap.parse_args()
@@ -204,6 +242,8 @@ def main() -> int:
     finetuned = load_summary(Path(args.metrics_json))
     baseline = load_summary(Path(args.baseline_json))
     latin_baseline = load_summary(Path(args.latin_baseline_json)) if args.latin_baseline_json else None
+    real = load_summary(Path(args.real_metrics_json)) if args.real_metrics_json else None
+    real_baseline = load_summary(Path(args.real_baseline_json)) if args.real_baseline_json else None
 
     ft_acc = finetuned.get("exact_match_rate")
     base_acc = baseline.get("exact_match_rate")
@@ -225,6 +265,8 @@ def main() -> int:
         baseline=baseline,
         latin_baseline=latin_baseline,
         sample_count=finetuned.get("count", 0),
+        real=real,
+        real_baseline=real_baseline,
     )
 
     if args.dry_run:
