@@ -91,6 +91,16 @@ class Config:
     yolo_img_size: int = field(default_factory=lambda: _int("YOLO_IMG_SIZE", 640))
     onnx_provider: str = field(default_factory=lambda: _str("ONNX_PROVIDER", "CPUExecutionProvider"))
 
+    # --- detection pipeline in the service loop (Phases 3-5) ---
+    # Run the detector every Nth ingested frame; motion, tracking and fusion run on every frame.
+    detector_stride: int = field(default_factory=lambda: _int("DETECTOR_STRIDE", 2))
+    # Per-camera learnt thresholds (pipeline/calibration.py) are written here.
+    calibration_dir: Path = field(default_factory=lambda: _path("CALIBRATION_DIR", "./var/calibration"))
+    # Unlabelled frames a camera with no stored calibration learns its thresholds from before fusing.
+    calibration_warmup_frames: int = field(default_factory=lambda: _int("CALIBRATION_WARMUP_FRAMES", 100))
+    # Optional JSON Lines log of every emitted truewatch.event.v1 (empty = in-memory only).
+    events_log_path: str = field(default_factory=lambda: _str("EVENTS_LOG_PATH"))
+
     # --- evidence (Phase 9) ---
     evidence_dir: Path = field(default_factory=lambda: _path("EVIDENCE_DIR", "./var/evidence"))
 
@@ -137,6 +147,8 @@ class Config:
                 "YOLO_MODEL_URL and YOLO_MODEL_SHA256 must be set together (a URL is only trusted with the "
                 "hash of the file it serves), or both left empty to use YOLO_MODEL_MANIFEST"
             )
+        if self.detector_stride < 1:
+            raise ConfigError(f"DETECTOR_STRIDE must be at least 1, got {self.detector_stride}")
         if self.yolo_img_size < 32:
             raise ConfigError(f"YOLO_IMG_SIZE must be at least 32, got {self.yolo_img_size}")
         if self.is_production and not self.ingest_key:

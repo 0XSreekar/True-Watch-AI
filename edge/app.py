@@ -4,9 +4,11 @@ One instance runs per border out post, against that post's cameras. It reaches
 the rest of the system through exactly one call — POST /api/ingest/event on the
 Express backend — and never talks to the browser.
 
-Phase 1 ships the service shell and the ingest path. The appearance and motion
-channels, fusion, tracking, the rule engine and evidence hashing arrive in
-Phases 2 through 9; see docs/ARCHITECTURE_V2.md sections 1.3 and 5.
+The ingest loop runs every frame through the detection pipeline (pipeline/service.py):
+camera state, motion, the appearance detector, tracking and fusion. Fusion-agreed
+tracks become truewatch.event.v1 payloads, readable at GET /pipeline/events until the
+backend ingest route lands in Phase 8. Evidence hashing is Phase 9; see
+docs/ARCHITECTURE_V2.md sections 1.3 and 5.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -32,8 +35,8 @@ STARTED_AT = time.time()
 class PipelineState:
     """The one running ingest loop, and the counters the console will ask for.
 
-    Phase 1 decodes and counts. Phases 2 onward hang the channels off the same
-    loop, so the loop's shape does not change again.
+    Every decoded frame goes through the detection pipeline (camera state, motion,
+    appearance, tracking, fusion); fusion-agreed tracks become events.
     """
 
     def __init__(self) -> None:
@@ -44,6 +47,9 @@ class PipelineState:
         self.started_at: float | None = None
         self.last_frame_at: float | None = None
         self.last_error: str | None = None
+        self.detector = None                  # models.detector_weights.Detector, set at boot
+        self.service = None                   # pipeline.service.CameraService while running
+        self.sink = None                      # pipeline.events.EventSink, kept across restarts
 
     @property
     def running(self) -> bool:
@@ -73,7 +79,9 @@ class PipelineState:
         source = cfg.rtsp_url if cfg.ingest_mode == "rtsp" else cfg.replay_file_path
         is_rtsp = cfg.ingest_mode == "rtsp"
         log.info("ingest starting: source=%s mode=%s", source, cfg.source_label)
+        service = None
         try:
+            service = self.service = build_service(cfg, self.detector, self.sink)
             for frame in frames(
                 source,
                 is_rtsp=is_rtsp,
@@ -85,14 +93,16 @@ class PipelineState:
             ):
                 self.frames_seen = frame.index + 1
                 self.last_frame_at = frame.captured_at
-                # Phases 2-9 attach here: appearance, motion, fusion, tracking,
-                # rules, explanation, evidence. Phase 1 only counts.
+                service.process(frame)
         except IngestError as exc:
             self.last_error = str(exc)
             log.error("ingest failed: %s", exc)
         except Exception as exc:  # noqa: BLE001 - the thread must not die silently
             self.last_error = f"{type(exc).__name__}: {exc}"
             log.exception("ingest crashed")
+        finally:
+            if service is not None:
+                service.close()
 
     def snapshot(self) -> dict:
         return {
@@ -101,7 +111,35 @@ class PipelineState:
             "started_at": self.started_at,
             "last_frame_at": self.last_frame_at,
             "last_error": self.last_error,
+            "detection": self.service.stats.to_dict() if self.service is not None else None,
+            "events_emitted": self.sink.total if self.sink is not None else 0,
         }
+
+
+def build_service(cfg, detector, sink):
+    """The per-camera detection loop: the same Pipeline pipeline/demo.py drives, fed by ingest.
+
+    Imported here, not at module import time, so `import app` stays light (no scipy/onnxruntime
+    until a pipeline is actually started).
+    """
+    from pipeline.appearance import AppearanceChannel
+    from pipeline.events import EventSink
+    from pipeline.service import CameraService
+
+    appearance = AppearanceChannel.from_detector(detector) if detector is not None else None
+    if appearance is None:
+        log.warning("no detector loaded: the pipeline runs motion and camera state only, and fusion "
+                    "cannot agree on anything, so no detection events will be emitted")
+    return CameraService(
+        appearance,
+        camera_id=cfg.camera_id,
+        post_id=cfg.post_id,
+        sink=sink if sink is not None else EventSink(),
+        stride=cfg.detector_stride,
+        calibration_dir=cfg.calibration_dir,
+        warmup_frames=cfg.calibration_warmup_frames,
+        source=cfg.source_label,
+    )
 
 
 state = PipelineState()
@@ -123,6 +161,10 @@ async def lifespan(app: FastAPI):
     except DetectorWeightsError as exc:
         log.error("detector rejected: %s", exc)
         raise
+    from pipeline.events import EventSink
+
+    state.detector = app.state.detector
+    state.sink = EventSink(log_path=Path(cfg.events_log_path) if cfg.events_log_path else None)
     log.info(
         "edge service ready: mode=%s source=%s target_fps=%s",
         cfg.ingest_mode,
@@ -196,6 +238,16 @@ def pipeline_stop() -> dict:
 @app.get("/pipeline/status")
 def pipeline_status() -> dict:
     return state.snapshot()
+
+
+@app.get("/pipeline/events")
+def pipeline_events(limit: int = 50) -> dict:
+    """The most recent truewatch.event.v1 payloads this instance emitted, oldest first.
+
+    Delivery to the backend's ingest route is Phase 8; this is the same payload it will carry.
+    """
+    events = state.sink.recent(limit) if state.sink is not None else []
+    return {"count": len(events), "total": state.sink.total if state.sink is not None else 0, "events": events}
 
 
 class SearchRequest(BaseModel):
