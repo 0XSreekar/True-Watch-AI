@@ -308,3 +308,13 @@ def test_province_header_and_core_patterns():
     assert postprocess.province_header("बा२च") is None
     assert postprocess.PROVINCE_CORE_RE.match("०४७प४१९३")
     assert postprocess.validate_nepal("बागमतीप्रदेश०२" + "०४७प४१९३").valid
+
+
+def test_detection_with_class_name_field_is_plate_bearing():
+    # The fusion pipeline's Detection carries `class_name`, not `cls`.
+    class PipelineDetection:
+        def __init__(self):
+            self.bbox = (10.0, 10.0, 90.0, 90.0)
+            self.class_name = "car"
+            self.track_id = 3
+    assert detect_plate.is_plate_bearing(PipelineDetection())
