@@ -98,6 +98,9 @@ class Config:
     calibration_dir: Path = field(default_factory=lambda: _path("CALIBRATION_DIR", "./var/calibration"))
     # Unlabelled frames a camera with no stored calibration learns its thresholds from before fusing.
     calibration_warmup_frames: int = field(default_factory=lambda: _int("CALIBRATION_WARMUP_FRAMES", 100))
+    # Per-camera rule files <camera_id>.json (rules/config.py format; rules/examples/ has a sample).
+    # No file for a camera = its rules are off (logged), detection events still flow.
+    rules_config_dir: Path = field(default_factory=lambda: _path("RULES_CONFIG_DIR", "./var/rules"))
     # Optional JSON Lines log of every emitted truewatch.event.v1 (empty = in-memory only).
     events_log_path: str = field(default_factory=lambda: _str("EVENTS_LOG_PATH"))
 

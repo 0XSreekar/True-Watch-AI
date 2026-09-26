@@ -8,8 +8,8 @@ anything from `edge/pipeline/`. Rules consume fused events/tracks, never raw
 detections (docs/ARCHITECTURE_V2.md section 4: "rules run on fused events,
 never raw detections").
 
-ADAPTER CONTRACT for whoever wires Phase 3's real `Track` / `FusedEvent` into
-this engine once it merges:
+ADAPTER CONTRACT (implemented by `edge/pipeline/rules_adapter.py`, which the
+service loop in `edge/pipeline/service.py` calls on every frame):
 
 * `pipeline.types.Track` satisfies `TrackLike` as soon as it exposes:
     - `track_id`    (already on the frozen dataclass — any hashable)
@@ -21,10 +21,15 @@ this engine once it merges:
                      is one comprehension:
                      `[(d.timestamp_s, *ground_point(d.bbox)) for d in track.detections]`.
                      A ground-contact point is the bottom-centre of the
-                     bounding box — `(x + w / 2, y + h)` — because that is
+                     bounding box — `((x1 + x2) / 2, y2)` — because that is
                      the point that sits on the ground plane a homography is
                      calibrated against; a box centroid is not.)
-    - `bbox`        (current `(x, y, w, h)` in pixels, or `None`)
+    - `bbox`        (current `(x1, y1, x2, y2)` in pixels, or `None` — the same
+                     corner form `pipeline.types` uses everywhere. No rule
+                     reads it today; positions come from `history`.)
+    `history` timestamps are wall-clock EPOCH seconds (rules/hours.py reads
+    them as local time of day). The pipeline's own clock is monotonic, so
+    the adapter shifts them by `captured_at - timestamp`.
   No wrapper class is needed if the field names already match — Python's
   structural typing (`@runtime_checkable`) accepts `Track` as-is.
 * `pipeline.types.FusedEvent` satisfies `FusedEventLike` as soon as it
@@ -45,7 +50,7 @@ import math
 from typing import Protocol, Sequence, runtime_checkable
 
 GroundPoint = tuple[float, float, float]  # (timestamp_s, x_px, y_px)
-BBox = tuple[float, float, float, float]  # (x, y, w, h) in pixels
+BBox = tuple[float, float, float, float]  # (x1, y1, x2, y2) in pixels, as pipeline.types
 
 
 @runtime_checkable
@@ -73,9 +78,9 @@ class FusedEventLike(Protocol):
 
 
 def ground_point(bbox: BBox) -> tuple[float, float]:
-    """Bottom-centre of a pixel bbox — the point that sits on the ground plane."""
-    x, y, w, h = bbox
-    return (x + w / 2.0, y + h)
+    """Bottom-centre of a pixel (x1, y1, x2, y2) box — the point that sits on the ground plane."""
+    x1, _y1, x2, y2 = bbox
+    return ((x1 + x2) / 2.0, y2)
 
 
 def dwell_seconds(track: TrackLike) -> float:

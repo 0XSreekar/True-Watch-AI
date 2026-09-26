@@ -125,6 +125,7 @@ def build_service(cfg, detector, sink):
     from pipeline.appearance import AppearanceChannel
     from pipeline.events import EventSink
     from pipeline.service import CameraService
+    from rules.config import ConfigStore
 
     appearance = AppearanceChannel.from_detector(detector) if detector is not None else None
     if appearance is None:
@@ -139,6 +140,7 @@ def build_service(cfg, detector, sink):
         calibration_dir=cfg.calibration_dir,
         warmup_frames=cfg.calibration_warmup_frames,
         source=cfg.source_label,
+        rules=ConfigStore(directory=cfg.rules_config_dir),
     )
 
 
