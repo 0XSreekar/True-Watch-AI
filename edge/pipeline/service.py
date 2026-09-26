@@ -10,6 +10,10 @@ agreed on at least once, so a fence crossed, a dwell reached or a wrong-way head
 fusion event is still caught ("rules run on fused events, never raw detections", ARCHITECTURE_V2
 section 4). Each new (camera, track, rule) firing that clears the alert throttle becomes one event.
 The per-camera direction baseline is re-learnt periodically from all confirmed tracks seen.
+
+ANPR (anpr/stage.py) runs on fusion-agreed plate-bearing TRACKS on frames where the detector saw them, so
+each plate reading carries its track id; a reading becomes an event with the `anpr` block filled, and
+later rule events on that track carry it too.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ class ServiceStats:
     rule_events: int = 0                                    # firings that cleared the throttle
     rule_suppressed: int = 0                                # firings the throttle refused (budget)
     homography_error: str | None = None                     # why the calibration was refused, if it was
+    anpr: dict | None = None                                # anpr.stage.PlateStage.stats()
     last_timings_ms: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -63,6 +68,7 @@ class ServiceStats:
             "rule_events": self.rule_events,
             "rule_suppressed": self.rule_suppressed,
             "homography_error": self.homography_error,
+            "anpr": self.anpr,
             "last_timings_ms": {k: round(v, 2) for k, v in self.last_timings_ms.items()},
         }
 
@@ -84,6 +90,7 @@ class CameraService:
         rules: CameraRuleConfig | ConfigStore | None = None,
         baseline: CameraBaseline | None = None,
         throttle: AlertThrottle | None = None,
+        anpr=None,
     ) -> None:
         kwargs = dict(camera_id=camera_id, stride=max(1, int(stride)), calibration_dir=Path(calibration_dir),
                       source=source)
@@ -106,6 +113,8 @@ class CameraService:
         self._rules_error: str | None = None
         self.fired_by_track: dict[int, list[str]] = {}
         self._sized: tuple[int, tuple[int, int], CameraRuleConfig] | None = None
+        self.anpr = anpr                                    # anpr.stage.PlateStage or None
+        self.plates: dict[int, dict] = {}                   # track_id -> anpr contract block
 
     def close(self) -> None:
         self.pipeline.close()
@@ -206,9 +215,29 @@ class CameraService:
                 events.append(build_event(
                     self.last_fused[verdict.track_id], post_id=self.post_id, bbox=track.bbox,
                     captured_at=f.captured_at, rules_fired=[rule.rule_name], rule_baseline=self._baseline_block(),
-                    rule_metrics=metrics,
+                    rule_metrics=metrics, anpr=self.plates.get(verdict.track_id),
                 ))
                 self.stats.rule_events += 1
+        return events
+
+    # ------------------------------------------------------------------ ANPR
+
+    def read_plates(self, result: FrameResult, f: Frame) -> list[dict]:
+        if self.anpr is None or result.detections is None:
+            return []
+        tracks = [t for t in result.tracks
+                  if t.track_id in self.last_fused and t.state == "confirmed" and t.observed_now]
+        events = []
+        for read in self.anpr.run(f.image, tracks, frame_index=f.index):
+            block = read.contract_block()
+            # Only a reading that parses as a Nepal / Bhutan plate is reported; the rest stay in the stats.
+            if block is None or not read.valid or read.track_id is None or read.track_id in self.plates:
+                continue
+            self.plates[read.track_id] = block
+            track = next(t for t in tracks if t.track_id == read.track_id)
+            events.append(build_event(self.last_fused[read.track_id], post_id=self.post_id, bbox=track.bbox,
+                                      captured_at=f.captured_at,
+                                      rules_fired=self.fired_by_track.get(read.track_id, ()), anpr=block))
         return events
 
     # ------------------------------------------------------------------ per frame
@@ -227,8 +256,12 @@ class CameraService:
             self.stats.fused_events += 1
             self.last_fused[ev.track_id] = ev
             events.append(build_event(ev, post_id=self.post_id,
-                                      rules_fired=self.fired_by_track.get(ev.track_id, ())))
+                                      rules_fired=self.fired_by_track.get(ev.track_id, ()),
+                                      anpr=self.plates.get(ev.track_id)))
         events.extend(self.evaluate_rules(result, f))
+        events.extend(self.read_plates(result, f))
+        if self.anpr is not None:
+            self.stats.anpr = self.anpr.stats()
         for event in events:
             self.sink.emit(event)
         self.stats.events_emitted += len(events)

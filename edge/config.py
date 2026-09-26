@@ -101,6 +101,9 @@ class Config:
     # Per-camera rule files <camera_id>.json (rules/config.py format; rules/examples/ has a sample).
     # No file for a camera = its rules are off (logged), detection events still flow.
     rules_config_dir: Path = field(default_factory=lambda: _path("RULES_CONFIG_DIR", "./var/rules"))
+    # Read plates on fusion-agreed vehicle tracks (anpr/stage.py). Needs paddleocr for recognition;
+    # without it plates are still located and counted.
+    anpr_enabled: bool = field(default_factory=lambda: _bool("ANPR_ENABLED", True))
     # Optional JSON Lines log of every emitted truewatch.event.v1 (empty = in-memory only).
     events_log_path: str = field(default_factory=lambda: _str("EVENTS_LOG_PATH"))
 

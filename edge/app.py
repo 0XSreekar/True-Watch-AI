@@ -125,6 +125,7 @@ def build_service(cfg, detector, sink):
     from pipeline.appearance import AppearanceChannel
     from pipeline.events import EventSink
     from pipeline.service import CameraService
+    from anpr.stage import PlateStage
     from rules.config import ConfigStore
 
     appearance = AppearanceChannel.from_detector(detector) if detector is not None else None
@@ -141,6 +142,7 @@ def build_service(cfg, detector, sink):
         warmup_frames=cfg.calibration_warmup_frames,
         source=cfg.source_label,
         rules=ConfigStore(directory=cfg.rules_config_dir),
+        anpr=PlateStage() if cfg.anpr_enabled else None,
     )
 
 
