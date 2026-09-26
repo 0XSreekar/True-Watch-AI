@@ -90,7 +90,11 @@ class AppearanceConfig:
     conf: float = 0.10          # candidate floor. Low on purpose: weak boxes are kept for motion to confirm
     iou: float = 0.5            # NMS IoU within one schema class
     max_det: int = 300
-    drop_classes: tuple[str, ...] = ()
+    # The v2 detector (training/results/hf_model.json) was trained with 0 cart instances: the cart gate
+    # (DATASET_SPEC 1.5) withdrew class 4 ("0 hand-verified instances < 300" in the dataset's
+    # manifests/cart_gate.json) and training/results/METRICS.md lists cart with 0 boxes. The column is
+    # still in the 5-output head but untrained, so any score it emits is noise; it is dropped here.
+    drop_classes: tuple[str, ...] = ("cart",)
     tiling: TilingConfig = field(default_factory=TilingConfig)
     # Local contrast equalisation (CLAHE) of LWIR frames before the detector. Off by default: the fine-tuned
     # model is trained on LWIR replicated to three channels without it, and its input must match its

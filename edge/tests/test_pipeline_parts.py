@@ -264,3 +264,12 @@ def test_letterbox_and_nms_helpers():
     wins = tile_windows(1920, 1080, TilingConfig(enabled=True, band=(0.0, 0.55), tile=640, overlap=0.2))
     assert wins and all(x2 - x1 == 594 and y2 <= 594 for x1, y1, x2, y2 in wins)
     assert max(x2 for _, _, x2, _ in wins) == 1920
+
+
+def test_the_untrained_cart_column_is_dropped_by_default():
+    """v2 was trained with 0 cart instances (cart gate withdrew class 4); its column must never map."""
+    from pipeline.appearance import AppearanceConfig, build_class_map
+
+    assert AppearanceConfig().drop_classes == ("cart",)
+    cmap, schema = build_class_map(["person", "two_wheeler", "car", "truck", "cart"], AppearanceConfig().drop_classes)
+    assert list(cmap) == [0, 1, 2, 3, -1] and schema[4] == "cart"
