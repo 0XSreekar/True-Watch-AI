@@ -1,0 +1,8 @@
+{
+  "baseline": "pretrained",
+  "weights": "yolo11s.pt, COCO-pretrained, before any TRUEWATCH fine-tuning",
+  "weights_sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5",
+  "why": "the gate needs a reference that is not the model being judged; Phase 2 must not regress below the pretrained model",
+  "hard_set_sha256": "d669d28cfbd8e15c67752d8745a572d6958f8af66170d7bddbe7f9b5f14fdf8c",
+  "recorded": "2026-09-26 01:07 UTC"
+}
