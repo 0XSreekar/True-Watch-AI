@@ -41,8 +41,19 @@ cryptography
 # edge/face/yunet_weights.py, the same pinned-URL/SHA-256 pattern as the
 # appearance detector in edge/models/detector_weights.py.
 
-# --- explanation, search (Phase 7) ---
-# transformers + torch for Moondream 2 and SigLIP.
+# --- explanation (Phase 7) ---
+# transformers + torch for Moondream 2 (shared with the search block below).
+
+# --- Semantic footage search (Phase 6) ---
+# SigLIP (google/siglip-base-patch16-224) via transformers, on CPU torch. See
+# edge/search/embed.py's module docstring for why plain transformers+torch
+# was chosen here over an onnxruntime export of SigLIP's dual encoder: the
+# call rate (once per keyframe at index time, once per typed query) never
+# competes with the frame-rate-bound ONNX appearance model above.
+transformers
+torch
+pillow
+sentencepiece
 
 # --- Tests (Phase 4 onward) ---
 pytest
