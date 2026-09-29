@@ -11,7 +11,7 @@ const BODY_PARSER_ERRORS = {
 };
 
 export const createErrorHandler =
-  ({ config, log = () => {} } = {}) =>
+  ({ log = () => {} } = {}) =>
   // eslint-disable-next-line no-unused-vars -- Express identifies error handlers by arity.
   (err, req, res, next) => {
     if (res.headersSent) return res.end();
@@ -28,9 +28,7 @@ export const createErrorHandler =
       extra = err.extra || {};
     }
 
-    if (status >= 500 && config?.env !== 'test') {
-      log('error', 'unhandled error', { requestId: req.id, path: req.path, error: err });
-    }
+    if (status >= 500) log('error', 'unhandled error', { requestId: req.id, path: req.path, error: err });
     return res.status(status).json({ error: message, ...extra });
   };
 
