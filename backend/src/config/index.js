@@ -70,6 +70,7 @@ export const loadConfig = (env = process.env) => {
     ingestMaxSkewSeconds: int(env.INGEST_MAX_SKEW_SECONDS, 120),
     ingestNonceTtlSeconds: int(env.INGEST_NONCE_TTL_SECONDS, 240),
     ingestRateLimitPerMinute: int(env.INGEST_RATE_LIMIT_PER_MINUTE, 300),
+    ingestRequireReplayHeaders: bool(env.INGEST_REQUIRE_REPLAY_HEADERS, false),
 
     streamHeartbeatSeconds: int(env.STREAM_HEARTBEAT_SECONDS, 15),
     streamMaxClients: int(env.STREAM_MAX_CLIENTS, 100),
