@@ -65,15 +65,23 @@ export const api = {
 // The session store refreshes through the same transport, without the retry wrapper.
 configureSession({ refresh: () => send('/auth/refresh', { method: 'POST' }) });
 
+// Labels that are currently failing, so a dead API logs each one once rather than on every tick.
+const failing = new Set();
+
 /**
  * This is a demo: the UI must stay watchable even with the API down.
- * Wraps a call so a failure logs once and yields the supplied fallback.
+ * Wraps a call so a failure logs once (until it succeeds again) and yields the supplied fallback.
+ * The fallback is also used for an error the API answered with, never only for network failures,
+ * so a 500 or an expired session cannot blank the console.
  */
 export const withFallback = async (promise, fallback, label = 'request') => {
   try {
-    return await promise;
+    const value = await promise;
+    failing.delete(label);
+    return value;
   } catch (error) {
-    if (error.name !== 'AbortError') {
+    if (error.name !== 'AbortError' && !failing.has(label)) {
+      failing.add(label);
       console.warn(`[api] ${label} failed, using local sample data:`, error.message);
     }
     return fallback;

@@ -27,6 +27,7 @@ import {
   toDisplayAlert,
 } from '../services/alertReducer';
 import { createLiveAlerts } from '../services/liveAlerts';
+import { createOfflineAlert } from '../services/offlineAlerts';
 import {
   bootSession,
   getAccessToken,
@@ -120,12 +121,15 @@ export const useConsole = () => {
       withFallback(searchApi.fetchPlaceholders(), FALLBACK_PLACEHOLDERS, 'search placeholders'),
     ]).then(([cams, pts, an, ch, ph]) => {
       if (!alive) return;
-      setCameras(cams);
-      setPosts(pts);
-      setAnalytics(an);
-      setTraffic(an.traffic);
-      setChain(ch);
-      setPlaceholders(ph);
+      // A reply that is the wrong shape must not blank the console: keep the sample data instead.
+      const list = (value, sample) => (Array.isArray(value) && value.length ? value : sample);
+      const stats = an && Array.isArray(an.traffic) ? an : FALLBACK_ANALYTICS;
+      setCameras(list(cams, FALLBACK_CAMERAS));
+      setPosts(list(pts, FALLBACK_POSTS));
+      setAnalytics(stats);
+      setTraffic(stats.traffic);
+      setChain(list(ch, FALLBACK_CHAIN));
+      setPlaceholders(list(ph, FALLBACK_PLACEHOLDERS));
     });
     return () => {
       alive = false;
@@ -167,6 +171,8 @@ export const useConsole = () => {
       fetchSnapshot: alertsApi.fetchAlerts,
       simulate: alertsApi.simulateAlert,
       demo: alertsApi.DEMO_MODE,
+      // API unreachable and demo mode on: keep the wall moving with clearly unsigned samples.
+      offlineAlert: () => createOfflineAlert(FALLBACK_CAMERAS),
       demoDelays: SPAWN_DELAYS,
       pollMs: SPAWN_INTERVAL,
       onMode: setLink,
