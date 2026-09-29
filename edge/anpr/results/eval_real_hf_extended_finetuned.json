@@ -1,25 +1,26 @@
 {
   "summary": {
     "count": 147,
-    "exact_match_rate": 0.2517,
-    "mean_cer": 0.413,
+    "exact_match_rate": 0.3878,
+    "mean_cer": 0.304,
     "buckets": {
       "near (proxy: plate >= 200px wide)": {
         "count": 58,
-        "exact_match_rate": 0.2414,
-        "mean_cer": 0.43
+        "exact_match_rate": 0.3103,
+        "mean_cer": 0.3232
       },
       "mid, under 25 m proxy (120-199px)": {
         "count": 69,
-        "exact_match_rate": 0.3188,
-        "mean_cer": 0.3587
+        "exact_match_rate": 0.4928,
+        "mean_cer": 0.2717
       },
       "far, beyond 25 m proxy (<120px)": {
         "count": 20,
-        "exact_match_rate": 0.05,
-        "mean_cer": 0.5511
+        "exact_match_rate": 0.25,
+        "mean_cer": 0.3597
       }
     }
   },
-  "note": "summary only; per-sample results are kept outside the repository"
+  "note": "summary only; per-sample results are kept outside the repository",
+  "model": "round G6"
 }

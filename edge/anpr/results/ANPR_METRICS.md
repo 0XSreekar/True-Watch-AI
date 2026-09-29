@@ -199,15 +199,60 @@ Exact-match / mean CER:
 | Round 2 (published until 2026-09-26) | 24.6% / 0.569 | 10.2% / 0.684 | 88.1% / 0.046 | 56.4% / 0.135 | 29.7% / 0.254 | 11.8% / 0.465 | 0.0% / 0.806 |
 | Round G1 | 36.8% / 0.350 | 20.4% / 0.446 | 87.1% / 0.051 | 80.3% / 0.079 | 78.3% / 0.075 | 57.7% / 0.168 | 36.4% / 0.281 |
 | Round G2 | 36.8% / 0.353 | 23.1% / 0.425 | 87.4% / 0.051 | 80.6% / 0.078 | 79.0% / 0.073 | 58.9% / 0.160 | 39.5% / 0.252 |
-| **Round G3 — published** | 38.6% / 0.347 | 25.2% / 0.413 | 87.8% / 0.051 | 81.4% / 0.076 | 79.8% / 0.069 | 60.7% / 0.151 | 40.9% / 0.244 |
+| Round G3 (published 2026-09-26, superseded) | 38.6% / 0.347 | 25.2% / 0.413 | 87.8% / 0.051 | 81.4% / 0.076 | 79.8% / 0.069 | 60.7% / 0.151 | 40.9% / 0.244 |
 
-Published: [sreekar12/truewatch-anpr-devanagari](https://huggingface.co/sreekar12/truewatch-anpr-devanagari) revision
-`a428bfb` (`hf_ocr_model.json`).
+Round G3 was published as revision `a428bfb`; section 2.3 records the rounds that replaced it.
 
-**Verdict against the 85% target:** met on synthetic plates under the 25 m proxy (section 2.1); **NOT MET on real
+**Verdict at round G3 (superseded by section 2.3):** met on synthetic plates under the 25 m proxy (section 2.1); **NOT MET on real
 photographs** (38.6% strict, 25.2% extended). The limits are the amount of real training data
 (a few hundred verified lines from under a hundred vehicles), crop resolution and tilt, and province headers that are
 too small to read at range. Labelled plates from the deployment cameras are the next step that matters.
+
+### 2.3 Roboflow photographs and rounds G4 to G6
+
+**New real training data.** Three Roboflow Universe datasets, each CC BY 4.0: `sushant-kvyez/license-plate-s8svk`
+(v11), `prajwal-ghimire-tngts/nepali-characters-detection` (v8) and `college-fyp-ewmvi/license-plate-detection-system-nktef`
+(v4). Their per-character boxes were turned into line transcriptions, kept only when they parse as a valid Nepali
+registration, and de-duplicated by image hash: 3,239 training lines from 1,853 plates. Plates whose embossed-series
+characters were ambiguous were excluded. Round G4 added the first of these sets; G5 all three; G6 continued from G5
+with inline-header province plates (a small province header above the registration, rendered synthetically) and crops
+of those headers, read on their own by `recognise.read_plate`.
+
+**Roboflow held-out set, and a leak found in it.** The three sets' own test splits were held out (208 photographs).
+An audit on 2026-09-29 found that 94 of those 208 photographs show a vehicle whose registration text also occurs in the
+training lines: these sets photograph the same vehicles many times. Only the 114 plates whose text never occurs in
+training are reported below; the all-208 figures (G4 60.1%, G5 76.0%, G6 74.5%) are contaminated and are not used.
+The two strict/extended real sets were re-checked against the G6 training bundle the same way: none of their 57 / 147
+plate texts occurs in it.
+
+Exact-match / mean CER, same final pipeline as section 2.2:
+
+| Model | Real, strict (57) | Real, extended (147) | Roboflow held-out (114) | Synthetic, original (2,076) | Synthetic, one-line (993) | Synthetic, province (795) |
+|---|---|---|---|---|---|---|
+| Round G3 | 38.6% / 0.347 | 25.2% / 0.413 | – | 87.8% / 0.051 | 60.7% / 0.151 | 40.9% / 0.244 |
+| Round G4 (published 2026-09-26, rev `5e35fd9`) | 42.1% / 0.304 | 27.9% / 0.351 | 59.6% / 0.125 | 87.9% / 0.051 | 59.1% / 0.157 | 39.6% / 0.257 |
+| Round G5 | 49.1% / 0.253 | 34.0% / 0.302 | **78.1% / 0.069** | 87.7% / 0.052 | 60.9% / 0.154 | 39.5% / 0.251 |
+| **Round G6 — published** | **52.6% / 0.262** | **38.8% / 0.304** | 72.8% / 0.105 | 88.0% / 0.052 | 61.0% / 0.152 | 40.4% / 0.223 |
+
+G5 and G6 split the real sets: G6 is better on both fully independent sets (strict and extended), G5 on the Roboflow
+held-out plates. G6 was published because the strict and extended sets share no vehicles or sources with any training
+data. Pooled over extended + Roboflow held-out the two are level (140 vs 139 plates read exactly). The G6 strict figure
+was re-run on 2026-09-29 with the committed code and reproduced exactly (52.63%, CER 0.2618).
+
+Published: [sreekar12/truewatch-anpr-devanagari](https://huggingface.co/sreekar12/truewatch-anpr-devanagari) revision
+`064b6a0` (`hf_ocr_model.json`, byte-for-byte verified after upload). The edge service downloads that pinned revision
+at first use and checks every file's SHA-256 (`edge/anpr/ocr_weights.py`).
+
+Summaries: `eval_real_hf_strict_finetuned.json`, `eval_real_hf_extended_finetuned.json`,
+`eval_synthetic_finetuned.json` (all G6) and `eval_real_roboflow_clean.json` (G4-G6).
+
+**Verdict against the 85% target (slide 5, real plates end to end under 25 m): NOT MET.** Best real-photograph
+results are 52.6% (57 plates, strict), 38.8% (147, extended) and 72.8% (114, Roboflow held-out). The 88.0% synthetic
+figure is a synthetic result and is not evidence about real plates. None of the real sets is range-labelled, so no
+figure here is an "under 25 m" measurement either. The limits remain the amount of varied real training data,
+crop resolution and tilt, and plate location: in the live pipeline plates are still found by classical image
+processing (`detect_plate.py`), which found 3 of 13 plates on an earlier real-image check; a trained plate locator was
+prepared but never trained.
 
 ## Running the measurement
 

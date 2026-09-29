@@ -1,7 +1,7 @@
 {
   "schema": "truewatch.hf_ocr_model.v1",
   "repo_id": "sreekar12/truewatch-anpr-devanagari",
-  "revision": "a428bfb08fd1dfb3c4b6829c910e95f473973fab",
+  "revision": "064b6a03a3326747a7840bd0ad5e619b131750e1",
   "base_model": "devanagari_PP-OCRv5_mobile_rec",
   "base_model_license": "Apache-2.0",
   "files": [
@@ -10,35 +10,35 @@
     "inference.yml"
   ],
   "resolve_urls": [
-    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/a428bfb08fd1dfb3c4b6829c910e95f473973fab/inference.json",
-    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/a428bfb08fd1dfb3c4b6829c910e95f473973fab/inference.pdiparams",
-    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/a428bfb08fd1dfb3c4b6829c910e95f473973fab/inference.yml"
+    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/064b6a03a3326747a7840bd0ad5e619b131750e1/inference.json",
+    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/064b6a03a3326747a7840bd0ad5e619b131750e1/inference.pdiparams",
+    "https://huggingface.co/sreekar12/truewatch-anpr-devanagari/resolve/064b6a03a3326747a7840bd0ad5e619b131750e1/inference.yml"
   ],
   "sha256": {
     "inference.json": "30694bd1e54b80e27ad28ae37d976d39a22128cedb86c6db15214f063a9136b1",
-    "inference.pdiparams": "788353e3d6378158abe63fa4777d8925edb9d20648b37ede4bf5804308f9ac60",
+    "inference.pdiparams": "43afa615ed03d9914af554844f35ba4798bdbcf437bf53a962c75d87dee9870b",
     "inference.yml": "9bd172dd26440c8ce94d1cde5d5baea6aefdc7cf3c5c8492e0beedef656d4e54"
   },
   "metrics": {
     "finetuned": {
       "count": 2076,
-      "exact_match_rate": 0.8776,
-      "mean_cer": 0.0515,
+      "exact_match_rate": 0.8801,
+      "mean_cer": 0.0517,
       "buckets": {
         "near (proxy: plate >= 200px wide)": {
           "count": 630,
-          "exact_match_rate": 0.9381,
-          "mean_cer": 0.0243
+          "exact_match_rate": 0.9413,
+          "mean_cer": 0.0238
         },
         "mid, under 25 m proxy (120-199px)": {
           "count": 817,
-          "exact_match_rate": 0.896,
-          "mean_cer": 0.0411
+          "exact_match_rate": 0.907,
+          "mean_cer": 0.0406
         },
         "far, beyond 25 m proxy (<120px)": {
           "count": 629,
-          "exact_match_rate": 0.7933,
-          "mean_cer": 0.0922
+          "exact_match_rate": 0.7838,
+          "mean_cer": 0.0941
         }
       }
     },
@@ -63,7 +63,58 @@
           "mean_cer": 0.4943
         }
       }
+    },
+    "real_strict": {
+      "count": 57,
+      "exact_match_rate": 0.5263,
+      "mean_cer": 0.2618,
+      "buckets": {
+        "near (proxy: plate >= 200px wide)": {
+          "count": 28,
+          "exact_match_rate": 0.4286,
+          "mean_cer": 0.258
+        },
+        "mid, under 25 m proxy (120-199px)": {
+          "count": 27,
+          "exact_match_rate": 0.6667,
+          "mean_cer": 0.2268
+        },
+        "far, beyond 25 m proxy (<120px)": {
+          "count": 2,
+          "exact_match_rate": 0.0,
+          "mean_cer": 0.7857
+        }
+      }
+    },
+    "real_extended": {
+      "count": 147,
+      "exact_match_rate": 0.3878,
+      "mean_cer": 0.304,
+      "buckets": {
+        "near (proxy: plate >= 200px wide)": {
+          "count": 58,
+          "exact_match_rate": 0.3103,
+          "mean_cer": 0.3232
+        },
+        "mid, under 25 m proxy (120-199px)": {
+          "count": 69,
+          "exact_match_rate": 0.4928,
+          "mean_cer": 0.2717
+        },
+        "far, beyond 25 m proxy (<120px)": {
+          "count": 20,
+          "exact_match_rate": 0.25,
+          "mean_cer": 0.3597
+        }
+      }
+    },
+    "real_roboflow_clean": {
+      "count": 114,
+      "exact_match_rate": 0.7281,
+      "mean_cer": 0.1052,
+      "all_208_exact_match_rate": 0.7452
     }
   },
-  "published_at": "2026-09-26T05:57:29Z"
+  "published_at": "2026-09-29T17:52:49Z",
+  "model_round": "G6"
 }
