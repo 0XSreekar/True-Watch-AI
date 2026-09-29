@@ -65,9 +65,15 @@ class Config:
 
     # --- where events go (Phase 8) ---
     backend_base_url: str = field(
-        default_factory=lambda: _str("BACKEND_BASE_URL", "http://localhost:4000").rstrip("/")
+        default_factory=lambda: (_str("BACKEND_BASE_URL") or _str("BACKEND_URL") or "http://localhost:4000").rstrip("/")
     )
     ingest_key: str = field(default_factory=lambda: _str("TRUEWATCH_INGEST_KEY"))
+    # Deliver events to the backend (pipeline/events.py BackendDelivery). Needs TRUEWATCH_INGEST_KEY; without
+    # one the edge logs that delivery is off and keeps events in memory / the JSON Lines log only.
+    delivery_enabled: bool = field(default_factory=lambda: _bool("EDGE_DELIVERY_ENABLED", True))
+    delivery_timeout_s: float = field(default_factory=lambda: _float("EDGE_DELIVERY_TIMEOUT_S", 3.0))
+    delivery_max_attempts: int = field(default_factory=lambda: _int("EDGE_DELIVERY_MAX_ATTEMPTS", 5))
+    delivery_outbox_max: int = field(default_factory=lambda: _int("EDGE_DELIVERY_OUTBOX_MAX", 1000))
 
     # --- ingest source (Phase 1) ---
     ingest_mode: str = field(default_factory=lambda: _str("INGEST_MODE", "file").lower())
@@ -106,6 +112,32 @@ class Config:
     anpr_enabled: bool = field(default_factory=lambda: _bool("ANPR_ENABLED", True))
     # Optional JSON Lines log of every emitted truewatch.event.v1 (empty = in-memory only).
     events_log_path: str = field(default_factory=lambda: _str("EVENTS_LOG_PATH"))
+
+    # --- camera context handed to the explanation model (Phase 6) ---
+    camera_name: str = field(default_factory=lambda: _str("CAMERA_NAME"))
+    camera_sector: str = field(default_factory=lambda: _str("CAMERA_SECTOR"))
+
+    # --- plain-language reason (Phase 6, vlm/) ---
+    # "auto" (default): run the local Moondream 2 only if its pinned weights are already in the local
+    # Hugging Face cache, so a boot never starts a surprise multi-gigabyte download and an air-gapped box
+    # never reaches out. "1": load it (downloading if needed). "0": never; every reason stays the rule string.
+    vlm_enabled: str = field(default_factory=lambda: _str("VLM_ENABLED", "auto").lower())
+    # Explanation jobs waiting for the model; when full the OLDEST waiting job is dropped (its alert keeps
+    # the rule-string reason). See vlm/queue.py.
+    vlm_queue_max: int = field(default_factory=lambda: _int("VLM_QUEUE_MAX", 8))
+    vlm_timeout_s: float = field(default_factory=lambda: _float("VLM_TIMEOUT_S", 60.0))
+    # Seconds the model rests between explanations (0 = back to back). A busy model shares compute with the
+    # frame loop on some machines; raising this caps how much of it the model may take.
+    vlm_cooldown_s: float = field(default_factory=lambda: _float("VLM_COOLDOWN_S", 0.0))
+    # Frames are downscaled to this longest side before they wait in the queue (memory bound).
+    vlm_frame_max_side: int = field(default_factory=lambda: _int("VLM_FRAME_MAX_SIDE", 768))
+
+    # --- face detection on close-range person tracks (Phase 5 module, wired here) ---
+    # Off by default: it costs frame rate (measured in edge/README.md) and stores personal data.
+    face_enabled: bool = field(default_factory=lambda: _bool("FACE_ENABLED", False))
+    # A person track is "close range" when its box is at least this fraction of the frame height.
+    face_min_person_height_frac: float = field(default_factory=lambda: _float("FACE_MIN_PERSON_HEIGHT_FRAC", 0.25))
+    face_store_dir: Path = field(default_factory=lambda: _path("FACE_STORE_DIR", "./var/face_crops"))
 
     # --- evidence (Phase 9) ---
     evidence_dir: Path = field(default_factory=lambda: _path("EVIDENCE_DIR", "./var/evidence"))

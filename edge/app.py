@@ -50,6 +50,8 @@ class PipelineState:
         self.detector = None                  # models.detector_weights.Detector, set at boot
         self.service = None                   # pipeline.service.CameraService while running
         self.sink = None                      # pipeline.events.EventSink, kept across restarts
+        self.explainer = None                 # pipeline.explain.EventExplainer, kept across restarts
+        self.keyframes = None                 # search.incremental.KeyframeIndexer (SEARCH_ENABLED)
 
     @property
     def running(self) -> bool:
@@ -81,7 +83,7 @@ class PipelineState:
         log.info("ingest starting: source=%s mode=%s", source, cfg.source_label)
         service = None
         try:
-            service = self.service = build_service(cfg, self.detector, self.sink)
+            service = self.service = build_service(cfg, self.detector, self.sink, self.explainer, self.keyframes)
             for frame in frames(
                 source,
                 is_rtsp=is_rtsp,
@@ -113,10 +115,14 @@ class PipelineState:
             "last_error": self.last_error,
             "detection": self.service.stats.to_dict() if self.service is not None else None,
             "events_emitted": self.sink.total if self.sink is not None else 0,
+            "reason_patches": self.sink.patches if self.sink is not None else 0,
+            "delivery": self.sink.delivery.stats.to_dict() if self.sink is not None and self.sink.delivery else None,
+            "explain": self.explainer.stats() if self.explainer is not None else None,
+            "search_index": self.keyframes.stats() if self.keyframes is not None else None,
         }
 
 
-def build_service(cfg, detector, sink):
+def build_service(cfg, detector, sink, explainer=None, keyframes=None):
     """The per-camera detection loop: the same Pipeline pipeline/demo.py drives, fed by ingest.
 
     Imported here, not at module import time, so `import app` stays light (no scipy/onnxruntime
@@ -132,6 +138,13 @@ def build_service(cfg, detector, sink):
     if appearance is None:
         log.warning("no detector loaded: the pipeline runs motion and camera state only, and fusion "
                     "cannot agree on anything, so no detection events will be emitted")
+    face = None
+    if cfg.face_enabled:
+        from face.stage import FaceStage    # needs cryptography (sealing); only imported when enabled
+
+        face = FaceStage(cfg.face_store_dir, min_height_frac=cfg.face_min_person_height_frac)
+        if not face.warm_up():
+            face = None
     return CameraService(
         appearance,
         camera_id=cfg.camera_id,
@@ -143,6 +156,11 @@ def build_service(cfg, detector, sink):
         source=cfg.source_label,
         rules=ConfigStore(directory=cfg.rules_config_dir),
         anpr=PlateStage() if cfg.anpr_enabled else None,
+        face=face,
+        keyframes=keyframes,
+        explainer=explainer,
+        camera_name=cfg.camera_name,
+        camera_sector=cfg.camera_sector,
     )
 
 
@@ -165,10 +183,26 @@ async def lifespan(app: FastAPI):
     except DetectorWeightsError as exc:
         log.error("detector rejected: %s", exc)
         raise
-    from pipeline.events import EventSink
+    from pipeline.events import BackendDelivery, EventSink
+    from pipeline.explain import build_explainer
 
     state.detector = app.state.detector
-    state.sink = EventSink(log_path=Path(cfg.events_log_path) if cfg.events_log_path else None)
+    delivery = None
+    if cfg.delivery_enabled and cfg.ingest_key:
+        delivery = BackendDelivery(cfg.backend_base_url, cfg.ingest_key, timeout_s=cfg.delivery_timeout_s,
+                                   max_attempts=cfg.delivery_max_attempts, outbox_max=cfg.delivery_outbox_max)
+        log.info("delivering events to %s/api/ingest/event", cfg.backend_base_url)
+    else:
+        log.warning("event delivery to the backend is OFF (%s); events stay in memory and the log file",
+                    "EDGE_DELIVERY_ENABLED is false" if not cfg.delivery_enabled else "TRUEWATCH_INGEST_KEY is not set")
+    state.sink = EventSink(log_path=Path(cfg.events_log_path) if cfg.events_log_path else None, delivery=delivery)
+    state.explainer = build_explainer(cfg)
+    feeds = None
+    if cfg.search_enabled:
+        from search.incremental import build_search_feeds
+
+        feeds = build_search_feeds(cfg)
+        state.keyframes = feeds[0] if feeds else None
     log.info(
         "edge service ready: mode=%s source=%s target_fps=%s",
         cfg.ingest_mode,
@@ -177,6 +211,13 @@ async def lifespan(app: FastAPI):
     )
     yield
     state.stop()
+    if state.explainer is not None:
+        state.explainer.close()
+    if feeds is not None:
+        feeds[0].close()
+        feeds[1].close()
+    if state.sink is not None:
+        state.sink.close()
 
 
 app = FastAPI(
