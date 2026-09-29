@@ -1,4 +1,5 @@
 > **TEMPLATE — NOT FOR USE WITHOUT LEGAL REVIEW.**
+> **This wording must be reviewed by a qualified person before any real use.**
 > The legal wording in this certificate is a working template prepared for a technical
 > demonstration. It must be reviewed, and where necessary rewritten, by a qualified legal
 > practitioner against the current text of the Bharatiya Sakshya Adhiniyam, 2023 (Section 63 and

@@ -85,9 +85,17 @@ def inclusion_proof(block_hashes: list[str], index: int) -> InclusionProof:
     return InclusionProof(index, n, tuple(siblings))
 
 
-def verify_inclusion(block_hash_hex: str, proof: InclusionProof, root_hex: str) -> bool:
-    """True iff `block_hash_hex` sits at `proof.index` in a tree of `proof.leaf_count` leaves with `root_hex`."""
+def verify_inclusion(
+    block_hash_hex: str, proof: InclusionProof, root_hex: str, expected_leaf_count: int | None = None
+) -> bool:
+    """True iff `block_hash_hex` sits at `proof.index` in a tree of `proof.leaf_count` leaves with `root_hex`.
+
+    The root does not commit to the leaf count by itself (two sizes can share a path shape), so
+    pass `expected_leaf_count` from the signed manifest whenever one exists; certificate.py does.
+    """
     try:
+        if expected_leaf_count is not None and proof.leaf_count != expected_leaf_count:
+            return False
         if not 0 <= proof.index < proof.leaf_count:
             return False
         acc = leaf_hash(block_hash_hex)

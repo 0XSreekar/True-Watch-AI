@@ -116,7 +116,7 @@ def build_certificate(
             ]
         else:
             m = signed.manifest
-            included = verify_inclusion(b.block_hash, proof, m.merkle_root)
+            included = verify_inclusion(b.block_hash, proof, m.merkle_root, expected_leaf_count=m.leaf_count)
             sig_ok = hq_key is not None and signed.verify_with(hq_key)
             hq_copy = mirror.read_root(b.day)
             mirrored = hq_copy == signed
