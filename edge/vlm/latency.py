@@ -6,26 +6,26 @@ warms it up once (excluded from the measured sample — a cold load is a
 one-time service-boot cost, not a per-alert one), then times a realistic
 number of `judge.explain` calls end to end (prompt build + `describe()` +
 guardrail check) against frames that look like what the pipeline actually
-hands the judge. It writes both a human-readable `LATENCY.md` and a
-machine-readable `latency.json` next to this file, and prints a short
-summary to stdout.
+hands the judge. It writes a machine-readable JSON file under
+`edge/vlm/results/` and prints a short summary to stdout.
 
 Frame source
 ------------
-Real LLIVIP thermal/RGB pairs when the dataset zip named by
-`--llvip-zip` (default: the path this repo's build plan names,
-`var/datasets/llvip/LLVIP.zip`) is present and readable; otherwise
-synthetic frames built the same way `edge/tests/` builds its own sample
-clips (an OpenCV-drawn scene), clearly labelled as synthetic in the output
-so a reader never mistakes a synthetic-frame number for one measured on
-real footage. Either way every frame actually passes through the model —
-nothing here is a mocked or estimated number.
+Real frames from video clips (`--clips file.mp4 dir/ ...`: frames are taken evenly across the clips), else
+real LLIVIP thermal/RGB pairs when the dataset zip named by `--llvip-zip` is present, else synthetic frames
+built the same way `edge/tests/` builds its own sample clips (an OpenCV-drawn scene), labelled as synthetic
+in the output so a reader never mistakes a synthetic-frame number for one measured on real footage. Either
+way every frame actually passes through the model, nothing here is a mocked or estimated number.
+
+Output is one JSON file per run (default `edge/vlm/results/`), named for the device and label, holding the
+hardware, device, model revision, library versions, n, p50/p95 and every sample, so the number quoted in
+edge/README.md can be traced to the run that produced it.
 
 Reading these numbers
 ----------------------
 The PDF's "~3 s" is explicitly a Jetson-class edge-device target, not a
 promise about a development laptop; `edge/README.md` says so next to
-these figures, and so does the generated LATENCY.md. p50/p95 measured here
+these figures, and so does the JSON each run writes. p50/p95 measured here
 are this machine's numbers, offered as evidence the pipeline design (a
 model that can take seconds and never blocks the ~30 ms alert) is sound —
 not as a substitute for measuring on the target hardware before shipping.
@@ -47,12 +47,14 @@ from typing import Any
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Run as a script, sys.path[0] is this directory, where queue.py would shadow the standard library's
+# `queue` for every module imported below. Drop it and put the edge root first instead.
+_here = Path(__file__).resolve().parent
+sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _here]
+sys.path.insert(0, str(_here.parent))
 
-from vlm.judge import JudgeInput, explain, fallback_reason  # noqa: E402
+from vlm.judge import DEFAULT_MAX_TOKENS, JudgeInput, explain  # noqa: E402
 from vlm.prompt import CameraContext, EventContext  # noqa: E402
-from vlm import guardrails  # noqa: E402
-from vlm.prompt import build_facts  # noqa: E402
 
 log = logging.getLogger("truewatch.vlm.latency")
 
@@ -101,8 +103,41 @@ def _frames_from_llvip(zip_path: Path, count: int) -> list[np.ndarray]:
     return frames
 
 
-def load_frames(count: int, llvip_zip: Path | None) -> tuple[list[np.ndarray], str]:
-    """Return `(frames, source_label)`. `source_label` is "llvip" or "synthetic"."""
+def _frames_from_clips(paths: list[Path], count: int) -> tuple[list[np.ndarray], list[str]]:
+    """`count` frames spread evenly over the given video files (BGR), and the clip names they came from."""
+    import cv2
+
+    files: list[Path] = []
+    for p in paths:
+        files.extend(sorted(p.glob("*.mp4")) if p.is_dir() else [p])
+    frames: list[np.ndarray] = []
+    names: list[str] = []
+    per_clip = max(1, -(-count // max(1, len(files))))
+    for f in files:
+        cap = cv2.VideoCapture(str(f))
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total <= 0:
+            cap.release()
+            continue
+        # skip the first and last 10%: clips open on empty road and end on the tail of the pass
+        for pos in np.linspace(total * 0.1, total * 0.9, per_clip, dtype=int):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
+            ok, frame = cap.read()
+            if ok:
+                frames.append(frame)
+                names.append(f.name)
+        cap.release()
+    return frames[:count], names[:count]
+
+
+def load_frames(count: int, llvip_zip: Path | None, clips: list[Path] | None = None) -> tuple[list[np.ndarray], str]:
+    """Return `(frames, source_label)`. `source_label` is "clips: <names>", "llvip" or "synthetic"."""
+    if clips:
+        frames, names = _frames_from_clips(clips, count)
+        if frames:
+            log.info("using %d real frames from %d clip(s)", len(frames), len(set(names)))
+            return frames, "clips: " + ", ".join(sorted(set(names)))
+        log.warning("no frames could be read from %s; falling back", [c.name for c in clips])
     if llvip_zip is not None and llvip_zip.exists():
         try:
             frames = _frames_from_llvip(llvip_zip, count)
@@ -197,21 +232,34 @@ def _sample_events() -> list[JudgeInput]:
 @dataclass
 class Sample:
     event_index: int
+    frame_index: int
     latency_ms: int
     source: str  # "vlm" | "template"
     violations: tuple[str, ...]
     text: str
+    raw: str | None = None
 
 
 @dataclass
 class LatencyReport:
+    label: str
     measured_at_utc: str
+    hardware: str
     machine: str
+    device: str | None
+    library_versions: dict[str, str]
+    model_id: str
+    model_revision: str
     frame_source: str
+    frame_shape: str
+    max_tokens: int
+    timeout_s: float
     quantized: bool
     load_time_s: float | None
     warm_up_ok: bool
     n_samples: int
+    n_timed: int                # samples whose describe() returned (the percentiles are over these)
+    n_failed: int               # timeouts, load failures, runtime errors: reported, not timed
     p50_ms: float
     p95_ms: float
     min_ms: float
@@ -224,21 +272,67 @@ class LatencyReport:
     sample_sentences: list[dict[str, Any]]
 
 
+_FAILURE_PREFIXES = ("timeout", "unavailable", "runtime_error", "no_runtime", "prompt_error")
+
+
+def _hardware_label() -> str:
+    import platform
+    import subprocess
+
+    if sys.platform == "darwin":
+        try:
+            brand = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True,
+                                   timeout=5).stdout.strip()
+            mem = int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True,
+                                     timeout=5).stdout.strip())
+            if brand:
+                return f"{brand}, {mem // 2**30} GB unified memory"
+        except Exception:  # noqa: BLE001
+            pass
+    return f"{platform.processor() or platform.machine()}"
+
+
 def _platform_label() -> str:
     import platform
 
     return f"{platform.system()} {platform.machine()}, Python {platform.python_version()}"
 
 
-def run(n_repeats: int, llvip_zip: Path | None, timeout_s: float) -> LatencyReport:
-    from vlm.runtime import MoondreamRuntime
+def _library_versions() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for name in ("torch", "transformers", "numpy", "opencv-python", "Pillow"):
+        try:
+            from importlib.metadata import version
+
+            out[name] = version(name)
+        except Exception:  # noqa: BLE001
+            try:
+                from importlib.metadata import version
+
+                out[name] = version(name + "-headless")
+            except Exception:  # noqa: BLE001
+                continue
+    return out
+
+
+def _percentile(values: list[float], p: float) -> float:
+    return float(np.percentile(np.asarray(values, dtype=float), p)) if values else 0.0
+
+
+def run(n_repeats: int, llvip_zip: Path | None, timeout_s: float, *, clips: list[Path] | None = None,
+        device: str | None = None, label: str = "", max_tokens: int = DEFAULT_MAX_TOKENS,
+        attempt_quantization: bool = True, frame_max_side: int = 768) -> LatencyReport:
+    from pipeline.explain import downscale
+    from vlm.runtime import MODEL_ID, PINNED_REVISION, MoondreamRuntime
 
     events = _sample_events()
-    frames, frame_source = load_frames(max(n_repeats, len(events)), llvip_zip)
+    frames, frame_source = load_frames(max(n_repeats, len(events)), llvip_zip, clips)
     if not frames:
-        raise RuntimeError("no frames available (neither LLVIP nor synthetic frame generation produced any)")
+        raise RuntimeError("no frames available (no clip, LLVIP zip or synthetic frame generation produced any)")
+    # the same downscale the live service applies before a frame waits for the model (pipeline/explain.py)
+    frames = [downscale(f, frame_max_side) for f in frames]
 
-    runtime = MoondreamRuntime()
+    runtime = MoondreamRuntime(device=device, attempt_quantization=attempt_quantization)
     log.info("warming up moondream2 (excluded from the measured sample)...")
     warm_ok = runtime.warm_up(timeout_s=max(60.0, timeout_s))
 
@@ -246,15 +340,18 @@ def run(n_repeats: int, llvip_zip: Path | None, timeout_s: float) -> LatencyRepo
     accepted_sentences: list[dict[str, Any]] = []
     for i in range(n_repeats):
         event = events[i % len(events)]
-        event_with_frames = JudgeInput(event.context, event.fired, frames=(frames[i % len(frames)],))
-        result = explain(event_with_frames, runtime, timeout_s=timeout_s)
+        frame = frames[i % len(frames)]
+        event_with_frames = JudgeInput(event.context, event.fired, frames=(frame,))
+        result = explain(event_with_frames, runtime, timeout_s=timeout_s, max_tokens=max_tokens)
         samples.append(
             Sample(
                 event_index=i % len(events),
+                frame_index=i % len(frames),
                 latency_ms=result.latency_ms or 0,
                 source=result.source,
                 violations=result.violations,
                 text=result.text,
+                raw=result.raw,
             )
         )
         if result.source == "vlm" and len(accepted_sentences) < 6:
@@ -267,35 +364,37 @@ def run(n_repeats: int, llvip_zip: Path | None, timeout_s: float) -> LatencyRepo
                     "rules_fired": [f.rule_name for f in event.fired],
                 }
             )
-        log.info(
-            "sample %d/%d: source=%s latency=%sms text=%r",
-            i + 1, n_repeats, result.source, result.latency_ms, result.text,
-        )
+        log.info("sample %d/%d: source=%s latency=%sms text=%r",
+                 i + 1, n_repeats, result.source, result.latency_ms, result.text)
 
-    latencies = [s.latency_ms for s in samples if s.latency_ms]
+    failed = [s for s in samples if any(v.startswith(_FAILURE_PREFIXES) for v in s.violations)]
+    timed = [float(s.latency_ms) for s in samples if s not in failed and s.latency_ms]
     accepted = sum(1 for s in samples if s.source == "vlm")
-    rejected = sum(1 for s in samples if s.source == "template" and s.violations)
-    sorted_lat = sorted(latencies) or [0]
-
-    def pct(p: float) -> float:
-        if not sorted_lat:
-            return 0.0
-        idx = min(len(sorted_lat) - 1, int(round(p / 100 * (len(sorted_lat) - 1))))
-        return float(sorted_lat[idx])
 
     return LatencyReport(
+        label=label or (runtime.device or "unknown"),
         measured_at_utc=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        hardware=_hardware_label(),
         machine=_platform_label(),
+        device=runtime.device,
+        library_versions=_library_versions(),
+        model_id=MODEL_ID,
+        model_revision=PINNED_REVISION,
         frame_source=frame_source,
+        frame_shape="x".join(str(v) for v in frames[0].shape[:2][::-1]),
+        max_tokens=max_tokens,
+        timeout_s=timeout_s,
         quantized=runtime.quantized,
-        load_time_s=runtime._load_time_s,
+        load_time_s=round(runtime._load_time_s, 2) if runtime._load_time_s else None,
         warm_up_ok=warm_ok,
         n_samples=len(samples),
-        p50_ms=pct(50),
-        p95_ms=pct(95),
-        min_ms=float(min(sorted_lat)),
-        max_ms=float(max(sorted_lat)),
-        mean_ms=float(statistics.fmean(latencies)) if latencies else 0.0,
+        n_timed=len(timed),
+        n_failed=len(failed),
+        p50_ms=round(_percentile(timed, 50), 1),
+        p95_ms=round(_percentile(timed, 95), 1),
+        min_ms=min(timed) if timed else 0.0,
+        max_ms=max(timed) if timed else 0.0,
+        mean_ms=round(float(statistics.fmean(timed)), 1) if timed else 0.0,
         accepted=accepted,
         rejected=len(samples) - accepted,
         rejection_rate=round((len(samples) - accepted) / len(samples), 3) if samples else 0.0,
@@ -312,95 +411,41 @@ def run(n_repeats: int, llvip_zip: Path | None, timeout_s: float) -> LatencyRepo
 def write_json(report: LatencyReport, path: Path) -> None:
     payload = asdict(report)
     payload["samples"] = [asdict(s) for s in report.samples]
-    path.write_text(json.dumps(payload, indent=2) + "\n")
-
-
-def write_markdown(report: LatencyReport, path: Path) -> None:
-    lines = [
-        "# Moondream 2 latency — measured, not estimated",
-        "",
-        f"Measured {report.measured_at_utc} on {report.machine}.",
-        "",
-        "> The PDF's ~3 s VLM figure is a **Jetson-class edge-device target**, not a claim about "
-        "this development machine — see edge/README.md. The numbers below are what local Moondream 2 "
-        "actually takes on the hardware this was measured on, CPU-only, no shortcuts.",
-        "",
-        f"- Frame source: **{report.frame_source}**"
-        + (" (real LLVIP thermal/RGB frames)" if report.frame_source == "llvip" else " (synthetic — LLVIP zip not available on this box)"),
-        f"- Quantised (dynamic int8 linear layers): **{report.quantized}**"
-        + ("" if report.quantized else " — running the checkpoint's default bf16 weights on CPU instead; see vlm/runtime.py"),
-        f"- Model load time (one-time, service boot): **{report.load_time_s:.1f}s**" if report.load_time_s else "- Model load time: not recorded",
-        f"- Warm-up succeeded: **{report.warm_up_ok}**",
-        f"- Samples measured: **{report.n_samples}**",
-        "",
-        "## Latency (ms, `describe()` wall time, per `judge.Explanation.latency_ms`)",
-        "",
-        "| Metric | ms |",
-        "|---|---|",
-        f"| p50 | {report.p50_ms:.0f} |",
-        f"| p95 | {report.p95_ms:.0f} |",
-        f"| min | {report.min_ms:.0f} |",
-        f"| max | {report.max_ms:.0f} |",
-        f"| mean | {report.mean_ms:.0f} |",
-        "",
-        "## Guardrail acceptance",
-        "",
-        f"- Accepted (VLM sentence used): **{report.accepted}** / {report.n_samples}",
-        f"- Rejected (fell back to the rule string): **{report.rejected}** / {report.n_samples} "
-        f"(rejection rate **{report.rejection_rate:.0%}**)",
-        "",
-        "A small CPU model rejecting some fraction of its own outputs is expected and reported here "
-        "honestly, not hidden — the rule-string fallback exists exactly for this, and the alert's "
-        "`reason` is never empty either way (see `vlm/judge.py`).",
-        "",
-        "## Sample sentences that passed guardrails",
-        "",
-    ]
-    if report.sample_sentences:
-        for i, s in enumerate(report.sample_sentences[:3], start=1):
-            lines.append(f"{i}. **{s['text']}**")
-            lines.append(f"   (camera: {s['camera']}, rules fired: {', '.join(s['rules_fired'])}, latency: {s['latency_ms']} ms)")
-    else:
-        lines.append(
-            "None of the sampled runs produced a guardrail-passing VLM sentence on this machine "
-            "in this run — every alert nonetheless carried the rule-string fallback reason (never empty). "
-            "See the raw samples in `latency.json` for the rejected outputs and why each was rejected."
-        )
-    lines.append("")
-    lines.append("## Raw samples")
-    lines.append("")
-    lines.append("| # | event | source | latency (ms) | violations | text |")
-    lines.append("|---|---|---|---|---|---|")
-    for s in report.samples:
-        violations = ", ".join(s.violations) or "-"
-        text = s.text.replace("|", "\\|")
-        lines.append(f"| {s.event_index} | event {s.event_index} | {s.source} | {s.latency_ms} | {violations} | {text} |")
-    lines.append("")
-    path.write_text("\n".join(lines) + "\n")
+    payload["note"] = (
+        "MEASURED on the hardware named above, with this repository's code and the pinned model revision. "
+        "The PDF's ~3 s is a Jetson-class target, not a measurement of this machine."
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repeats", type=int, default=8, help="number of describe() calls to measure")
+    parser.add_argument("--repeats", type=int, default=24, help="number of explain() calls to measure")
+    parser.add_argument("--clips", type=Path, nargs="*", default=None,
+                        help="video files or directories of .mp4 to take real frames from")
     parser.add_argument("--llvip-zip", type=Path, default=DEFAULT_LLVIP_ZIP)
-    # CPU bf16 decode for a ~1.9B model, without a hardware bf16 unit, is genuinely
-    # this slow (measured ~120s/call on this development machine, see LATENCY.md) —
-    # the whole point of this script is to report that honestly rather than cut the
-    # timeout short and record every sample as a timeout fallback.
-    parser.add_argument("--timeout-s", type=float, default=200.0)
-    parser.add_argument("--out-dir", type=Path, default=HERE)
+    parser.add_argument("--device", choices=["auto", "cpu", "mps"], default=None,
+                        help="default: VLM_DEVICE, else auto (MPS where available)")
+    parser.add_argument("--label", default="", help="name for the run, used in the output file name")
+    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument("--no-quantize", action="store_true", help="skip the int8 attempt on CPU")
+    # A slow device must be measured, not cut short into a column of timeouts, so this is generous.
+    parser.add_argument("--timeout-s", type=float, default=600.0)
+    parser.add_argument("--out-dir", type=Path, default=HERE / "results")
     args = parser.parse_args(argv)
 
-    report = run(args.repeats, args.llvip_zip, args.timeout_s)
-    write_json(report, args.out_dir / "latency.json")
-    write_markdown(report, args.out_dir / "LATENCY.md")
+    report = run(args.repeats, args.llvip_zip, args.timeout_s, clips=args.clips, device=args.device,
+                 label=args.label, max_tokens=args.max_tokens, attempt_quantization=not args.no_quantize)
+    out = args.out_dir / f"moondream2_{report.label}.json"
+    write_json(report, out)
 
     print(
-        f"\np50={report.p50_ms:.0f}ms p95={report.p95_ms:.0f}ms "
-        f"accepted={report.accepted}/{report.n_samples} "
-        f"rejection_rate={report.rejection_rate:.0%} "
-        f"quantized={report.quantized} frame_source={report.frame_source}"
+        f"\n{report.hardware} device={report.device} n={report.n_samples} (timed {report.n_timed}, "
+        f"failed {report.n_failed}) p50={report.p50_ms:.0f}ms p95={report.p95_ms:.0f}ms "
+        f"accepted={report.accepted}/{report.n_samples} quantized={report.quantized} "
+        f"frames={report.frame_source}\nwrote {out.name}"
     )
     return 0
 

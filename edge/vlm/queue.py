@@ -67,7 +67,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from .judge import Explanation, JudgeInput, VlmRuntime, explain, initial_reason
+from .judge import DEFAULT_MAX_TOKENS, DEFAULT_TIMEOUT_S, Explanation, JudgeInput, VlmRuntime, explain, initial_reason
 
 log = logging.getLogger("truewatch.vlm.queue")
 
@@ -111,10 +111,23 @@ class ExplanationQueue:
         *,
         maxsize: int = DEFAULT_MAXSIZE,
         workers: int = 1,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        cooldown_s: float = 0.0,
     ) -> None:
         if workers < 1:
             raise ValueError("ExplanationQueue needs at least one worker")
+        if maxsize < 1:
+            raise ValueError("ExplanationQueue needs room for at least one job")
         self._runtime = runtime
+        # Handed to `judge.explain` for every job. A CPU deployment measures its own latency
+        # (vlm/latency.py) and sets a timeout above it; the judge default is sized for the edge target.
+        self._timeout_s = float(timeout_s)
+        self._max_tokens = int(max_tokens)
+        # Rest between one job's end and the next job's start. On a machine where the model shares compute
+        # with the frame loop (measured on Apple silicon: edge/README.md) a busy model costs frame rate; a
+        # cooldown caps its duty cycle. 0 = run back to back.
+        self._cooldown_s = max(0.0, float(cooldown_s))
         self._q: "_queue.Queue[_Job]" = _queue.Queue(maxsize=maxsize)
         self._stats = QueueStats()
         self._stats_lock = threading.Lock()
@@ -138,7 +151,7 @@ class ExplanationQueue:
         store: StoreFn,
         *,
         on_result: SubscriberFn | None = None,
-        hard_timeout_s: float = DEFAULT_HARD_TIMEOUT_S,
+        hard_timeout_s: float | None = None,
     ) -> Explanation:
         """t=0: compute and return the template reason immediately, and enqueue
         the slow VLM work. The caller emits the alert with the returned
@@ -156,6 +169,8 @@ class ExplanationQueue:
         caller).
         """
         initial = initial_reason(inp)
+        if hard_timeout_s is None:
+            hard_timeout_s = max(DEFAULT_HARD_TIMEOUT_S, self._timeout_s + 12.0)
         job = _Job(
             job_id=job_id,
             inp=inp,
@@ -171,6 +186,10 @@ class ExplanationQueue:
             except _queue.Full:
                 try:
                     dropped = self._q.get_nowait()
+                    # A job taken off here never reaches a worker's own task_done();
+                    # without this `unfinished_tasks` never returns to zero after a
+                    # drop and `join()` waits forever.
+                    self._q.task_done()
                     with self._stats_lock:
                         self._stats.dropped += 1
                     log.warning(
@@ -193,7 +212,7 @@ class ExplanationQueue:
         store: StoreFn,
         *,
         on_result: SubscriberFn | None = None,
-        hard_timeout_s: float = DEFAULT_HARD_TIMEOUT_S,
+        hard_timeout_s: float | None = None,
     ) -> Explanation:
         """`asyncio` callers (Phase 8's HTTP layer): identical contract to
         `submit`, off the event loop thread so it never blocks it either."""
@@ -237,12 +256,16 @@ class ExplanationQueue:
                     self._stats.errored += 1
             finally:
                 self._q.task_done()
+            if self._cooldown_s:
+                self._stop.wait(self._cooldown_s)
 
     def _run_job(self, job: _Job) -> None:
         result_box: dict[str, Explanation] = {}
 
         def _call() -> None:
-            result_box["result"] = explain(job.inp, self._runtime)
+            result_box["result"] = explain(
+                job.inp, self._runtime, max_tokens=self._max_tokens, timeout_s=self._timeout_s
+            )
 
         worker = threading.Thread(target=_call, daemon=True, name=f"vlm-explain-{job.job_id}")
         worker.start()
