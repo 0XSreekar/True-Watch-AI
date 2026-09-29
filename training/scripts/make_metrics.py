@@ -72,9 +72,9 @@ JETSON_TARGET = (
 )
 
 PENDING_PHASE = {
-    "range": "Phase 6 (tiled far-field inference, DORI grading and the ground-plane homography)",
-    "plate": "Phase 7 (ANPR on the Nepali plate set)",
-    "fence": "Phases 4-5 (fusion, tracking and the rule engine; it is an event-level rate, not a detector metric)",
+    "range": "Phase 4 (DORI grading and the ground-plane homography, edge/rules/dori.py) with Phase 3 far-field tiling",
+    "plate": "Phase 5; measured in edge/anpr/results/ANPR_METRICS.md, where it is NOT MET on real plates",
+    "fence": "Phase 11 (an event-level rate from tracked crossings, not a detector metric)",
     "jetson": "no phase: it needs a Jetson Orin Nano Super, which this project does not own",
 }
 
@@ -367,7 +367,7 @@ def compute_verdicts(inputs: Inputs) -> list[Verdict]:
         Verdict("false_alerts", "False alerts per camera per day (detector-level proxy at best)",
                 f"< {FALSE_ALERTS_PER_CAMERA_DAY}", fa_m, fa_v, fa_r),
         not_assessed("range", "Detection range 150 m at 25 px per metre", "150 m", "not a detector-only quantity"),
-        not_assessed("plate", "Nepali plate recognition", ">= 85%", "no plate model or plate evaluation exists yet"),
+        not_assessed("plate", "Nepali plate recognition", ">= 85%", "not a detector metric"),
         not_assessed("fence", "Missed fence crossings", "< 2%", "needs tracked events and rules, not a detector metric"),
         not_assessed("jetson", "Detector latency (design target of about 30 ms, INT8, 640 px, Jetson Orin Nano Super)",
                      "about 30 ms (design target)", "no measurement on the target hardware exists; CPU rows are not comparable"),

@@ -54,9 +54,9 @@ Targets are the slide-5 and slide-3 figures quoted in `docs/PHASE_MINUS1_SCOPE.m
 | Person mAP@50, day (visible camera) | >= 0.85 | person AP50 0.5494, 95% CI [0.4948, 0.6104] (644 clusters, 55795 boxes); daylight-only 0.4866 (45391 boxes, lower 95% bound 0.4608) | NOT MET | 0.5494 < 0.85. |
 | Person mAP@50, IR (LWIR replicated to 3 channels) | >= 0.75 | person AP50 0.8447, 95% CI [0.7818, 0.8761] (430 clusters, 19734 boxes) | MET | 0.8447 >= 0.75, lower 95% bound 0.7818 also >= target. |
 | False alerts per camera per day (detector-level proxy at best) | < 5 | day: F1 point 0.656 FP/frame (90,656x budget); budget point unresolvable (11,060 frames); ir: F1 point 0.38 FP/frame (52,570x budget); budget point unresolvable (6,482 frames) | NOT MET | day: unresolvable, 11,060 frames cannot show the budget is met (at least 414,720 needed); ir: unresolvable, 6,482 frames cannot show the budget is met (at least 414,720 needed). |
-| Detection range 150 m at 25 px per metre | 150 m | n/a | NOT ASSESSED | not a detector-only quantity. Owner: Phase 6 (tiled far-field inference, DORI grading and the ground-plane homography). |
-| Nepali plate recognition | >= 85% | n/a | NOT ASSESSED | no plate model or plate evaluation exists yet. Owner: Phase 7 (ANPR on the Nepali plate set). |
-| Missed fence crossings | < 2% | n/a | NOT ASSESSED | needs tracked events and rules, not a detector metric. Owner: Phases 4-5 (fusion, tracking and the rule engine; it is an event-level rate, not a detector metric). |
+| Detection range 150 m at 25 px per metre | 150 m | n/a | NOT ASSESSED | not a detector-only quantity. Owner: Phase 4 (DORI grading and the ground-plane homography, edge/rules/dori.py) with Phase 3 far-field tiling. |
+| Nepali plate recognition | >= 85% | n/a | NOT ASSESSED | not a detector metric. Owner: Phase 5; measured in edge/anpr/results/ANPR_METRICS.md, where it is NOT MET on real plates. |
+| Missed fence crossings | < 2% | n/a | NOT ASSESSED | needs tracked events and rules, not a detector metric. Owner: Phase 11 (an event-level rate from tracked crossings, not a detector metric). |
 | Detector latency (design target of about 30 ms, INT8, 640 px, Jetson Orin Nano Super) | about 30 ms (design target) | n/a | NOT ASSESSED | no measurement on the target hardware exists; CPU rows are not comparable. Owner: no phase: it needs a Jetson Orin Nano Super, which this project does not own. |
 
 How to read the verdicts:
@@ -281,15 +281,15 @@ Computed from the inputs by a deterministic ranker (`make_metrics.py`, `rank_rea
 
 ### Detection range 150 m at 25 px per metre: NOT ASSESSED
 
-1. Not measured: not a detector-only quantity. Owner: Phase 6 (tiled far-field inference, DORI grading and the ground-plane homography).
+1. Not measured: not a detector-only quantity. Owner: Phase 4 (DORI grading and the ground-plane homography, edge/rules/dori.py) with Phase 3 far-field tiling.
 
 ### Nepali plate recognition: NOT ASSESSED
 
-1. Not measured: no plate model or plate evaluation exists yet. Owner: Phase 7 (ANPR on the Nepali plate set).
+1. Not measured: not a detector metric. Owner: Phase 5; measured in edge/anpr/results/ANPR_METRICS.md, where it is NOT MET on real plates.
 
 ### Missed fence crossings: NOT ASSESSED
 
-1. Not measured: needs tracked events and rules, not a detector metric. Owner: Phases 4-5 (fusion, tracking and the rule engine; it is an event-level rate, not a detector metric).
+1. Not measured: needs tracked events and rules, not a detector metric. Owner: Phase 11 (an event-level rate from tracked crossings, not a detector metric).
 
 ### Detector latency (design target of about 30 ms, INT8, 640 px, Jetson Orin Nano Super): NOT ASSESSED
 
