@@ -59,9 +59,9 @@ class RecognitionResult:
 def _model_dir_env(var: str) -> str | None:
     """A fine-tuned checkpoint directory, if the Kaggle notebook's output was installed here.
 
-    Unset by default: the pretrained PP-OCRv5 head is used until fine-tuning
-    (edge/anpr/notebooks/kaggle_ocr_finetune.ipynb) has produced a checkpoint and
-    an operator points this at it. This module never fails when it is unset.
+    Used for the Latin head. The Devanagari head resolves through
+    anpr.ocr_weights.resolve_model_dir, which also downloads the pinned fine-tune.
+    This module never fails when it is unset.
     """
     value = os.environ.get(var, "").strip()
     return value or None
@@ -71,7 +71,10 @@ def _model_dir_env(var: str) -> str | None:
 def _devanagari_recogniser():
     from paddleocr import TextRecognition
 
-    model_dir = _model_dir_env("ANPR_DEVANAGARI_MODEL_DIR")
+    from anpr.ocr_weights import resolve_model_dir
+
+    # ANPR_DEVANAGARI_MODEL_DIR if set, else the fine-tune pinned in results/hf_ocr_model.json.
+    model_dir = resolve_model_dir()
     kwargs = {"model_name": DEVANAGARI_MODEL_NAME}
     if model_dir:
         kwargs["model_dir"] = model_dir
