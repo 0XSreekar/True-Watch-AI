@@ -1,9 +1,16 @@
 import { Router } from 'express';
-import * as controller from '../controllers/search.controller.js';
 
-const router = Router();
+import { createSearchController } from '../controllers/search.controller.js';
 
-router.get('/placeholders', controller.placeholders);
-router.post('/', controller.run);
+export const createSearchRoutes = ({ services, guards }) => {
+  const router = Router();
+  const controller = createSearchController(services.search);
 
-export default router;
+  router.use(guards.console);
+  router.get('/placeholders', controller.placeholders);
+  router.post('/', controller.run);
+
+  return router;
+};
+
+export default createSearchRoutes;

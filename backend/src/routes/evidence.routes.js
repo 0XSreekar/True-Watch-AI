@@ -1,9 +1,18 @@
 import { Router } from 'express';
-import * as controller from '../controllers/evidence.controller.js';
 
-const router = Router();
+import { createEvidenceController } from '../controllers/evidence.controller.js';
 
-router.get('/chain', controller.chain);
-router.post('/verify', controller.verify);
+export const createEvidenceRoutes = ({ services, guards }) => {
+  const router = Router();
+  const controller = createEvidenceController(services.evidence);
 
-export default router;
+  router.use(guards.console);
+  router.get('/chain', controller.chain);
+  router.post('/verify', controller.verify);
+  router.get('/root/:date', controller.root);
+  router.get('/:id', controller.block);
+
+  return router;
+};
+
+export default createEvidenceRoutes;

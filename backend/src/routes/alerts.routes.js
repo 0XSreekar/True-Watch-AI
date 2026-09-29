@@ -1,12 +1,19 @@
 import { Router } from 'express';
-import * as controller from '../controllers/alerts.controller.js';
 
-const router = Router();
+import { createAlertsController } from '../controllers/alerts.controller.js';
 
-router.get('/', controller.index);
-router.get('/budget', controller.budget);
-router.post('/simulate', controller.simulate);
-router.post('/:id/act', controller.act);
-router.post('/:id/dismiss', controller.dismiss);
+export const createAlertsRoutes = ({ services, guards }) => {
+  const router = Router();
+  const controller = createAlertsController(services.alerts);
 
-export default router;
+  router.use(guards.console);
+  router.get('/', controller.index);
+  router.get('/budget', controller.budget);
+  router.post('/simulate', controller.simulate);
+  router.post('/:id/act', controller.act);
+  router.post('/:id/dismiss', controller.dismiss);
+
+  return router;
+};
+
+export default createAlertsRoutes;

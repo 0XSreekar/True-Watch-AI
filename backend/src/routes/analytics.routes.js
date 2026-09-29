@@ -1,9 +1,16 @@
 import { Router } from 'express';
-import * as controller from '../controllers/analytics.controller.js';
 
-const router = Router();
+import { createAnalyticsController } from '../controllers/analytics.controller.js';
 
-router.get('/', controller.index);
-router.get('/traffic', controller.traffic);
+export const createAnalyticsRoutes = ({ services, guards }) => {
+  const router = Router();
+  const controller = createAnalyticsController(services.analytics);
 
-export default router;
+  router.use(guards.console);
+  router.get('/', controller.index);
+  router.get('/traffic', controller.traffic);
+
+  return router;
+};
+
+export default createAnalyticsRoutes;

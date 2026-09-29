@@ -8,7 +8,7 @@ import { createErrorHandler } from './middleware/errorHandler.js';
 import notFound from './middleware/notFound.js';
 import { createIngestRoutes } from './routes/ingest.routes.js';
 import { createStreamRoutes } from './routes/stream.routes.js';
-import routes from './routes/index.js';
+import { createRoutes } from './routes/index.js';
 
 /**
  * Builds one API instance. `config` and `container` are injectable so tests can run several
@@ -26,7 +26,7 @@ export const createApp = ({ config = defaultConfig, container = createContainer(
   app.use('/api/stream', createStreamRoutes(container));
 
   app.use(express.json());
-  app.use('/api', routes);
+  app.use('/api', createRoutes(container));
 
   app.use(notFound);
   app.use(createErrorHandler({ config, log: (level, message, meta) => console.error(`[${level}] ${message}`, meta?.error ?? '') }));

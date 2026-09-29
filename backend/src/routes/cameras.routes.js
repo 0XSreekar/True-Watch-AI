@@ -1,11 +1,18 @@
 import { Router } from 'express';
-import * as controller from '../controllers/cameras.controller.js';
 
-const router = Router();
+import { createCamerasController } from '../controllers/cameras.controller.js';
 
-router.get('/', controller.index);
-router.get('/sectors', controller.sectors);
-router.get('/posts', controller.posts);
-router.get('/:id', controller.show);
+export const createCamerasRoutes = ({ services, guards }) => {
+  const router = Router();
+  const controller = createCamerasController(services.cameras);
 
-export default router;
+  router.use(guards.console);
+  router.get('/', controller.index);
+  router.get('/sectors', controller.sectors);
+  router.get('/posts', controller.posts);
+  router.get('/:id', controller.show);
+
+  return router;
+};
+
+export default createCamerasRoutes;
