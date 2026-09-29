@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import {
   FALLBACK_ANALYTICS,
@@ -7,9 +8,33 @@ import {
   FALLBACK_PLACEHOLDERS,
   FALLBACK_POSTS,
 } from '../data/fallbacks';
-import { alertsApi, analyticsApi, camerasApi, evidenceApi, searchApi, withFallback } from '../services';
-import { addAlert, confirmAlert, patchAlert, planSnapshot, removeAlert, stageAlert, toDisplayAlert } from '../services/alertReducer';
+import {
+  alertsApi,
+  analyticsApi,
+  authApi,
+  camerasApi,
+  evidenceApi,
+  searchApi,
+  withFallback,
+} from '../services';
+import {
+  addAlert,
+  confirmAlert,
+  patchAlert,
+  planSnapshot,
+  removeAlert,
+  stageAlert,
+  toDisplayAlert,
+} from '../services/alertReducer';
 import { createLiveAlerts } from '../services/liveAlerts';
+import {
+  bootSession,
+  getAccessToken,
+  getSession,
+  guardDecision,
+  refreshSession,
+  subscribeSession,
+} from '../services/session';
 import { stamp } from '../utils/format';
 
 const SPAWN_DELAYS = [500, 3400, 6600];
@@ -61,8 +86,31 @@ export const useConsole = () => {
     return id;
   }, []);
 
+  // ── route guard ───────────────────────────────────────────────────
+  // /console needs a session. On a fresh page load the in-memory token is gone, so the first check
+  // trades the refresh cookie for a new one; only a definite "no session" sends the operator to
+  // /login. Nothing below talks to the API until the guard has said yes.
+  const navigate = useNavigate();
+  const session = useSyncExternalStore(subscribeSession, getSession);
+  const decision = guardDecision(session.status);
+  const ready = decision === 'allow';
+
+  useEffect(() => {
+    bootSession();
+  }, []);
+
+  useEffect(() => {
+    if (decision === 'redirect') navigate('/login', { replace: true });
+  }, [decision, navigate]);
+
+  const signOut = useCallback(async () => {
+    await authApi.logout();
+    navigate('/login', { replace: true });
+  }, [navigate]);
+
   // ── reference data ────────────────────────────────────────────────
   useEffect(() => {
+    if (!ready) return undefined;
     let alive = true;
     Promise.all([
       withFallback(camerasApi.fetchCameras(), FALLBACK_CAMERAS, 'cameras'),
@@ -82,7 +130,7 @@ export const useConsole = () => {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [ready]);
 
   // ── alert lifecycle ───────────────────────────────────────────────
   // Ids already on (or through) the queue, so a stream event, a poll and a POST reply for the same
@@ -110,8 +158,12 @@ export const useConsole = () => {
   );
 
   useEffect(() => {
+    if (!ready) return undefined;
     const live = createLiveAlerts({
       streamUrl: alertsApi.streamUrl(),
+      // The stream authenticates at connect time, so each (re)connect asks for the current token.
+      getToken: getAccessToken,
+      refreshToken: refreshSession,
       fetchSnapshot: alertsApi.fetchAlerts,
       simulate: alertsApi.simulateAlert,
       demo: alertsApi.DEMO_MODE,
@@ -140,7 +192,7 @@ export const useConsole = () => {
     live.start();
     // stop() aborts the stream request and every timer the controller owns.
     return () => live.stop();
-  }, [admit, later]);
+  }, [admit, later, ready]);
 
   // Every timer this hook owns is cleared together on unmount.
   useEffect(
@@ -240,7 +292,9 @@ export const useConsole = () => {
   // ── live tickers ──────────────────────────────────────────────────
   useEffect(() => {
     const trafficId = setInterval(async () => {
-      const payload = await withFallback(analyticsApi.fetchTrafficSample(), null, 'traffic sample');
+      const payload = ready
+        ? await withFallback(analyticsApi.fetchTrafficSample(), null, 'traffic sample')
+        : null;
       const sample = payload?.sample ?? 3 + Math.round(Math.random() * 11);
       setTraffic((t) => t.slice(1).concat([sample]));
     }, 2200);
@@ -249,7 +303,7 @@ export const useConsole = () => {
       clearInterval(trafficId);
       clearInterval(clockId);
     };
-  }, []);
+  }, [ready]);
 
   const visibleCameras = sector === 'all' ? cameras : cameras.filter((c) => c.sector === sector);
 
@@ -269,6 +323,9 @@ export const useConsole = () => {
     alerts,
     // 'connecting' | 'stream' | 'polling' — no UI slot exists for it yet (ConsoleTopBar shows a static "LINK OK")
     connection: link,
+    // session (the console page still shows its static operator card; see report)
+    user: session.user,
+    signOut,
     actOnAlert,
     dismissAlert,
     // map

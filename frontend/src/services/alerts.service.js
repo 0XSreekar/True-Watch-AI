@@ -18,7 +18,6 @@ export const streamUrl = () => `${BASE_URL}/stream`;
 
 /**
  * Demo mode keeps the scheduled "ask the API for a detection" driver running, which is how the
- * console shows alerts while the edge service is asleep. Set VITE_DEMO_MODE=false for a deployment
- * fed only by real detections.
+ * console shows alerts while the edge service is asleep. See config.js.
  */
-export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE !== 'false';
+export { DEMO_MODE } from './config';

@@ -1,6 +1,10 @@
 import { useCallback, useState } from 'react';
 
-import { authApi, withFallback } from '../services';
+import { authApi } from '../services';
+import { routeAuthError } from '../services/authErrors';
+import { DEMO_MODE } from '../services/config';
+import { isUnreachable } from '../services/network';
+import { markOffline } from '../services/session';
 
 const EMPTY = {
   id: '',
@@ -83,7 +87,7 @@ export const useAuthForm = ({ mode, onAuthenticated }) => {
   }, [form, mode, step]);
 
   const submit = useCallback(async () => {
-    if (!validate()) return;
+    if (loading || !validate()) return;
 
     if (mode === 'signup' && step < 2) {
       setStep((s) => s + 1);
@@ -105,16 +109,34 @@ export const useAuthForm = ({ mode, onAuthenticated }) => {
             role: form.role,
           };
 
-    // The console must still open if the API is down — this is a demo build.
-    const session = await withFallback(
-      mode === 'login' ? authApi.login(payload) : authApi.register(payload),
-      null,
-      `${mode} request`,
-    );
+    let session;
+    try {
+      session = await (mode === 'login' ? authApi.login(payload) : authApi.register(payload));
+    } catch (error) {
+      setLoading(false);
+
+      if (isUnreachable(error) && DEMO_MODE) {
+        // Demo insurance: with no API to answer, the console still opens on its sample data.
+        console.warn(`[api] ${mode} failed, opening the console on local sample data:`, error.message);
+        markOffline();
+        onAuthenticated?.(null, form);
+        return;
+      }
+
+      // The API answered "no" (or, outside demo mode, could not be reached): show its message
+      // through the field's existing error line and shake the card like a client-side failure.
+      const message = isUnreachable(error) ? 'Server unreachable, try again shortly' : error.message;
+      const { field, step: at } = routeAuthError(mode, message, step);
+      if (at !== step) setStep(at);
+      setErrors({ [field]: message });
+      setOk({});
+      setShake((n) => n + 1);
+      return;
+    }
 
     setLoading(false);
     onAuthenticated?.(session, form);
-  }, [form, mode, onAuthenticated, remember, step, validate]);
+  }, [form, loading, mode, onAuthenticated, remember, step, validate]);
 
   const back = useCallback(() => {
     setStep((s) => Math.max(0, s - 1));
