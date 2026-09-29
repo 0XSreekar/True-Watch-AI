@@ -178,6 +178,25 @@ def test_no_query_returns_empty_results_not_an_error(built_index):
     assert result["query"] == ""
 
 
+def test_unrelated_query_does_not_score_as_a_strong_match(built_index):
+    """Regression test for the old min-max-per-batch rescale: it stretched
+    every batch's top hit up to ~99 regardless of whether anything in the
+    corpus actually matched. With the fixed calibrated scoring (SigLIP's own
+    sigmoid probability), a query with nothing to do with any seeded clip
+    must score low, not merely "lower than the others"."""
+    index, embedder = built_index
+    result = search_query.run_search(
+        "a bowl of tropical fruit on a kitchen table", index, embedder, limit=len(SCENES)
+    )
+    assert result["results"], "expected results even for an unrelated query"
+    top_score = result["results"][0]["score"]
+    print(f"\nunrelated-query top score: {top_score}")
+    assert top_score < 55, (
+        f"unrelated query scored {top_score}, which the old per-batch rescale would have "
+        "stretched into the [55, 99] band regardless of actual relevance"
+    )
+
+
 # --- mocked-embedding unit test: index/backfill plumbing, not relevance -----
 
 

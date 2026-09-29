@@ -157,3 +157,17 @@ class SiglipEmbedder:
             if isinstance(value, int):
                 return value
         return int(config.vision_config.hidden_size)
+
+    @property
+    def logit_scale(self) -> float:
+        """``exp(logit_scale)`` — the temperature SigLIP was trained to apply to
+        cosine similarity before its sigmoid, straight from the checkpoint's own
+        learned parameter (see `search/query.py` for where this is used)."""
+        self._ensure_loaded()
+        return float(self._model.logit_scale.exp().item())
+
+    @property
+    def logit_bias(self) -> float:
+        """The learned additive bias SigLIP applies before its sigmoid."""
+        self._ensure_loaded()
+        return float(self._model.logit_bias.item())

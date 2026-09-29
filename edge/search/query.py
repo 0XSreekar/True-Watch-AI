@@ -18,6 +18,7 @@ type, so a change on either side that breaks the other fails loudly.
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,35 +28,37 @@ from search.embed import SiglipEmbedder, get_embedder
 from search.index import VectorIndex
 
 
-def _score_percents(cosines: list[float]) -> list[int]:
-    """Map a batch of cosine similarities to 0-100 "match" percentages.
+def _score_percents(cosines: list[float], embedder: SiglipEmbedder) -> list[int]:
+    """Map cosine similarities to 0-100 "match" percentages using SigLIP's own
+    calibration, not a per-batch rescale.
 
-    SigLIP is trained with a sigmoid (not softmax) loss, so raw cosine
-    similarity between a genuinely matching image/text pair is typically a
-    modest positive number (single digits to low tens of percent of [0, 1]),
-    not the near-1.0 a softmax-contrastive model like CLIP tends to produce
-    for a confident match. Displaying that raw number as a percentage would
-    read as "12% match" for the single best, correctly-ranked result, which
-    misrepresents the actual confidence of the ranking to an operator even
-    though the *ordering* is trustworthy.
+    SigLIP is trained with a sigmoid loss, not a softmax: the checkpoint
+    itself learns a temperature (``logit_scale``) and an additive bias
+    (``logit_bias``) so that ``sigmoid(cos * logit_scale + logit_bias)`` is
+    literally the probability the model was trained to output for "does this
+    image match this text" (see `SiglipModel.forward`, `logits_per_text =
+    cos * logit_scale.exp() + logit_bias`, and its own docstring example:
+    ``probs = torch.sigmoid(logits_per_image)``). That is an absolute,
+    checkpoint-calibrated score — every query, every batch, every corpus size
+    is put through the exact same function, so an unrelated query legitimately
+    scores low instead of being stretched up to look confident.
 
-    So the displayed percentage is a min-max rescaling of this result batch's
-    own cosine scores into a fixed display band ([55, 99]): the best match in
-    *any* batch reads as a strong match, the weakest as a weak one, and the
-    ordering — the only thing this system actually claims — is preserved
-    exactly. This mirrors how the existing mock (search.service.js, `96 -
-    i*4`) already displays scores: a descending band anchored near the top
-    entry, not an absolute confidence figure.
+    This module used to min-max rescale each batch's own cosine scores into a
+    fixed [55, 99] display band. That guaranteed the top hit of *any* batch —
+    including a batch of five totally irrelevant clips — displayed as roughly
+    "99% match", which is dishonest: the number stopped meaning "confidence"
+    and became "rank within this particular result set". Using the model's
+    own sigmoid probability fixes that while leaving the *ordering* (the one
+    thing a rescale actually needs to preserve) untouched, because sigmoid is
+    monotonic in its input.
     """
-    if not cosines:
-        return []
-    lo, hi = min(cosines), max(cosines)
-    if hi - lo < 1e-9:
-        return [90 for _ in cosines]
-    band_lo, band_hi = 55.0, 99.0
-    return [
-        int(round(band_lo + (c - lo) / (hi - lo) * (band_hi - band_lo))) for c in cosines
-    ]
+    scale, bias = embedder.logit_scale, embedder.logit_bias
+    out = []
+    for c in cosines:
+        logit = c * scale + bias
+        prob = 1.0 / (1.0 + math.exp(-logit)) if abs(logit) < 700 else (1.0 if logit > 0 else 0.0)
+        out.append(int(round(prob * 100)))
+    return out
 
 
 def _window_scanned(index: VectorIndex) -> str:
@@ -90,7 +93,7 @@ def run_search(
     if query and len(index) > 0:
         query_vector = embedder.embed_text([query])[0]
         hits = index.search(query_vector, k=limit)
-        percents = _score_percents([hit.score for hit in hits])
+        percents = _score_percents([hit.score for hit in hits], embedder)
         for position, (hit, score) in enumerate(zip(hits, percents)):
             camera = cameras.lookup(hit.metadata.get("camera_id", ""))
             results.append(
