@@ -2,19 +2,19 @@ import { createEdgeClient } from './adapters/edge.js';
 import { createEvidenceVerifier } from './adapters/evidenceVerifier.js';
 import { openDatabase } from './db/index.js';
 import { seedDatabase } from './db/seed.js';
+import { createGuards } from './middleware/auth.js';
 import { createBus } from './realtime/bus.js';
 import { createSseHub } from './realtime/sse.js';
 import { createRepositories } from './repositories/index.js';
 import { createAlertsService } from './services/alerts.service.js';
 import { createAnalyticsService } from './services/analytics.service.js';
 import { createAuditService } from './services/audit.service.js';
+import { createAuthService } from './services/auth.service.js';
 import { createCamerasService } from './services/cameras.service.js';
 import { createEvidenceService } from './services/evidence.service.js';
 import { createFacesService } from './services/faces.service.js';
 import { createIngestService } from './services/ingest.service.js';
 import { createSearchService } from './services/search.service.js';
-
-const passthrough = (_req, _res, next) => next();
 
 /**
  * Composition root. Builds the database, repositories, realtime bus, edge adapter and services
@@ -50,6 +50,7 @@ export const createContainer = (config, { log = () => {} } = {}) => {
     alerts: createAlertsService({ repos, bus, edge, audit, transaction, config }),
     cameras: createCamerasService({ repos, audit }),
     evidence: createEvidenceService({ repos, verifier, audit }),
+    auth: createAuthService({ repos, config, audit }),
     faces: createFacesService({ repos, audit }),
     search: createSearchService({ repos, edge }),
     analytics: createAnalyticsService({ repos }),
@@ -63,7 +64,7 @@ export const createContainer = (config, { log = () => {} } = {}) => {
     hub,
     edge,
     services,
-    guards: { console: passthrough },
+    guards: createGuards({ config, auth: services.auth }),
     close() {
       hub.closeAll();
       if (db.open) db.close();

@@ -14,6 +14,7 @@ export const createUsersRepository = (db) => {
      VALUES (@id, @name, @unit, @email, @role, @initials, @password_hash, @approved, @created_at)`,
   );
   const count = db.prepare('SELECT COUNT(*) FROM users').pluck();
+  const approve = db.prepare('UPDATE users SET approved = 1 WHERE id = ?');
 
   return {
     findById: (id) => byId.get(id) || null,
@@ -21,13 +22,13 @@ export const createUsersRepository = (db) => {
     create: (user) => {
       insert.run({
         email: null,
-        approved: 0,
         created_at: new Date().toISOString(),
         ...user,
         approved: user.approved ? 1 : 0,
       });
       return byId.get(user.id);
     },
+    approve: (id) => approve.run(id).changes === 1,
   };
 };
 

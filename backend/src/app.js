@@ -1,3 +1,4 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
@@ -26,7 +27,8 @@ export const createApp = ({ config = defaultConfig, container = createContainer(
   app.use('/api/stream', createStreamRoutes(container));
 
   app.use(express.json());
-  app.use('/api', createRoutes(container));
+  app.use(cookieParser());
+  app.use('/api',createRoutes(container));
 
   app.use(notFound);
   app.use(createErrorHandler({ config, log: (level, message, meta) => console.error(`[${level}] ${message}`, meta?.error ?? '') }));
