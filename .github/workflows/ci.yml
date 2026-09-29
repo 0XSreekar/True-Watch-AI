@@ -1,0 +1,130 @@
+# Build, test and repository hygiene. Free runners, no secrets, no deploy step:
+# deploys are manual (docs/DEPLOYMENT.md). Every command below is also runnable locally.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  web:
+    name: web (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # The frontend has no separate lint step; the production build is the check.
+      - run: npm run build
+
+  api:
+    name: api (contract and unit tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test --workspace truewatch-backend
+
+  edge:
+    name: edge (pytest, no torch or paddle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: edge/requirements-ci.txt
+      - run: pip install -r edge/requirements-ci.txt
+      # Excluded, because they need what this job does not install:
+      #   test_search.py  builds a SigLIP index (torch, transformers, model download)
+      #   the deselected  ANPR test renders a plate with a Devanagari font that is not in the repo
+      # The paddle-backed ANPR cases inside test_anpr.py skip themselves when paddleocr is absent.
+      - name: edge pytest
+        working-directory: edge
+        run: >
+          python -m pytest -q
+          --ignore=tests/test_search.py
+          --deselect tests/test_anpr.py::test_measurements_section_4_reproduces
+
+  evidence:
+    name: evidence (chain verifies, tampering is caught)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: edge/requirements-ci.txt
+      - run: pip install -r edge/requirements-ci.txt
+      - name: evidence unit tests
+        working-directory: edge
+        run: python -m pytest -q tests/test_evidence.py
+      # Seeds a chain, requires verify to exit 0, flips one byte in one sealed clip, and requires
+      # verify to exit non-zero. See scripts/evidence-check.sh.
+      - name: seed, verify, tamper, verify again
+        run: bash scripts/evidence-check.sh
+
+  training:
+    name: training (unit tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: training/requirements-ci.txt
+      - run: pip install -r training/requirements-ci.txt
+      - name: training pytest
+        working-directory: training
+        run: python -m pytest -q tests
+
+  watermark:
+    name: watermark (repository hygiene)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Fails the job on a match in any tracked file or in any commit message of the pushed range.
+      # Event values go through env, never straight into the shell line.
+      - name: scan files and commit messages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            range="${PR_BASE}..${HEAD_SHA}"
+          else
+            range="${PUSH_BEFORE}..${HEAD_SHA}"
+          fi
+          bash scripts/watermark-scan.sh "$range"

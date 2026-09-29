@@ -1,0 +1,17 @@
+# Dependencies for the edge test suites that CI runs (.github/workflows/ci.yml).
+# This is requirements.txt minus the heavy optional stacks: no paddlepaddle/paddleocr (ANPR) and no
+# torch/transformers (VLM, semantic search). Suites that need those skip or are excluded in CI and
+# are run locally instead; edge/README.md lists which. cryptography stays: evidence signing and the
+# face-crop seal import it at module load.
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+httpx
+opencv-python-headless
+numpy
+onnxruntime
+scipy
+cryptography
+pillow
+pytest
