@@ -1,6 +1,7 @@
 import { openDatabase } from './db/index.js';
 import { seedDatabase } from './db/seed.js';
 import { createBus } from './realtime/bus.js';
+import { createSseHub } from './realtime/sse.js';
 import { createRepositories } from './repositories/index.js';
 import { createIngestService } from './services/ingest.service.js';
 
@@ -14,6 +15,12 @@ export const createContainer = (config, { log = () => {} } = {}) => {
   seedDatabase(db, repos, config);
 
   const bus = createBus({ onError: (error) => log('error', 'bus subscriber failed', error) });
+  const hub = createSseHub({
+    bus,
+    heartbeatSeconds: config.streamHeartbeatSeconds,
+    maxClients: config.streamMaxClients,
+    log,
+  });
   const transaction = (fn) => db.transaction(fn)();
 
   const services = {
@@ -25,8 +32,10 @@ export const createContainer = (config, { log = () => {} } = {}) => {
     db,
     repos,
     bus,
+    hub,
     services,
     close() {
+      hub.closeAll();
       if (db.open) db.close();
     },
   };

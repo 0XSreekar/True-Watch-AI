@@ -7,6 +7,7 @@ import defaultConfig from './config/index.js';
 import { createErrorHandler } from './middleware/errorHandler.js';
 import notFound from './middleware/notFound.js';
 import { createIngestRoutes } from './routes/ingest.routes.js';
+import { createStreamRoutes } from './routes/stream.routes.js';
 import routes from './routes/index.js';
 
 /**
@@ -21,6 +22,8 @@ export const createApp = ({ config = defaultConfig, container = createContainer(
 
   // The ingest router authenticates before it parses, so it is mounted ahead of the JSON parser.
   app.use('/api/ingest', createIngestRoutes(container));
+
+  app.use('/api/stream', createStreamRoutes(container));
 
   app.use(express.json());
   app.use('/api', routes);
