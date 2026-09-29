@@ -1,23 +1,43 @@
-import { CAMERAS, SEARCH_CHIPS, SEARCH_PLACEHOLDERS } from '../data/mockData.js';
+import { SEARCH_CHIPS, SEARCH_PLACEHOLDERS } from '../data/mockData.js';
 import { pad } from '../utils/random.js';
 
-/**
- * Plain-language footage search.
- * Real system: embed the query, run it against the clip index, rerank with the VLM.
- */
-export const listPlaceholders = () => SEARCH_PLACEHOLDERS;
+const MAX_QUERY_LENGTH = 500;
 
-export const search = (query, { limit = 6 } = {}) => {
-  const results = [];
-  for (let i = 0; i < limit; i += 1) {
-    const camera = CAMERAS[i % CAMERAS.length];
-    results.push({
-      id: i,
-      camera,
-      time: `1${2 + i} AUG · ${pad(20 + (i % 4))}:${pad(11 + i * 6)}`,
-      chips: SEARCH_CHIPS[i % SEARCH_CHIPS.length],
-      score: 96 - i * 4,
-    });
-  }
-  return { query, tookMs: 1400, windowScanned: '6 weeks', results };
+/**
+ * Plain-language footage search. With EDGE_BASE_URL set the query is proxied to the edge's
+ * semantic index (`POST /api/search`) and its answer is returned as-is, because it is already the
+ * shape FootageSearch renders. Without the edge, or when the edge has nothing indexed, the
+ * fixture results below keep the demo watchable.
+ */
+export const createSearchService = ({ repos, edge }) => {
+  const fixtureResults = (query, limit = 6) => {
+    const cameras = repos.cameras.list();
+    return {
+      query,
+      tookMs: 1400,
+      windowScanned: '6 weeks',
+      results: Array.from({ length: limit }, (_, i) => ({
+        id: i,
+        camera: cameras[i % cameras.length],
+        time: `1${2 + i} AUG · ${pad(20 + (i % 4))}:${pad(11 + i * 6)}`,
+        chips: SEARCH_CHIPS[i % SEARCH_CHIPS.length],
+        score: 96 - i * 4,
+      })),
+    };
+  };
+
+  return {
+    listPlaceholders: () => SEARCH_PLACEHOLDERS,
+
+    async search(rawQuery) {
+      const query = String(rawQuery ?? '').slice(0, MAX_QUERY_LENGTH);
+      if (edge.enabled && query.trim()) {
+        const live = await edge.searchFootage(query);
+        if (live && !(live.results.length === 0 && live.windowScanned === 'no footage indexed')) return live;
+      }
+      return fixtureResults(query);
+    },
+  };
 };
+
+export default createSearchService;
