@@ -1,0 +1,49 @@
+{
+  "set": "28 embossed (Latin) plates among the 147 extended real test plates (mukulboro/nepali-private-license-plates, CC BY 4.0), whole plate crops through the full pipeline",
+  "pretrained_latin_head": {
+    "count": 28,
+    "exact_match_rate": 0.5714,
+    "mean_cer": 0.4031,
+    "buckets": {
+      "near (proxy: plate >= 200px wide)": {
+        "count": 6,
+        "exact_match_rate": 0.8333,
+        "mean_cer": 0.0238
+      },
+      "mid, under 25 m proxy (120-199px)": {
+        "count": 17,
+        "exact_match_rate": 0.5882,
+        "mean_cer": 0.4874
+      },
+      "far, beyond 25 m proxy (<120px)": {
+        "count": 5,
+        "exact_match_rate": 0.2,
+        "mean_cer": 0.5714
+      }
+    }
+  },
+  "finetuned_latin_head": {
+    "count": 28,
+    "exact_match_rate": 0.2143,
+    "mean_cer": 0.648,
+    "buckets": {
+      "near (proxy: plate >= 200px wide)": {
+        "count": 6,
+        "exact_match_rate": 0.3333,
+        "mean_cer": 0.6667
+      },
+      "mid, under 25 m proxy (120-199px)": {
+        "count": 17,
+        "exact_match_rate": 0.1765,
+        "mean_cer": 0.7059
+      },
+      "far, beyond 25 m proxy (<120px)": {
+        "count": 5,
+        "exact_match_rate": 0.2,
+        "mean_cer": 0.4286
+      }
+    }
+  },
+  "devanagari_head": "round G6 in both rows",
+  "note": "summary only; per-sample results are kept outside the repository"
+}

@@ -254,6 +254,27 @@ crop resolution and tilt, and plate location: in the live pipeline plates are st
 processing (`detect_plate.py`), which found 3 of 13 plates on an earlier real-image check; a trained plate locator was
 prepared but never trained.
 
+### 2.4 Embossed (Latin) plate head: fine-tune measured and not adopted
+
+A Latin recogniser was fine-tuned from `en_PP-OCRv5_mobile_rec` on Kaggle for embossed plates ("B AC 5763"): synthetic
+embossed plates, glyph crops from Kaggle `theciceerguy/embossed-number-plate-detection-nepal-dataset` (MIT), rows cut
+from Zenodo record 22861166 (CC BY 4.0, split by vehicle) and 23 verified real lines. On its own test lists it scored
+99.9% (956 line crops) and 100% (24 hand-cut, eye-checked real line crops). Those are line-level numbers on crops
+prepared the way the training crops were.
+
+The check that matters is end to end. On the 28 embossed plates among the 147 extended real test plates, whole plate
+crops through the full pipeline (G6 Devanagari head in both rows, `eval_real_embossed_latin.json`):
+
+| Latin head | Exact-match | Mean CER | Plates |
+|---|---|---|---|
+| Pretrained `en_PP-OCRv5_mobile_rec` (in use) | 57.1% | 0.403 | 28 |
+| Fine-tuned | 21.4% | 0.648 | 28 |
+
+The fine-tune reads the pipeline's crops worse than the pretrained head and, because its weaker readings fail the
+plate grammar more often, sends more plates to the Devanagari head. It is **not integrated and not published**; the
+pipeline keeps the pretrained Latin head. Its weights are archived for a later round that trains on crops cut by
+`rectify.py` itself. Sample size is small (28 plates).
+
 ## Running the measurement
 
 ```bash
