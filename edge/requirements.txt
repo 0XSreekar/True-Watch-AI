@@ -34,7 +34,8 @@ scipy
 # serving path here instead of an ONNX export.
 paddlepaddle
 paddleocr
-# cryptography.fernet seals the unblurred face crop at rest (edge/face/privacy.py).
+# cryptography.fernet seals the unblurred face crop at rest (edge/face/privacy.py);
+# its Ed25519 signs the daily evidence root (edge/evidence/signer.py, Phase 7).
 cryptography
 # YuNet (edge/face/detect.py) uses cv2.FaceDetectorYN — already covered by the
 # opencv-python-headless pin above. Its weights are fetched at first use by

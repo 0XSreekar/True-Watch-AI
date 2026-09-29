@@ -358,6 +358,79 @@ for a single post's archive (bounded well under 100k keyframes) over
 FAISS-CPU — see that module's docstring for the measured latency at 100k
 vectors and the reasoning.
 
+## Evidence chain (edge/evidence)
+
+Every clip is SHA-256 hashed **while it is written**, entered as a block in an
+append-only hash chain, folded into one Merkle root per IST day, signed on the
+board with Ed25519 and mirrored to sector HQ. One command re-derives all of it
+from the bytes on disk. Nothing in `evidence/` opens a network connection; the
+HQ mirror is a second directory (removable media or a separate volume in the
+field).
+
+```bash
+python -m evidence.seed_demo                                   # a real 3-day demo chain in ./var/evidence
+python -m evidence.verify --from 2026-09-01 --to 2026-09-30    # PASS/FAIL table, exit 0 / 1 (2 = unreadable)
+python -m evidence.tamper_demo                                 # flip one byte in one sealed clip, re-verify
+python -m evidence.tamper_demo --block N --offset K --restore  # flip it back
+python -m evidence.certificate --block 6 --out cert.md         # Section 63 (BSA 2023) certificate
+```
+
+`EVIDENCE_DIR` (default `./var/evidence`) and `EVIDENCE_HQ_DIR` (default
+`<EVIDENCE_DIR>-hq`) select the store and the mirror; `TRUEWATCH_DEVICE_ID`
+names the post the first time a store is created.
+
+**API for the pipeline** (the pipeline wiring itself is not part of this module):
+
+```python
+from evidence import EvidenceStore, chain_view, verify_view
+
+store = EvidenceStore(cfg.evidence_dir)          # recovers and logs a gap after a crash
+w = store.open_clip("RXL-01", started_at)        # hash at capture
+w.write_frame(jpeg_bytes)                        # each byte hashed in the same call that writes it
+block = w.seal(ended_at)                         # fsync, move into clips/<day>/, append the block
+block = store.seal_clip(path, "RXL-01", started_at, ended_at)   # a file another writer closed
+event["evidence"] = block.evidence_dict()        # the truewatch.event.v1 `evidence` object
+store.heartbeat()                                # now and then, so a later gap starts accurately
+store.close()                                    # clean shutdown
+
+chain_view(root, limit=5)   # FROZEN GET  /api/evidence/chain  -> [{ n, hash, camera, time }] (+ full_hash)
+verify_view(root)           # FROZEN POST /api/evidence/verify -> { intact, verified, total, blocks: [{ n, ok }] }
+```
+
+`hash` is the frozen `<10hex>…<6hex>` display form of the block hash; `time`
+is `DD MON · HH:MM` in IST. `full_hash` is the only added (optional) field.
+
+**Design decisions** (each module's docstring has the full specification):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Clip digest | `SHA-256(bytes ‖ "TWCLIP1" ‖ u64be(frames) ‖ u64be(length))` | Frame count and length are bound into the digest; a truncated or padded file cannot match. |
+| Block hash | SHA-256 over `truewatch.block.v1` LF, then `name=value` LF lines in the fixed order `n, clip_id, camera_id, started_at, ended_at, sealed_at, clip_sha256, prev_block_hash`; ASCII; every value grammar-checked | Not JSON: no key-order, whitespace or escaping ambiguity. Genesis prev is 64 zeros. |
+| Storage | JSON Lines, `O_APPEND` + fsync per block | Append-only by construction; a power cut can only tear the last line; readable with a text editor. |
+| Merkle | RFC 6962-style `0x00` leaf / `0x01` node prefixes; odd node **promoted unchanged** | Duplicate-last makes `[a,b,c]` and `[a,b,c,c]` share a root (CVE-2012-2459). |
+| Day | IST calendar day of `sealed_at` | Fixed +05:30 offset, no DST; `sealed_at` never decreases, so days are contiguous. |
+| Signing | Ed25519 (`cryptography`), key generated on the box, `keys/signing_key.pem` mode 0600 in a 0700 dir | Verify trusts the key registered at HQ, never the box's own copy. |
+| HQ mirror | Write-once public key and daily roots | A rewritten root on the box cannot overwrite HQ's copy. |
+| Gaps | Every restart appends exactly one hash-chained gap record; the signed daily manifest carries the gap count and head | A gap is disclosed, not a failure; deleting one breaks a signature. |
+
+**Power loss.** On every start the store reads its run marker, quarantines a
+torn final ledger line and any half-written clips (never deletes them), and
+appends one gap `{start: last time the store was alive, end: now, kind, reason}`.
+The chain then resumes from the last complete block.
+
+**Section 63 certificate.** The legal wording is in
+`evidence/templates/section63_certificate.md` and carries a visible note that it
+is a template which must be reviewed by a qualified legal practitioner before
+any real use. The code fills in only the technical facts: record, device,
+process, hashes recomputed at generation time, Merkle inclusion proof, signature
+and HQ-mirror status, gaps, and blank signatory blocks.
+
+**Residual risk, stated plainly.** Blocks sealed today are protected by the
+chain and the clip hashes but not yet by a signature; someone with root on the
+box could truncate today's tail before the day is signed. A physically separate
+HQ mirror is what makes signed days tamper-evident against the box's own
+operator.
+
 ## Rules for this folder
 
 - **No model weights in git.** The detector is downloaded at boot by
