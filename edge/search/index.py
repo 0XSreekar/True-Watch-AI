@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -70,16 +71,21 @@ class VectorIndex:
         self._vectors = np.zeros((0, dim), dtype=np.float32)
         self._ids: list[str] = []  # keyframe ids, e.g. "<clip_id>#<frame_idx>"
         self._metadata: list[dict[str, Any]] = []
+        # The live service adds keyframes from a worker thread while /api/search reads; `add` swaps three
+        # structures and a reader must never see them out of step.
+        self._lock = threading.RLock()
 
     def __len__(self) -> int:
         return len(self._ids)
 
     def all_metadata(self) -> list[dict[str, Any]]:
         """Read-only view of every indexed keyframe's metadata."""
-        return list(self._metadata)
+        with self._lock:
+            return list(self._metadata)
 
     def contains_clip(self, clip_id: str) -> bool:
-        return any(meta.get("clip_id") == clip_id for meta in self._metadata)
+        with self._lock:
+            return any(meta.get("clip_id") == clip_id for meta in self._metadata)
 
     def add(
         self,
@@ -95,35 +101,37 @@ class VectorIndex:
         if vectors.shape[1] != self.dim:
             raise ValueError(f"expected dim {self.dim}, got {vectors.shape[1]}")
 
-        existing = set(self._ids)
-        keep = [i for i, kid in enumerate(keyframe_ids) if kid not in existing]
-        if not keep:
-            return
-        new_vectors = vectors[keep].astype(np.float32)
-        self._vectors = np.vstack([self._vectors, new_vectors]) if len(self) else new_vectors
-        self._ids.extend(keyframe_ids[i] for i in keep)
-        self._metadata.extend(metadata[i] for i in keep)
+        with self._lock:
+            existing = set(self._ids)
+            keep = [i for i, kid in enumerate(keyframe_ids) if kid not in existing]
+            if not keep:
+                return
+            new_vectors = vectors[keep].astype(np.float32)
+            self._vectors = np.vstack([self._vectors, new_vectors]) if len(self) else new_vectors
+            self._ids.extend(keyframe_ids[i] for i in keep)
+            self._metadata.extend(metadata[i] for i in keep)
 
     def search(self, query_vector: np.ndarray, k: int = 6) -> list[SearchHit]:
         """Return up to `k` distinct clips, ranked by their best-scoring keyframe."""
-        if len(self) == 0:
-            return []
-        q = query_vector.astype(np.float32).reshape(-1)
-        # Vectors are already L2-normalised at embed time, so the matmul is cosine similarity.
-        scores = self._vectors @ q
+        with self._lock:
+            if len(self) == 0:
+                return []
+            q = query_vector.astype(np.float32).reshape(-1)
+            # Vectors are already L2-normalised at embed time, so the matmul is cosine similarity.
+            scores = self._vectors @ q
 
-        best_per_clip: dict[str, tuple[float, int]] = {}
-        for i, score in enumerate(scores):
-            clip_id = self._metadata[i].get("clip_id", self._ids[i])
-            current = best_per_clip.get(clip_id)
-            if current is None or score > current[0]:
-                best_per_clip[clip_id] = (float(score), i)
+            best_per_clip: dict[str, tuple[float, int]] = {}
+            for i, score in enumerate(scores):
+                clip_id = self._metadata[i].get("clip_id", self._ids[i])
+                current = best_per_clip.get(clip_id)
+                if current is None or score > current[0]:
+                    best_per_clip[clip_id] = (float(score), i)
 
-        ranked = sorted(best_per_clip.items(), key=lambda kv: kv[1][0], reverse=True)[:k]
-        return [
-            SearchHit(clip_id=clip_id, score=score, metadata=self._metadata[i])
-            for clip_id, (score, i) in ranked
-        ]
+            ranked = sorted(best_per_clip.items(), key=lambda kv: kv[1][0], reverse=True)[:k]
+            return [
+                SearchHit(clip_id=clip_id, score=score, metadata=self._metadata[i])
+                for clip_id, (score, i) in ranked
+            ]
 
     # --- persistence -----------------------------------------------------
 
@@ -142,11 +150,15 @@ class VectorIndex:
             # loading never needs allow_pickle=True: numpy's pickle path is only a
             # risk for untrusted files, but staying off it entirely means this
             # format is safe to load even if that ever changes.
+            with self._lock:
+                vectors = self._vectors.astype(np.float16)
+                ids_json = json.dumps(self._ids)
+                metadata_json = json.dumps(self._metadata)
             np.savez(
                 tmp_name,
-                vectors=self._vectors.astype(np.float16),
-                ids_json=np.array(json.dumps(self._ids)),
-                metadata_json=np.array(json.dumps(self._metadata)),
+                vectors=vectors,
+                ids_json=np.array(ids_json),
+                metadata_json=np.array(metadata_json),
                 dim=np.array([self.dim]),
             )
             # np.savez appends .npz unless the name already ends with it.

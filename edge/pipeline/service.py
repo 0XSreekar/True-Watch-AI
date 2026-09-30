@@ -14,6 +14,17 @@ The per-camera direction baseline is re-learnt periodically from all confirmed t
 ANPR (anpr/stage.py) runs on fusion-agreed plate-bearing TRACKS on frames where the detector saw them, so
 each plate reading carries its track id; a reading becomes an event with the `anpr` block filled, and
 later rule events on that track carry it too.
+
+Every event leaves here with a reason already in place: `pipeline/explain.py` renders the rule sentence
+into the event's `explanation` block (source 'template') before the event is emitted, and only after the
+emit hands the frame and the evidence to the asynchronous model queue. The model's sentence, if it passes
+the guardrails, arrives later as a reason patch for the same event id; the loop here never waits for it.
+
+When SEARCH_ENABLED, the frame of each event is also queued for the footage-search index
+(search/incremental.py), the same never-blocking way.
+
+Face detection (face/stage.py, off unless enabled) runs on close-range person tracks and stores blurred
+crops; it adds no field to the event contract.
 """
 
 from __future__ import annotations
@@ -23,10 +34,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from pipeline.events import EventSink, build_event
+from pipeline.explain import EventExplainer
 from pipeline.rules_adapter import RuleTrack, dominant_direction, rule_tracks
 from pipeline.runner import FrameResult, Pipeline, PipelineConfig
 from pipeline.source import Frame
 from pipeline.types import FusedEvent
+from vlm.prompt import CameraContext
 from rules import baseline as baseline_mod
 from rules import tracks as rtracks
 from rules.baseline import CameraBaseline
@@ -54,6 +67,8 @@ class ServiceStats:
     rule_suppressed: int = 0                                # firings the throttle refused (budget)
     homography_error: str | None = None                     # why the calibration was refused, if it was
     anpr: dict | None = None                                # anpr.stage.PlateStage.stats()
+    face: dict | None = None                                # face.stage.FaceStage.stats()
+    explain: dict | None = None                             # pipeline.explain.EventExplainer.stats()
     last_timings_ms: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -69,6 +84,8 @@ class ServiceStats:
             "rule_suppressed": self.rule_suppressed,
             "homography_error": self.homography_error,
             "anpr": self.anpr,
+            "face": self.face,
+            "explain": self.explain,
             "last_timings_ms": {k: round(v, 2) for k, v in self.last_timings_ms.items()},
         }
 
@@ -91,6 +108,11 @@ class CameraService:
         baseline: CameraBaseline | None = None,
         throttle: AlertThrottle | None = None,
         anpr=None,
+        face=None,
+        keyframes=None,
+        explainer: EventExplainer | None = None,
+        camera_name: str = "",
+        camera_sector: str = "",
     ) -> None:
         kwargs = dict(camera_id=camera_id, stride=max(1, int(stride)), calibration_dir=Path(calibration_dir),
                       source=source)
@@ -115,9 +137,24 @@ class CameraService:
         self._sized: tuple[int, tuple[int, int], CameraRuleConfig] | None = None
         self.anpr = anpr                                    # anpr.stage.PlateStage or None
         self.plates: dict[int, dict] = {}                   # track_id -> anpr contract block
+        self.keyframes = keyframes                          # search.incremental.KeyframeIndexer or None
+        self.face = face                                    # face.stage.FaceStage or None
+        self.faces: dict[int, dict] = {}                    # track_id -> stored (blurred) face record
+        self.explainer = explainer or EventExplainer(None)  # no model unless one is passed in
+        self.camera_name = camera_name or camera_id
+        self.camera_sector = camera_sector
+        self._explain_ctx: dict[str, tuple] = {}
+        self.fired_rules: dict[int, list] = {}              # track_id -> rules.engine.FiredRule objects
 
     def close(self) -> None:
-        self.pipeline.close()
+        self.pipeline.close()   # the explainer outlives one run: its owner (app.py) closes it
+
+    def camera_context(self) -> CameraContext:
+        """The camera row the explanation is written against: name, sector and the sanctioned windows."""
+        cfg = self.rule_config()
+        windows = cfg.hours.sanctioned if cfg is not None and cfg.hours is not None else ()
+        return CameraContext.from_camera_row(
+            {"id": self.camera_id, "name": self.camera_name, "sector": self.camera_sector}, sanctioned=windows)
 
     def to_frame(self, frame) -> Frame:
         """Adapt a pipeline.ingest frame (monotonic + captured_at) to the pipeline's Frame."""
@@ -202,6 +239,7 @@ class CameraService:
                 self._fired.add(key)
                 self.stats.rule_fires[rule.rule_name] = self.stats.rule_fires.get(rule.rule_name, 0) + 1
                 self.fired_by_track.setdefault(verdict.track_id, []).append(rule.rule_name)
+                self.fired_rules.setdefault(verdict.track_id, []).append(rule)
                 alert = self.throttle.offer(self.camera_id, verdict.track_id, rule.rule_name, f.captured_at)
                 if alert is None:
                     self.stats.rule_suppressed += 1
@@ -212,13 +250,51 @@ class CameraService:
                 metrics = {"dwell_s": round(rtracks.dwell_seconds(track), 2),
                            "net_px": round(rtracks.net_displacement_px(track), 1),
                            "path_px": round(rtracks.path_length_px(track), 1)}
-                events.append(build_event(
+                events.append(self._note(build_event(
                     self.last_fused[verdict.track_id], post_id=self.post_id, bbox=track.bbox,
                     captured_at=f.captured_at, rules_fired=[rule.rule_name], rule_baseline=self._baseline_block(),
                     rule_metrics=metrics, anpr=self.plates.get(verdict.track_id),
-                ))
+                ), [rule], f.captured_at))
                 self.stats.rule_events += 1
         return events
+
+    # ------------------------------------------------------------------ reasons
+
+    def _note(self, event: dict, fired, captured_at: float) -> dict:
+        """Remember what the reason for `event` is built from (kept off the wire payload)."""
+        self._explain_ctx[event["event_id"]] = (tuple(fired), captured_at)
+        return event
+
+    def emit_all(self, events: list[dict], f: Frame) -> None:
+        """Give every event its reason, emit it, THEN queue the model. The order is the contract: the event
+        is on its way at stage 'provisional' with the rule sentence before the model is even asked."""
+        if not events:
+            return
+        camera = self.camera_context()
+        pending = []
+        for event in events:
+            fired, captured_at = self._explain_ctx.pop(event["event_id"], ((), f.captured_at))
+            pending.append(self.explainer.prepare(event, camera=camera, fired=fired, captured_at=captured_at))
+        for event in events:
+            self.sink.emit(event)
+        self.stats.events_emitted += len(events)
+        if self.keyframes is not None:
+            for event in events:
+                self.keyframes.submit(event, f.image)
+        if self.explainer.enabled:
+            for p in pending:
+                self.explainer.submit(p, self.sink, f.image)
+            self.stats.explain = self.explainer.stats()
+
+    # ------------------------------------------------------------------ face
+
+    def read_faces(self, result: FrameResult, f: Frame) -> None:
+        if self.face is None:
+            return
+        tracks = [t for t in result.tracks if t.state == "confirmed" and t.observed_now]
+        for record in self.face.run(f.image, tracks, frame_index=f.index, camera_id=self.camera_id):
+            self.faces[record["track_id"]] = record
+        self.stats.face = self.face.stats()
 
     # ------------------------------------------------------------------ ANPR
 
@@ -235,9 +311,11 @@ class CameraService:
                 continue
             self.plates[read.track_id] = block
             track = next(t for t in tracks if t.track_id == read.track_id)
-            events.append(build_event(self.last_fused[read.track_id], post_id=self.post_id, bbox=track.bbox,
-                                      captured_at=f.captured_at,
-                                      rules_fired=self.fired_by_track.get(read.track_id, ()), anpr=block))
+            events.append(self._note(
+                build_event(self.last_fused[read.track_id], post_id=self.post_id, bbox=track.bbox,
+                            captured_at=f.captured_at,
+                            rules_fired=self.fired_by_track.get(read.track_id, ()), anpr=block),
+                self.fired_rules.get(read.track_id, ()), f.captured_at))
         return events
 
     # ------------------------------------------------------------------ per frame
@@ -255,14 +333,14 @@ class CameraService:
         for ev in result.fusion.events:
             self.stats.fused_events += 1
             self.last_fused[ev.track_id] = ev
-            events.append(build_event(ev, post_id=self.post_id,
-                                      rules_fired=self.fired_by_track.get(ev.track_id, ()),
-                                      anpr=self.plates.get(ev.track_id)))
+            events.append(self._note(
+                build_event(ev, post_id=self.post_id, rules_fired=self.fired_by_track.get(ev.track_id, ()),
+                            anpr=self.plates.get(ev.track_id)),
+                self.fired_rules.get(ev.track_id, ()), ev.captured_at))
         events.extend(self.evaluate_rules(result, f))
         events.extend(self.read_plates(result, f))
         if self.anpr is not None:
             self.stats.anpr = self.anpr.stats()
-        for event in events:
-            self.sink.emit(event)
-        self.stats.events_emitted += len(events)
+        self.read_faces(result, f)
+        self.emit_all(events, f)
         return result, events

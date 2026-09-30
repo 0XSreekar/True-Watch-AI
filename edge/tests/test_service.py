@@ -40,7 +40,10 @@ def ingest_frames(scene: Scene, n: int, camera_id: str = "CAM-T"):
 def check_event(ev: dict) -> None:
     assert REQUIRED <= ev.keys()
     assert ev["schema"] == SCHEMA and ev["stage"] == "provisional"
-    assert ev["explanation"] is None and ev["evidence"] is None
+    # the reason is in place from the first instant: the rule sentence, marked as such (never the model's)
+    assert ev["evidence"] is None
+    assert ev["explanation"]["source"] == "template" and ev["explanation"]["text"].strip()
+    assert ev["explanation"]["model"] is None
     d = ev["detection"]
     assert d["agreed"] is True and d["class"] in {"person", "two_wheeler", "car", "truck", "cart"}
     assert len(d["bbox"]) == 4 and all(0.0 <= v <= 1.0 for v in d["bbox"])

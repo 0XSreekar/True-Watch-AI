@@ -1,4 +1,4 @@
-"""Local Moondream 2, CPU-only, implementing `vlm.judge.VlmRuntime`.
+"""Local Moondream 2 (CPU, or Apple-silicon MPS), implementing `vlm.judge.VlmRuntime`.
 
 This is the ONLY runtime the shipped product loads by default. It satisfies
 the air-gap claim in the PDF (slides 4/5: fully local, no foreign cloud, no
@@ -35,6 +35,15 @@ exercised on this machine before choosing. If a future revision
 reintroduces this or any other breaking change, `warm_up()` at boot degrades
 to `VlmUnavailable` -> the rule-string fallback rather than crashing the
 service — but re-pinning here remains the correct fix.
+
+Device — CPU or MPS (measured, edge/vlm/results/)
+------------------------------------------------
+`VLM_DEVICE` (`auto` | `cpu` | `mps`, default `auto`) picks where the model runs. `auto` uses Apple's MPS
+backend when torch reports it available and CPU otherwise (a Jetson or an x86 box has no MPS, so it is CPU
+there). The checkpoint's modelling code hard-codes bfloat16 in its image preprocessing, so the model stays
+bf16 on either device; on an Apple M-series CPU that is roughly two orders of magnitude slower than on MPS
+(measured: minutes per explanation on CPU, about three seconds on MPS, see edge/README.md), which is why
+`auto` prefers MPS where it exists. Both stay entirely local: no network call at inference time.
 
 CPU precision — what "quantised" means for this checkpoint, honestly
 ----------------------------------------------------------------------
@@ -101,6 +110,7 @@ MODEL_ID = "vikhyatk/moondream2"
 PINNED_REVISION = "5d6c926f44e26b07957b0dd315bbedcb4c17a5fe"
 
 DEFAULT_WARM_UP_TIMEOUT_S = 60.0
+DEVICE_ENV_VAR = "VLM_DEVICE"
 HOSTED_ENV_VAR = "TRUEWATCH_VLM_HOSTED"
 
 
@@ -134,10 +144,15 @@ class MoondreamRuntime:
         revision: str = PINNED_REVISION,
         *,
         attempt_quantization: bool = True,
+        device: str | None = None,
     ) -> None:
         self.model_id = model_id
         self.revision = revision
         self._attempt_quantization = attempt_quantization
+        self._requested_device = (device or os.environ.get(DEVICE_ENV_VAR, "") or "auto").strip().lower()
+        if self._requested_device not in {"auto", "cpu", "mps"}:
+            raise ValueError(f"VLM_DEVICE must be auto, cpu or mps, got {self._requested_device!r}")
+        self.device: str | None = None   # the device actually used, known once loaded
         self._model: Any = None
         self._quantized = False
         self._load_error: str | None = None
@@ -177,7 +192,11 @@ class MoondreamRuntime:
     def _load(self) -> None:
         import torch
 
-        log.info("loading local Moondream 2 (%s@%s) for CPU inference", self.model_id, self.revision)
+        mps_ok = bool(getattr(torch.backends, "mps", None)) and torch.backends.mps.is_available()
+        if self._requested_device == "mps" and not mps_ok:
+            raise VlmUnavailable("VLM_DEVICE=mps but torch reports no MPS backend on this machine")
+        device = "mps" if (self._requested_device == "mps" or (self._requested_device == "auto" and mps_ok)) else "cpu"
+        log.info("loading local Moondream 2 (%s@%s) on %s", self.model_id, self.revision, device)
         t0 = time.monotonic()
 
         # This checkpoint's own vision.py checks `torch.backends.mps.is_available()`
@@ -194,11 +213,20 @@ class MoondreamRuntime:
         # itself instead of silently reaching for the GPU. Scoped to this one
         # `from_pretrained` call (restored in `finally`) since `trust_remote_code`
         # first imports the remote module here.
-        _real_mps_available = torch.backends.mps.is_available
-        torch.backends.mps.is_available = lambda: False
-        try:
-            from transformers import AutoModelForCausalLM
+        # Import transformers BEFORE the probe is replaced: importing it pulls in torch._dynamo, which reads
+        # `torch.backends.mps.is_available.__wrapped__` at import time and fails on a bare lambda (seen with
+        # torch 2.14 / transformers 5.17: the CPU path could not load at all). The replacement below keeps
+        # `__wrapped__` for the same reason.
+        from transformers import AutoModelForCausalLM
 
+        _real_mps_available = torch.backends.mps.is_available
+        if device == "cpu":
+            def _no_mps() -> bool:
+                return False
+
+            _no_mps.__wrapped__ = getattr(_real_mps_available, "__wrapped__", _real_mps_available)  # type: ignore[attr-defined]
+            torch.backends.mps.is_available = _no_mps
+        try:
             model = AutoModelForCausalLM.from_pretrained(
                 self.model_id,
                 revision=self.revision,
@@ -207,9 +235,10 @@ class MoondreamRuntime:
         finally:
             torch.backends.mps.is_available = _real_mps_available
         model.eval()
-        model.to("cpu")
+        model.to(device)
+        self.device = device
 
-        if self._attempt_quantization:
+        if self._attempt_quantization and device == "cpu":
             try:
                 model = torch.ao.quantization.quantize_dynamic(
                     model, {torch.nn.Linear}, dtype=torch.qint8
@@ -227,7 +256,7 @@ class MoondreamRuntime:
         self._model = model
         self._load_time_s = time.monotonic() - t0
         log.info(
-            "moondream2 loaded in %.1fs (quantised=%s)", self._load_time_s, self._quantized
+            "moondream2 loaded in %.1fs on %s (quantised=%s)", self._load_time_s, self.device, self._quantized
         )
 
     def warm_up(self, timeout_s: float = DEFAULT_WARM_UP_TIMEOUT_S) -> bool:
