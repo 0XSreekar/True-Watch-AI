@@ -40,7 +40,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

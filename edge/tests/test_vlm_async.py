@@ -17,12 +17,11 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import pytest
 
 from rules.engine import RULE_OUT_OF_HOURS, FiredRule
 from vlm.judge import CallableRuntime, Explanation, JudgeInput, VlmUnavailable, fallback_reason, initial_reason
 from vlm.prompt import CameraContext, EventContext
-from vlm.queue import DEFAULT_HARD_TIMEOUT_S, ExplanationQueue
+from vlm.queue import ExplanationQueue
 
 RAXAUL = {"id": "RXL-01", "name": "BOP Raxaul — Pillar 42", "sector": "Raxaul", "ir": False}
 

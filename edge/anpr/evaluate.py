@@ -40,7 +40,6 @@ sys.path.insert(0, str(HERE.parent))  # so `python edge/anpr/evaluate.py` finds 
 
 import cv2  # noqa: E402
 
-import postprocess  # noqa: E402
 import recognise  # noqa: E402
 import rectify  # noqa: E402
 

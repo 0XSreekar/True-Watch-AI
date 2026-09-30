@@ -274,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
           f"{verdicts[(True, True)]}  |  neither {verdicts[(False, False)]}  |  agreed (all gates) {agree_frames}")
     print(f"  frames with a motion region (>= {MOTION_FIRE_AREA:.1%} of the frame) touching no candidate box: "
           f"{motion_only_frames}; such regions have no box, so they cannot raise an alert")
-    print(f"  alerts raised from appearance-only or motion-only candidate-frames: 0 (every alert below had both gates)")
+    print("  alerts raised from appearance-only or motion-only candidate-frames: 0 (every alert below had both gates)")
     print(f"alerts   {len(alerts)} with these weights  |  {len(shadow_alerts)} if the same frames were judged with "
           f"the {shadow.modality if shadow else '-'} weights  |  candidate-frames whose verdict flips between "
           f"day and night weights: {weight_flips}")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
 
 from anpr import detect_plate
 from anpr.stage import PlateStage

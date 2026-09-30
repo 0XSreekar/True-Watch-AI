@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import threading
-import time
 
-import pytest
 
 from pipeline.events import SCHEMA, EventSink, normalised_xywh
 from pipeline.ingest import Frame as IngestFrame

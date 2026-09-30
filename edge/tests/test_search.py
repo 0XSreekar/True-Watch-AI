@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 
 from search import query as search_query
-from search.backfill import ClipMeta, backfill, index_clips
+from search.backfill import backfill, index_clips
 from search.embed import get_embedder
 from search.index import VectorIndex
 

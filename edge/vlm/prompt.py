@@ -42,7 +42,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, time as dt_time
-from typing import Any, Iterable, Mapping, Protocol, Sequence, runtime_checkable
+from typing import Any, Iterable, Mapping, Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
 from rules.engine import (

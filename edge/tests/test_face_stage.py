@@ -66,7 +66,7 @@ def test_close_person_gets_a_blurred_crop_and_a_sealed_face(tmp_path):
     assert cv2.Laplacian(face_region, cv2.CV_64F).var() < 0.05 * cv2.Laplacian(img, cv2.CV_64F).var()
     # the unblurred face exists only sealed: no clear jpg of it on disk, and the token decrypts only via unseal
     files = sorted(p.name for p in (tmp_path / "faces").iterdir())
-    assert files == [f"CAM-t1-f7.blurred.jpg", "CAM-t1-f7.sealed"]
+    assert files == ["CAM-t1-f7.blurred.jpg", "CAM-t1-f7.sealed"]
     token = (tmp_path / "faces" / "CAM-t1-f7.sealed").read_bytes()
     assert token[:5] != b"\xff\xd8\xff"[:5]
     with pytest.raises(privacy.UnsealRefused):

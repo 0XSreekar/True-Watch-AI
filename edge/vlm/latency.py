@@ -38,7 +38,6 @@ import json
 import logging
 import statistics
 import sys
-import time
 import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone

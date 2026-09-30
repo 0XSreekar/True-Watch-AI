@@ -1499,7 +1499,7 @@ def build_callbacks(state: TrainState) -> dict[str, Callable[[Any], None]]:
             f"hsv=({args.hsv_h}, {args.hsv_s}, {args.hsv_v}); zero: {', '.join(f'{k}={getattr(args, k)}' for k in ZERO_ARGS)}, degrees={args.degrees}")
         assert_live_augmentation(dataset, state.policy)
         say(f"augmentation: Albumentations on every sample: {effective_albumentations(dataset)}")
-        say(f"augmentation: infrared_only block attached to the train dataset, applied per LWIR source image"
+        say("augmentation: infrared_only block attached to the train dataset, applied per LWIR source image"
             + (f" ({state.ir_images} LWIR images in the epoch list)" if state.ir_images is not None else ""))
         entries = len(dataset)
         say(f"train dataset: {entries} entries per epoch, val dataset: {len(trainer.test_loader.dataset)} images")
