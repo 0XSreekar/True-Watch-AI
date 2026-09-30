@@ -8,12 +8,15 @@
  * Errors carry paths and rule names only, never the offending values, so a rejected payload
  * cannot be reflected back to a caller or written to a log.
  */
-const make = (check) => {
-  const node = { check, isOptional: false, isNullable: false };
-  node.optional = () => ({ ...node, isOptional: true });
-  node.nullable = () => ({ ...node, isNullable: true });
-  return node;
-};
+// Each modifier returns a new node built from the node it is called on, so chaining keeps every flag:
+// `.nullable().optional()` is both nullable and optional.
+const withModifiers = (node) => ({
+  ...node,
+  optional: () => withModifiers({ ...node, isOptional: true }),
+  nullable: () => withModifiers({ ...node, isNullable: true }),
+});
+
+const make = (check) => withModifiers({ check, isOptional: false, isNullable: false });
 
 export const str = ({ min = 0, max = 4096, pattern, oneOf } = {}) =>
   make((v, path, errors) => {

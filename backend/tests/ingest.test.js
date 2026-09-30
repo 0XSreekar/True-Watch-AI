@@ -380,3 +380,19 @@ describe('mapEventToAlert', () => {
     assert.deepEqual(mapEventToAlert(event, camera), mapEventToAlert(event, camera));
   });
 });
+
+describe('ingest validator: chained modifiers', () => {
+  it('accepts the edge template reason patch with a null model and latency (nullable + optional)', async () => {
+    const { validateUpdate } = await import('../src/services/ingest.schema.js');
+    const body = {
+      schema: 'truewatch.update.v1',
+      event_id: randomUUID(),
+      explanation: { text: 'Person moving near RXL-01 at 07:59, flagged by both detection channels.', source: 'template', model: null, latency_ms: null },
+    };
+    assert.deepEqual(validateUpdate(body), { ok: true });
+    const omitted = { ...body, explanation: { text: body.explanation.text, source: 'template' } };
+    assert.equal(validateUpdate(omitted).ok, true);
+    const wrongType = { ...body, explanation: { ...body.explanation, latency_ms: 'slow' } };
+    assert.equal(validateUpdate(wrongType).ok, false);
+  });
+});
