@@ -69,6 +69,7 @@ class ServiceStats:
     anpr: dict | None = None                                # anpr.stage.PlateStage.stats()
     face: dict | None = None                                # face.stage.FaceStage.stats()
     explain: dict | None = None                             # pipeline.explain.EventExplainer.stats()
+    evidence: dict | None = None                            # pipeline.sealing.ClipSealer.stats()
     last_timings_ms: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -86,6 +87,7 @@ class ServiceStats:
             "anpr": self.anpr,
             "face": self.face,
             "explain": self.explain,
+            "evidence": self.evidence,
             "last_timings_ms": {k: round(v, 2) for k, v in self.last_timings_ms.items()},
         }
 
@@ -113,6 +115,7 @@ class CameraService:
         explainer: EventExplainer | None = None,
         camera_name: str = "",
         camera_sector: str = "",
+        sealer=None,
     ) -> None:
         kwargs = dict(camera_id=camera_id, stride=max(1, int(stride)), calibration_dir=Path(calibration_dir),
                       source=source)
@@ -145,6 +148,7 @@ class CameraService:
         self.camera_sector = camera_sector
         self._explain_ctx: dict[str, tuple] = {}
         self.fired_rules: dict[int, list] = {}              # track_id -> rules.engine.FiredRule objects
+        self.sealer = sealer                                # pipeline.sealing.ClipSealer or None
 
     def close(self) -> None:
         self.pipeline.close()   # the explainer outlives one run: its owner (app.py) closes it
@@ -278,6 +282,14 @@ class CameraService:
         for event in events:
             self.sink.emit(event)
         self.stats.events_emitted += len(events)
+        if self.sealer is not None:
+            # after the event is on its way: the clip up to this frame is hashed as it is written, chained,
+            # and its block follows the event as an update (slide 3, step 6)
+            evidence = self.sealer.seal()          # one window per frame, shared by that frame's events
+            if evidence is not None:
+                for event in events:
+                    self.sink.emit_evidence(event, evidence)
+            self.stats.evidence = self.sealer.stats()
         if self.keyframes is not None:
             for event in events:
                 self.keyframes.submit(event, f.image)
@@ -324,6 +336,8 @@ class CameraService:
         f = self.to_frame(frame)
         if self._epoch_offset is None:
             self._epoch_offset = f.captured_at - f.timestamp
+        if self.sealer is not None:
+            self.sealer.add(f.image, f.captured_at)
         result = self.pipeline.process(f)
         self.stats.frames += 1
         self.stats.detector_passes += int(result.detections is not None)

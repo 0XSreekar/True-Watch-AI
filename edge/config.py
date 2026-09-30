@@ -81,7 +81,9 @@ class Config:
     replay_file_path: Path = field(
         default_factory=lambda: _path("REPLAY_FILE_PATH", "./var/samples/sample.mp4")
     )
-    target_fps: float = field(default_factory=lambda: _float("TARGET_FPS", 8.0))
+    # 25: keep every frame of a 20-25 fps camera. Fusion's temporal gate counts consecutive detector
+    # frames, so decimating a 20 fps clip to 10 fps or below left the sample clips with no alerts at all.
+    target_fps: float = field(default_factory=lambda: _float("TARGET_FPS", 25.0))
     camera_id: str = field(default_factory=lambda: _str("CAMERA_ID", "RXL-01"))
     post_id: str = field(default_factory=lambda: _str("POST_ID", "RXL"))
 
@@ -141,6 +143,11 @@ class Config:
 
     # --- evidence (Phase 9) ---
     evidence_dir: Path = field(default_factory=lambda: _path("EVIDENCE_DIR", "./var/evidence"))
+    # Sector-HQ mirror of the signed daily roots (a second local directory; never a network path).
+    evidence_hq_dir: Path = field(default_factory=lambda: _path("EVIDENCE_HQ_DIR", "./var/evidence-hq"))
+    # Seal a clip for every emitted event: the last EVIDENCE_CLIP_SECONDS of frames, hashed as written.
+    evidence_enabled: bool = field(default_factory=lambda: _bool("EVIDENCE_ENABLED", True))
+    evidence_clip_seconds: float = field(default_factory=lambda: _float("EVIDENCE_CLIP_SECONDS", 4.0))
 
     # --- semantic footage search (Phase 6) ---
     # Off by default: mounting the route, and loading SigLIP, only happens when

@@ -14,9 +14,16 @@ export const merkleRoot = (leaves) => {
   return level[0];
 };
 
-export const createEvidenceService = ({ repos, verifier, audit }) => ({
-  /** Frozen shape: [{ n, hash, camera, time }], the latest window in ascending order. */
-  getChain: () => repos.evidence.chain(CHAIN_WINDOW),
+export const createEvidenceService = ({ repos, verifier, audit, edge }) => ({
+  /**
+   * Frozen shape: [{ n, hash, camera, time }], the latest window in ascending order. The edge chain
+   * (sealed at capture) is the source of truth when the edge answers; the local table is the fallback
+   * so the console still shows a chain with no edge running.
+   */
+  async getChain() {
+    const remote = edge?.enabled ? await edge.evidenceChain(CHAIN_WINDOW) : null;
+    return remote && remote.length ? remote : repos.evidence.chain(CHAIN_WINDOW);
+  },
 
   /** Frozen shape: { intact, verified, total, blocks:[{ n, ok }] }. Every verification is audited. */
   async verifyChain(actor) {

@@ -3,7 +3,7 @@ import { badRequest } from '../utils/httpError.js';
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export const createEvidenceController = (evidence) => ({
-  chain: (_req, res) => res.json({ data: evidence.getChain() }),
+  chain: async (_req, res) => res.json({ data: await evidence.getChain() }),
 
   verify: async (req, res) => res.json({ data: await evidence.verifyChain(req.user ?? null) }),
 

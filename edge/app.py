@@ -52,6 +52,7 @@ class PipelineState:
         self.sink = None                      # pipeline.events.EventSink, kept across restarts
         self.explainer = None                 # pipeline.explain.EventExplainer, kept across restarts
         self.keyframes = None                 # search.incremental.KeyframeIndexer (SEARCH_ENABLED)
+        self.evidence = None                  # evidence.EvidenceStore (EVIDENCE_ENABLED), kept across restarts
 
     @property
     def running(self) -> bool:
@@ -83,7 +84,8 @@ class PipelineState:
         log.info("ingest starting: source=%s mode=%s", source, cfg.source_label)
         service = None
         try:
-            service = self.service = build_service(cfg, self.detector, self.sink, self.explainer, self.keyframes)
+            service = self.service = build_service(cfg, self.detector, self.sink, self.explainer, self.keyframes,
+                                                         evidence=self.evidence)
             for frame in frames(
                 source,
                 is_rtsp=is_rtsp,
@@ -122,7 +124,7 @@ class PipelineState:
         }
 
 
-def build_service(cfg, detector, sink, explainer=None, keyframes=None):
+def build_service(cfg, detector, sink, explainer=None, keyframes=None, evidence=None):
     """The per-camera detection loop: the same Pipeline pipeline/demo.py drives, fed by ingest.
 
     Imported here, not at module import time, so `import app` stays light (no scipy/onnxruntime
@@ -161,7 +163,16 @@ def build_service(cfg, detector, sink, explainer=None, keyframes=None):
         explainer=explainer,
         camera_name=cfg.camera_name,
         camera_sector=cfg.camera_sector,
+        sealer=_sealer(cfg, evidence),
     )
+
+
+def _sealer(cfg, evidence):
+    if evidence is None:
+        return None
+    from pipeline.sealing import ClipSealer
+
+    return ClipSealer(evidence, cfg.camera_id, clip_seconds=cfg.evidence_clip_seconds)
 
 
 state = PipelineState()
@@ -197,6 +208,11 @@ async def lifespan(app: FastAPI):
                     "EDGE_DELIVERY_ENABLED is false" if not cfg.delivery_enabled else "TRUEWATCH_INGEST_KEY is not set")
     state.sink = EventSink(log_path=Path(cfg.events_log_path) if cfg.events_log_path else None, delivery=delivery)
     state.explainer = build_explainer(cfg)
+    if cfg.evidence_enabled:
+        from evidence import EvidenceStore
+
+        # opening the store resumes the chain after an unclean stop and logs the gap (slide 4)
+        state.evidence = EvidenceStore(cfg.evidence_dir, hq_dir=cfg.evidence_hq_dir)
     feeds = None
     if cfg.search_enabled:
         from search.incremental import build_search_feeds
@@ -218,6 +234,8 @@ async def lifespan(app: FastAPI):
         feeds[1].close()
     if state.sink is not None:
         state.sink.close()
+    if state.evidence is not None:
+        state.evidence.close()
 
 
 app = FastAPI(
@@ -293,6 +311,23 @@ def pipeline_events(limit: int = 50) -> dict:
     """
     events = state.sink.recent(limit) if state.sink is not None else []
     return {"count": len(events), "total": state.sink.total if state.sink is not None else 0, "events": events}
+
+
+@app.get("/evidence/chain")
+def evidence_chain(limit: int = 5) -> list[dict]:
+    """The tail of this post's hash chain in the FROZEN `GET /api/evidence/chain` shape (+ full_hash)."""
+    from evidence import chain_view
+
+    return chain_view(app.state.config.evidence_dir, limit=max(1, min(int(limit), 500)))
+
+
+@app.post("/evidence/verify")
+def evidence_verify() -> dict:
+    """Recompute clips, blocks, links, daily roots and signatures: FROZEN `{intact, verified, total, blocks}`."""
+    from evidence import verify_view
+
+    cfg = app.state.config
+    return verify_view(cfg.evidence_dir, hq_dir=cfg.evidence_hq_dir)
 
 
 class SearchRequest(BaseModel):

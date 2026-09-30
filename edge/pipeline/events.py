@@ -381,6 +381,19 @@ class EventSink:
             self.delivery.enqueue(patch)
         return patch
 
+    def emit_evidence(self, event: dict, evidence: dict) -> dict:
+        """Attach the sealed clip's chain block to a created event (truewatch.update.v1 `evidence`)."""
+        update = {"schema": UPDATE_SCHEMA, "event_id": event["event_id"], "evidence": dict(evidence)}
+        with self._lock:
+            for i in range(len(self._events) - 1, -1, -1):
+                if self._events[i].get("event_id") == event["event_id"]:
+                    self._events[i] = {**self._events[i], "evidence": dict(evidence)}
+                    break
+            self._append_log(update)
+        if self.delivery is not None:
+            self.delivery.enqueue(update)
+        return update
+
     def recent(self, limit: int = 50) -> list[dict]:
         with self._lock:
             return list(self._events)[-max(0, int(limit)):]

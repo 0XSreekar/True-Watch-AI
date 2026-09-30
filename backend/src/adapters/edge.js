@@ -66,6 +66,20 @@ export const createEdgeClient = ({ baseUrl, timeoutMs = 2500, searchTimeoutMs = 
       return isVerifyResult(result) ? result : null;
     },
 
+    /**
+     * The edge's own hash chain (the authoritative one: clips are sealed there at capture), in the
+     * frozen `{ n, hash, camera, time }` shape. Null when the edge is absent or answers off-contract.
+     */
+    async evidenceChain(limit) {
+      const result = await call('GET', `/evidence/chain?limit=${Number(limit) || 20}`, null, timeoutMs);
+      const ok =
+        Array.isArray(result) &&
+        result.every(
+          (b) => b && Number.isInteger(b.n) && typeof b.hash === 'string' && typeof b.camera === 'string' && typeof b.time === 'string',
+        );
+      return ok ? result.map(({ n, hash, camera, time }) => ({ n, hash, camera, time })) : null;
+    },
+
     /** Semantic footage search on the edge. Null when unavailable or off-contract. */
     async searchFootage(query) {
       const result = await call('POST', '/api/search', { query }, searchTimeoutMs);

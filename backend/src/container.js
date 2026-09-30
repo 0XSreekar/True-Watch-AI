@@ -49,7 +49,7 @@ export const createContainer = (config, { log = () => {} } = {}) => {
     ingest: createIngestService({ repos, bus, transaction, config }),
     alerts: createAlertsService({ repos, bus, edge, audit, transaction, config }),
     cameras: createCamerasService({ repos, audit }),
-    evidence: createEvidenceService({ repos, verifier, audit }),
+    evidence: createEvidenceService({ repos, verifier, audit, edge }),
     auth: createAuthService({ repos, config, audit }),
     faces: createFacesService({ repos, audit }),
     search: createSearchService({ repos, edge }),
