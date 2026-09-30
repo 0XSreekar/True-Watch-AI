@@ -32,8 +32,11 @@ scipy
 # detector model). CPU-only, free, Apache-2.0. paddlepaddle is the runtime
 # paddleocr needs to run; see edge/README.md for why this is the pretrained-
 # serving path here instead of an ONNX export.
-paddlepaddle
-paddleocr
+# Pinned: an unpinned resolve can fall back to paddleocr 2.x, which lacks TextRecognition and
+# installs a top-level `tools` package that shadows edge/tools. 3.7.0 + paddlepaddle 3.3.1 is the
+# set the ANPR metrics were measured with (requirements.lock pins everything).
+paddlepaddle==3.3.1
+paddleocr==3.7.0
 # cryptography.fernet seals the unblurred face crop at rest (edge/face/privacy.py);
 # its Ed25519 signs the daily evidence root (edge/evidence/signer.py, Phase 7).
 cryptography
