@@ -313,6 +313,33 @@ def pipeline_events(limit: int = 50) -> dict:
     return {"count": len(events), "total": state.sink.total if state.sink is not None else 0, "events": events}
 
 
+class FeedbackRequest(BaseModel):
+    """What the backend posts when an operator acts on or dismisses an alert."""
+
+    action: str
+    alert_id: str | None = None
+    event_id: str | None = None
+    camera_id: str | None = None
+    track_id: int | str | None = None
+    origin: str | None = None
+
+
+@app.post("/pipeline/feedback")
+def pipeline_feedback(body: FeedbackRequest) -> dict:
+    """A dismissal updates this camera's baseline; any other action is acknowledged and ignored."""
+    service = state.service
+    if body.action != "dismiss" or service is None or body.track_id is None:
+        return {"applied": False, "rules": []}
+    if body.camera_id and body.camera_id != service.camera_id:
+        return {"applied": False, "rules": []}
+    try:
+        track_id = int(body.track_id)
+    except (TypeError, ValueError):
+        return {"applied": False, "rules": []}
+    rules = service.on_dismissal(track_id)
+    return {"applied": bool(rules), "rules": rules}
+
+
 @app.get("/evidence/chain")
 def evidence_chain(limit: int = 5) -> list[dict]:
     """The tail of this post's hash chain in the FROZEN `GET /api/evidence/chain` shape (+ full_hash)."""

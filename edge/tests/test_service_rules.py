@@ -135,3 +135,31 @@ def test_a_1080p_calibration_on_a_640x512_stream_falls_back_to_pixels_and_no_fal
                          residual=blind.homography.residual, frame_size=(320, 256))  # mislabelled as live-size
     svc2, _, _ = run_service(tmp_path, replace(blind, homography=blind_h), n=130)
     assert "loitering" in svc2.stats.rule_fires
+
+
+def test_dismissal_through_the_feedback_route_updates_the_baseline_and_survives_relearn(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app as edge_app
+    from rules import baseline as baseline_mod
+
+    svc, _, _ = run_service(tmp_path, CameraRuleConfig.from_dict(fence_config()))
+    track_id = next(t for t, rules in svc.fired_by_track.items() if "fence crossed" in rules)
+    calls = []
+    real = baseline_mod.update_on_dismissal
+    monkeypatch.setattr(baseline_mod, "update_on_dismissal",
+                        lambda b, t, rule_name: calls.append(rule_name) or real(b, t, rule_name=rule_name))
+    monkeypatch.setattr(edge_app.state, "service", svc)
+    client = TestClient(edge_app.app)          # no lifespan: only the route under test runs
+    assert client.post("/pipeline/feedback", json={"action": "act", "track_id": track_id}).json()["applied"] is False
+    assert client.post("/pipeline/feedback", json={"action": "dismiss", "camera_id": "OTHER",
+                                                   "track_id": track_id}).json()["applied"] is False
+    body = client.post("/pipeline/feedback", json={"action": "dismiss", "camera_id": "CAM-T",
+                                                   "track_id": track_id, "alert_id": "A1", "origin": "edge"}).json()
+    assert body == {"applied": True, "rules": ["fence crossed"]}
+    assert calls == ["fence crossed"]
+    svc._baseline_fixed = False                 # force the periodic relearn and check the dismissal is re-applied
+    svc.stats.frames = 0
+    monkeypatch.setattr("pipeline.service.BASELINE_MIN_TRACKS", 1)
+    svc._learn_baseline([])
+    assert calls == ["fence crossed", "fence crossed"]

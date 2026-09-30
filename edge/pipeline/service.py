@@ -149,6 +149,7 @@ class CameraService:
         self._explain_ctx: dict[str, tuple] = {}
         self.fired_rules: dict[int, list] = {}              # track_id -> rules.engine.FiredRule objects
         self.sealer = sealer                                # pipeline.sealing.ClipSealer or None
+        self._dismissals: list[tuple[RuleTrack, str]] = []  # operator dismissals, re-applied after a relearn
 
     def close(self) -> None:
         self.pipeline.close()   # the explainer outlives one run: its owner (app.py) closes it
@@ -211,6 +212,25 @@ class CameraService:
         if (not self._baseline_fixed and self.stats.frames % BASELINE_EVERY_FRAMES == 0
                 and len(self._seen_tracks) >= BASELINE_MIN_TRACKS):
             self.baseline = baseline_mod.learn(self.camera_id, list(self._seen_tracks.values()))
+            for track, rule in self._dismissals:     # a relearn must not forget what the operator said
+                self.baseline = baseline_mod.update_on_dismissal(self.baseline, track, rule_name=rule)
+
+    def on_dismissal(self, track_id) -> list[str]:
+        """Slide 4: 'the operator dismisses one and that camera's baseline updates'.
+
+        Every rule that fired on the track is released from the throttle and folded into the baseline;
+        the dismissal is remembered so the periodic relearn keeps it. Returns the rules applied.
+        """
+        track = self._seen_tracks.get(track_id)
+        applied = []
+        for rule in self.fired_by_track.get(track_id, ()):
+            self.throttle.dismiss(self.camera_id, track_id, rule)
+            if track is not None:
+                self.baseline = baseline_mod.update_on_dismissal(self.baseline, track, rule_name=rule)
+                self._dismissals.append((track, rule))
+                self._dismissals = self._dismissals[-BASELINE_MAX_TRACKS:]
+            applied.append(rule)
+        return applied
 
     def _baseline_block(self) -> dict | None:
         b = self.baseline
