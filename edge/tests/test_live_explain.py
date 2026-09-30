@@ -93,15 +93,16 @@ def test_events_are_emitted_with_a_reason_before_the_model_finishes(tmp_path):
     # on the wire (the JSON Lines log carries what delivery carries): created first, its patch after
     lines = [json.loads(x) for x in (tmp_path / "events.jsonl").read_text().splitlines()]
     seen = set()
+    updates = 0
     for msg in lines:
-        if msg.get("type") == "reason_patch":
+        if msg.get("schema") == "truewatch.update.v1":
+            updates += 1
             assert msg["event_id"] in seen, "a patch was sent before its created event"
-            assert set(msg) == {"schema", "type", "event_id", "post_id", "camera_id", "captured_at", "stage",
-                                "explanation"}
-            assert msg["stage"] == "provisional" and msg["explanation"]["source"] == "vlm"
+            assert set(msg) == {"schema", "event_id", "explanation"}
+            assert msg["explanation"]["source"] == "vlm"
         else:
             seen.add(msg["event_id"])
-    assert sum(1 for m in lines if m.get("type") == "reason_patch") == len(events)
+    assert updates == len(events)
     assert svc.stats.explain["submitted"] == len(events)
 
 

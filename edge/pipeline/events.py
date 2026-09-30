@@ -9,10 +9,11 @@ them to a JSON Lines file, and, when a `BackendDelivery` is attached, hands each
 sender that POSTs it to the backend (section 4.1 of the architecture document): the pipeline thread
 only ever appends to a bounded outbox and never waits on the network.
 
-A created event carries the rule-string `explanation` (source 'template') from the first instant, so the
-alert's reason is never empty. When the vision-language model later produces a sentence it arrives as a
-REASON PATCH for the same `event_id` (`build_reason_patch`): additive to the v1 contract, it changes
-nothing but the `explanation` block.
+Locally, every event carries the rule-string `explanation` (source 'template') from the first instant, so
+the alert's reason is never empty. On the wire the backend's validator requires `explanation` to be null
+while an event is provisional, so the created event is sent with `explanation: null` and the rule
+sentence follows at once as a `truewatch.update.v1` to /api/ingest/update, exactly like the vision-language
+model's sentence does later (`build_reason_patch`): same `event_id`, only the `explanation` block.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from typing import Iterable, Sequence
 from pipeline.types import FusedEvent
 
 SCHEMA = "truewatch.event.v1"
-PATCH_TYPE = "reason_patch"
+UPDATE_SCHEMA = "truewatch.update.v1"
 
 log = logging.getLogger("truewatch.edge.events")
 
@@ -107,28 +108,19 @@ def build_event(
 
 
 def build_reason_patch(event: dict, explanation: dict) -> dict:
-    """The additive follow-up message that replaces a created event's reason.
+    """The `truewatch.update.v1` that replaces a created event's reason (POST /api/ingest/update).
 
-    Same `event_id` as the created event, the identifying fields the backend needs to route it, and
-    nothing but the new `explanation` block; `"type": "reason_patch"` is what distinguishes it from a
-    created event. It is idempotent: applying it twice leaves the same reason.
+    Same `event_id` as the created event and nothing but the new `explanation` block. Idempotent:
+    applying it twice leaves the same reason.
     """
-    return {
-        "schema": SCHEMA,
-        "type": PATCH_TYPE,
-        "event_id": event["event_id"],
-        "post_id": event["post_id"],
-        "camera_id": event["camera_id"],
-        "captured_at": event["captured_at"],
-        "stage": event["stage"],
-        "explanation": dict(explanation),
-    }
+    return {"schema": UPDATE_SCHEMA, "event_id": event["event_id"], "explanation": dict(explanation)}
 
 
 # ------------------------------------------------------------------------------------------ delivery
 
 
 INGEST_PATH = "/api/ingest/event"
+UPDATE_PATH = "/api/ingest/update"
 KEY_HEADER = "X-Truewatch-Ingest-Key"
 TIMESTAMP_HEADER = "X-Truewatch-Timestamp"
 NONCE_HEADER = "X-Truewatch-Nonce"
@@ -199,6 +191,7 @@ class BackendDelivery:
         if not ingest_key:
             raise ValueError("an ingest key is required to deliver events")
         self.url = base_url.rstrip("/") + INGEST_PATH
+        self.update_url = base_url.rstrip("/") + UPDATE_PATH
         self._key = ingest_key
         self.timeout_s = float(timeout_s)
         self.max_attempts = max(1, int(max_attempts))
@@ -206,7 +199,7 @@ class BackendDelivery:
         self.backoff_cap_s = max(self.backoff_s, float(backoff_cap_s))
         self.outbox_max = max(1, int(outbox_max))
         self._post = post
-        self._outbox: deque[tuple[str, str, bytes]] = deque()   # (kind, event_id, body)
+        self._outbox: deque[tuple[str, str, bytes]] = deque()   # (kind, event_id, body); kind event|update
         self._cv = threading.Condition()
         self._stop = threading.Event()
         self._busy = False
@@ -222,7 +215,7 @@ class BackendDelivery:
 
     def enqueue(self, message: dict) -> None:
         body = json.dumps(message, ensure_ascii=False).encode("utf-8")
-        kind = "patch" if message.get("type") == PATCH_TYPE else "event"
+        kind = "update" if message.get("schema") == UPDATE_SCHEMA else "event"
         with self._cv:
             if len(self._outbox) >= self.outbox_max:
                 old_kind, old_id, _ = self._outbox.popleft()
@@ -293,14 +286,15 @@ class BackendDelivery:
                     self._cv.notify_all()
 
     def _deliver(self, kind: str, event_id: str, body: bytes) -> None:
-        if kind == "patch" and event_id in self._lost_set:
+        if kind == "update" and event_id in self._lost_set:
             self.stats.patches_skipped += 1
             return
         delay = self.backoff_s
         for attempt in range(1, self.max_attempts + 1):
             status = None
             try:
-                status = self._post(self.url, self._headers(), body, self.timeout_s)
+                status = self._post(self.update_url if kind == "update" else self.url, self._headers(), body,
+                                    self.timeout_s)
             except Exception as exc:  # noqa: BLE001 - transport errors of any kind are retryable
                 self.stats.last_error = f"{type(exc).__name__}: {exc}"
             if status is not None:
@@ -360,7 +354,13 @@ class EventSink:
             self.total += 1
             self._append_log(event)
         if self.delivery is not None:
-            self.delivery.enqueue(event)
+            explanation = event.get("explanation")
+            if explanation is not None and event.get("stage") == "provisional":
+                # the backend requires null here; the rule sentence follows as an update right behind it
+                self.delivery.enqueue({**event, "explanation": None})
+                self.delivery.enqueue(build_reason_patch(event, explanation))
+            else:
+                self.delivery.enqueue(event)
 
     def emit_patch(self, event: dict, explanation: dict) -> dict:
         """Replace a created event's reason: update the ring copy (if it is still there), log it, deliver it.

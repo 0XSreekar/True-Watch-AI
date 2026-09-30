@@ -17,6 +17,14 @@ from vlm.judge import VlmUnavailable  # noqa: E402
 from vlm.runtime import PINNED_REVISION, MoondreamRuntime  # noqa: E402
 
 
+def _tf():
+    """The transformers module the runtime will import from, looked up now: another test module may have
+    replaced the one imported when this file was collected."""
+    import importlib
+
+    return importlib.import_module("transformers")
+
+
 class FakeModel(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -40,7 +48,7 @@ def fake_auto(seen: dict):
 
 def test_cpu_load_requests_the_pinned_revision_hides_mps_only_during_the_load_and_restores_it(monkeypatch):
     seen: dict = {}
-    monkeypatch.setattr(transformers, "AutoModelForCausalLM", fake_auto(seen))
+    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", fake_auto(seen))
     before = torch.backends.mps.is_available
     rt = MoondreamRuntime(device="cpu", attempt_quantization=False)
     rt._ensure_loaded()
@@ -52,7 +60,7 @@ def test_cpu_load_requests_the_pinned_revision_hides_mps_only_during_the_load_an
 
 
 def test_auto_picks_mps_when_available_else_cpu(monkeypatch):
-    monkeypatch.setattr(transformers, "AutoModelForCausalLM", fake_auto({}))
+    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", fake_auto({}))
     monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
     rt = MoondreamRuntime(device="auto", attempt_quantization=False)
     monkeypatch.setattr(FakeModel, "to", lambda self, *a, **k: self)     # no real MPS tensors in a unit test
@@ -65,7 +73,7 @@ def test_auto_picks_mps_when_available_else_cpu(monkeypatch):
 
 
 def test_asking_for_mps_without_it_is_a_clean_unavailable_not_a_crash(monkeypatch):
-    monkeypatch.setattr(transformers, "AutoModelForCausalLM", fake_auto({}))
+    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", fake_auto({}))
     monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
     rt = MoondreamRuntime(device="mps")
     with pytest.raises(VlmUnavailable):
@@ -81,7 +89,7 @@ def test_env_selects_the_device_and_junk_is_refused(monkeypatch):
 
 
 def test_describe_passes_the_frame_and_token_bound_to_the_model(monkeypatch):
-    monkeypatch.setattr(transformers, "AutoModelForCausalLM", fake_auto({}))
+    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", fake_auto({}))
     rt = MoondreamRuntime(device="cpu", attempt_quantization=False)
     out = rt.describe([np.zeros((30, 40, 3), np.uint8)], "prompt", max_tokens=17, timeout_s=5)
     assert out == "seen 40x30 with 17 tokens"
@@ -93,7 +101,7 @@ def test_a_load_failure_becomes_unavailable_and_is_remembered(monkeypatch):
         def from_pretrained(*a, **k):
             raise OSError("weights not on disk and the network is off")
 
-    monkeypatch.setattr(transformers, "AutoModelForCausalLM", Boom)
+    monkeypatch.setattr(_tf(), "AutoModelForCausalLM", Boom)
     rt = MoondreamRuntime(device="cpu")
     for _ in range(2):
         with pytest.raises(VlmUnavailable):

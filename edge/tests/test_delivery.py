@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from pipeline.events import (INGEST_PATH, KEY_HEADER, NONCE_HEADER, TIMESTAMP_HEADER, BackendDelivery, EventSink,
+from pipeline.events import (INGEST_PATH, UPDATE_PATH, KEY_HEADER, NONCE_HEADER, TIMESTAMP_HEADER, BackendDelivery, EventSink,
                              build_reason_patch)
 
 KEY = "0f" * 32
@@ -84,26 +84,29 @@ def free_port_url() -> str:
 # ------------------------------------------------------------------ the wire format
 
 
-def test_created_event_and_reason_patch_reach_the_backend_in_order_with_the_documented_headers(backend):
+def test_created_event_rule_sentence_and_reason_patch_reach_the_backend_in_order(backend):
     sink = EventSink(delivery=fast(backend.url))
     ev = event()
     sink.emit(ev)
     patch = sink.emit_patch(ev, {"text": "Person crossed the fence at 02:41.", "source": "vlm",
                                  "model": "moondream2", "latency_ms": 2840})
     assert sink.delivery.flush(5)
-    created, patched = backend.requests
-    for req in (created, patched):
-        assert req["path"] == INGEST_PATH
+    created, template, patched = backend.requests
+    assert [r["path"] for r in backend.requests] == [INGEST_PATH, UPDATE_PATH, UPDATE_PATH]
+    for req in backend.requests:
         h = req["headers"]
         assert h["content-type"] == "application/json"
         assert h[KEY_HEADER.lower()] == KEY
         assert h[TIMESTAMP_HEADER.lower()].endswith("Z") and h[NONCE_HEADER.lower()]
-    assert created["headers"][NONCE_HEADER.lower()] != patched["headers"][NONCE_HEADER.lower()]
-    assert created["body"] == ev
+    assert len({r["headers"][NONCE_HEADER.lower()] for r in backend.requests}) == 3
+    # the backend's validator wants a null explanation while provisional; the sentence follows as an update
+    assert created["body"] == {**ev, "explanation": None}
+    assert template["body"] == {"schema": "truewatch.update.v1", "event_id": ev["event_id"],
+                                "explanation": ev["explanation"]}
     assert patched["body"] == patch == build_reason_patch(ev, patch["explanation"])
-    assert patched["body"]["event_id"] == ev["event_id"] and patched["body"]["type"] == "reason_patch"
+    assert set(patched["body"]) == {"schema", "event_id", "explanation"}
     assert patched["body"]["explanation"]["source"] == "vlm"
-    assert sink.delivery.stats.delivered == 2 and sink.delivery.stats.retries == 0
+    assert sink.delivery.stats.delivered == 3 and sink.delivery.stats.retries == 0
 
 
 def test_the_ring_copy_is_patched_but_a_reader_holding_the_old_dict_is_not_disturbed():
@@ -162,7 +165,7 @@ def test_a_permanent_refusal_is_dropped_without_retry_and_its_patch_is_skipped(s
         sink.emit_patch(ev, {"text": "x.", "source": "vlm", "model": "m", "latency_ms": 1})
         assert sink.delivery.flush(5)
         assert len(b.requests) == 1
-        assert sink.delivery.stats.rejected == 1 and sink.delivery.stats.patches_skipped == 1
+        assert sink.delivery.stats.rejected == 1 and sink.delivery.stats.patches_skipped == 2
     finally:
         b.close()
 
@@ -183,7 +186,7 @@ def test_backend_down_drops_cleanly_after_bounded_retries_and_never_blocks_the_p
     st = sink.delivery.stats
     assert st.delivered == 0 and st.dropped_exhausted == 50
     assert st.retries == 50 * 2                                       # max_attempts=3 -> 2 retries per event
-    assert st.patches_skipped == 1                                    # its created event was never delivered
+    assert st.patches_skipped == 51                                   # 50 rule-sentence updates + 1 patch: their created event was never delivered
     assert st.last_error
     sink.close()                                                       # and shutdown does not hang or raise
 
