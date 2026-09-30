@@ -29,8 +29,8 @@ in the field.
   is 0.845 against a 0.75 target: **MET**.
 - **Number plates.** Nepali plate exact-match on real photographs is 52.6% (57 plates, strict
   matching) against an 85% target: **NOT MET**.
-- **Deployment.** Not live yet. Hosting configuration and CI are in the repository; see
-  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- **Deployment.** Out of scope for this build: the three processes run locally (see Quick start
+  below). CI runs the tests and the repository hygiene checks.
 
 Detector figures: [training/results/METRICS.md](training/results/METRICS.md). Plate figures:
 [edge/anpr/results/ANPR_METRICS.md](edge/anpr/results/ANPR_METRICS.md).

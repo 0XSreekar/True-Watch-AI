@@ -1,5 +1,5 @@
 # Build, test and repository hygiene. Free runners, no secrets, no deploy step:
-# deploys are manual (docs/DEPLOYMENT.md). Every command below is also runnable locally.
+# nothing is deployed from here. Every command below is also runnable locally.
 name: ci
 
 on:
