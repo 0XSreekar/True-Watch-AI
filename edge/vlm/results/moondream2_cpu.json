@@ -1,0 +1,128 @@
+{
+  "label": "cpu",
+  "measured_at_utc": "2026-09-29T18:49:33+00:00",
+  "hardware": "Apple M5, 16 GB unified memory",
+  "machine": "Darwin arm64, Python 3.12.14",
+  "device": "cpu",
+  "library_versions": {
+    "torch": null,
+    "transformers": null,
+    "numpy": null,
+    "opencv-python": null,
+    "Pillow": null
+  },
+  "model_id": "vikhyatk/moondream2",
+  "model_revision": "5d6c926f44e26b07957b0dd315bbedcb4c17a5fe",
+  "frame_source": "clips: day.mp4, day_1080p.mp4, ir.mp4",
+  "frame_shape": "640x512",
+  "max_tokens": 80,
+  "timeout_s": 900.0,
+  "quantized": false,
+  "load_time_s": 6.09,
+  "warm_up_ok": true,
+  "n_samples": 6,
+  "n_timed": 6,
+  "n_failed": 0,
+  "p50_ms": 272844.5,
+  "p95_ms": 309886.8,
+  "min_ms": 240065.0,
+  "max_ms": 313980.0,
+  "mean_ms": 274813.2,
+  "accepted": 2,
+  "rejected": 4,
+  "rejection_rate": 0.667,
+  "samples": [
+    {
+      "event_index": 0,
+      "frame_index": 0,
+      "latency_ms": 284950,
+      "source": "template",
+      "violations": [
+        "invented_claim: halted",
+        "missing_time: event time 02:41 not stated"
+      ],
+      "text": "Truck moving north near Pillar 42 at 02:41, outside sanctioned hours (06:00–20:00), against the learnt flow on this route.",
+      "raw": "Truck stopped at Pillar 42, Raxaul sector, outside sanctioned hours (06:00–20:00), moving north against the learnt flow."
+    },
+    {
+      "event_index": 1,
+      "frame_index": 1,
+      "latency_ms": 313980,
+      "source": "vlm",
+      "violations": [],
+      "text": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s.",
+      "raw": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s."
+    },
+    {
+      "event_index": 2,
+      "frame_index": 2,
+      "latency_ms": 297607,
+      "source": "template",
+      "violations": [
+        "invented_name: Place",
+        "invented_name: Camera",
+        "invented_name: Time",
+        "invented_name: Rule"
+      ],
+      "text": "Person halted 42 s within 1.2 m near Culvert Approach at 23:07, seen on IR.",
+      "raw": "Object: person; Place: Culvert Approach, Galgalia sector; Camera: infrared; Time: 23:07 IST; Rule: halted 42 s within 1.2 m."
+    },
+    {
+      "event_index": 0,
+      "frame_index": 3,
+      "latency_ms": 240065,
+      "source": "template",
+      "violations": [
+        "missing_time: event time 02:41 not stated"
+      ],
+      "text": "Truck moving north near Pillar 42 at 02:41, outside sanctioned hours (06:00–20:00), against the learnt flow on this route.",
+      "raw": "Truck moving north near Pillar 42, Raxaul sector, outside sanctioned hours (06:00–20:00)."
+    },
+    {
+      "event_index": 1,
+      "frame_index": 4,
+      "latency_ms": 251538,
+      "source": "vlm",
+      "violations": [],
+      "text": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s.",
+      "raw": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s."
+    },
+    {
+      "event_index": 2,
+      "frame_index": 5,
+      "latency_ms": 260739,
+      "source": "template",
+      "violations": [
+        "invented_name: Place",
+        "invented_name: Camera",
+        "invented_name: Time",
+        "invented_name: Rule"
+      ],
+      "text": "Person halted 42 s within 1.2 m near Culvert Approach at 23:07, seen on IR.",
+      "raw": "Object: person; Place: Culvert Approach, Galgalia sector; Camera: infrared; Time: 23:07 IST; Rule: halted 42 s within 1.2 m."
+    }
+  ],
+  "sample_sentences": [
+    {
+      "text": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s.",
+      "raw_model_output": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s.",
+      "latency_ms": 313980,
+      "camera": "Panitanki — River Bank",
+      "rules_fired": [
+        "fence crossed",
+        "group formed"
+      ]
+    },
+    {
+      "text": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s.",
+      "raw_model_output": "Group of 6 people crossed the Channel fence in linebound near River Bank, Panitanki at 01:12 IST, held together for 48 s.",
+      "latency_ms": 251538,
+      "camera": "Panitanki — River Bank",
+      "rules_fired": [
+        "fence crossed",
+        "group formed"
+      ]
+    }
+  ],
+  "note": "MEASURED on the hardware named above, with this repository's code and the pinned model revision. The PDF's ~3 s is a Jetson-class target, not a measurement of this machine."
+}

@@ -265,8 +265,100 @@ of reviewing footage." How that reason gets there:
 - **The reason is never empty.** A rejected, timed-out, crashed, or
   unavailable model falls back to the rule-string sentence
   (`vlm/judge.py::fallback_reason`), which itself has three further fallback
-  levels below it (see that function's docstring). `vlm/tests/test_vlm_async.py`
-  kills, hangs and crashes the model and asserts the reason is never blank.
+  levels below it (see that function's docstring). `tests/test_vlm_async.py`
+  and `tests/test_live_explain.py` (the real service path) kill, hang, crash
+  and feed the model bad output and assert the reason is never blank.
+
+### Live wiring (pipeline/service.py, pipeline/explain.py)
+
+The order inside `CameraService.process` is the contract, and
+`tests/test_live_explain.py` asserts it on the real service:
+
+1. the frame is processed and fusion / the rules produce events;
+2. each event gets its reason: the rule sentence goes into
+   `event["explanation"]` with `source: "template"` (never empty, never the
+   model's);
+3. the events are emitted (`EventSink.emit`: ring, log file, delivery outbox);
+4. only then are each event's frame (a downscaled copy, `VLM_FRAME_MAX_SIDE`),
+   rule evidence and camera context queued (`EventExplainer.submit`: a queue
+   append that never blocks and never raises);
+5. a worker thread runs the model; if the sentence passes the guardrails,
+   `EventSink.emit_patch` replaces the reason for the same `event_id` (ring
+   copy, log file and a reason patch to the backend, see below). Rejection,
+   a timeout, an exception, a missing model or a dropped job all leave the
+   rule sentence in place and send nothing.
+
+**Drop policy.** At most `VLM_QUEUE_MAX` jobs wait (default 8, each one
+downscaled frame). When the queue is full the OLDEST waiting job is dropped
+and counted (`explain.dropped` in `GET /pipeline/status`); its event keeps its
+rule sentence, and the newest event, the one an operator is most likely
+looking at, is the one that gets explained. `VLM_COOLDOWN_S` (default 0) makes
+the model rest between jobs to cap how much compute it takes from the frame
+loop.
+
+**Enabling.** `VLM_ENABLED=auto` (default) loads Moondream 2 only if its
+pinned weights are already in the local Hugging Face cache, so a boot never
+starts a surprise 3.8 GB download and an air-gapped box never reaches out; it
+is always off under pytest. `VLM_ENABLED=1` loads it (downloading if needed),
+`VLM_ENABLED=0` never does. The model loads in a background thread; until it
+is ready, or if it never loads, every reason stays the rule sentence.
+`VLM_DEVICE=auto|cpu|mps` picks the device (auto uses Apple's MPS when torch
+reports it, otherwise CPU). Set `HF_HUB_OFFLINE=1` in a deployment: without
+it the loader sends HEAD requests to the Hugging Face hub even when the
+weights are cached.
+
+### MEASURED Moondream 2 latency on this hardware
+
+Measured with `python vlm/latency.py --clips <sample clips> --device <d>`
+(each run writes one JSON under `vlm/results/`, holding every sample). Real
+frames from the three sample clips (day, day 1080p, thermal), downscaled to
+768 px like the live service does, prompt and guardrails exactly as in
+production, `max_tokens` 80, model revision
+`5d6c926f44e26b07957b0dd315bbedcb4c17a5fe`, torch 2.14, transformers 5.17.
+These are numbers for THIS machine only, not for the deployment target.
+
+| Device | Hardware | n | p50 | p95 | Result file |
+|---|---|---|---|---|---|
+| **MPS** (Apple GPU) | Apple M5, 16 GB unified memory | 24 | **2.93 s** | **4.11 s** | `vlm/results/moondream2_mps.json` |
+| CPU (bf16) | Apple M5, 16 GB unified memory | 6 (about 4.5 min each, too slow for 20) | 272.8 s | 309.9 s | `vlm/results/moondream2_cpu.json` |
+
+- The checkpoint hard-codes bfloat16 in its image preprocessing, so it stays
+  bf16 on either device. On this CPU that is very slow; the MPS path is the
+  practical one on an Apple-silicon Mac, which is why `VLM_DEVICE=auto`
+  prefers it.
+- Dynamic int8 quantisation is NOT usable on this torch build (`NoQEngine`
+  from `quantized::linear_prepack`); the runtime logs it and runs bf16.
+- Guardrails accepted 7 of the 24 MPS sentences (29 %); the other 17 fell back
+  to the rule sentence (invented time, invented object, more than the facts
+  allow). That is the fallback doing its job with a 1.9B model, and the reason
+  was never empty. See the JSON for each rejection.
+- **The PDF's ~3 s is a Jetson-class target, not a measurement.** The MPS
+  p50 above happens to land near it on this Mac's GPU; nothing here says a
+  Jetson will. Re-run `vlm/latency.py` on the target before quoting a figure
+  for it.
+
+### End to end on a sample clip (measured, shared Mac)
+
+The service path (detector ONNX, motion, tracking, fusion, rules with a
+virtual fence, VLM on MPS, delivery to a local stub backend) over the sample
+clips, unpaced, other work running on the same machine so treat FPS as
+approximate:
+
+| Clip | VLM | FPS | Events (fusion + rule) | Reason patches |
+|---|---|---|---|---|
+| day 640x512, 435 frames | off | 32.0 | 9 (4 + 5) | 0 |
+| day 640x512 | MPS | 29.9 | 9 (4 + 5) | 0 (all 9 rejected by the guardrails, rule sentence kept) |
+| thermal 640x512 | off | 17.7 | 12 (7 + 5) | 0 |
+| thermal 640x512 | MPS | 7.7 to 9.7 | 12 (7 + 5) | 2 accepted (5.4 s and 31.2 s after their event, the second queued behind others) |
+
+A later re-run on the day clip after the wire change (VLM on MPS, 28.6 FPS, 7 events): 2 model sentences accepted, patched 5.1 s and 14.3 s after their event; 16 messages delivered (7 created, 7 rule-sentence updates, 2 model updates).
+
+Events per second of video: 0.41 (day), 0.55 (thermal). In every row all
+events reached the backend created (delivered 9/9 and 12/12) with the rule
+sentence at t=0; the model never delayed emission. Finding: while the model
+is busy on MPS it takes shared compute from the frame loop (thermal clip:
+17.7 to under 10 FPS), so on a shared-memory machine set `VLM_COOLDOWN_S` or
+accept the drop; nothing blocks, throughput just falls.
 
 **Model: [Moondream 2](https://huggingface.co/vikhyatk/moondream2)**
 (`vikhyatk/moondream2`), Apache-2.0, ~1.9B parameters, pinned to commit
@@ -280,14 +372,12 @@ full explanation.) **Local by default, CPU-only.** The model's own weights load 
 `bfloat16` (its shipped reduced-precision default); this service additionally
 attempts dynamic int8 quantisation of the linear layers at load time
 (`torch.ao.quantization.quantize_dynamic`) and reports on this machine
-whether that actually helped — see `vlm/LATENCY.md`, generated by
-`vlm/latency.py`, for the measured numbers and the honest answer to whether
-quantisation was usable at all.
+whether that actually helped (it was not usable on the measured machine, see
+the measured section above). The device is CPU or Apple MPS (`VLM_DEVICE`).
 
 **The PDF's ~3 s figure is a Jetson-class edge-device target, not a claim
-about a development laptop.** `vlm/LATENCY.md` records what local Moondream 2
-actually takes, end to end (`describe()` wall time), on the machine it was
-measured on — read that file before quoting any number, and re-run
+about a development laptop.** `vlm/results/*.json` record what local
+Moondream 2 actually takes on the machine each was measured on; re-run
 `python vlm/latency.py` on the target hardware before a demo that needs a
 real figure.
 
@@ -319,6 +409,71 @@ keep working. It is:
   (`TRUEWATCH_VLM_HOSTED_URL`, `TRUEWATCH_VLM_HOSTED_KEY`) — no default
   endpoint is baked in, so opting in without also configuring a real
   endpoint simply raises `VlmUnavailable`.
+
+## Delivery to the backend (pipeline/events.py)
+
+`EventSink` hands every created event and every reason patch to
+`BackendDelivery`, a background sender. Configuration: `BACKEND_BASE_URL`
+(alias `BACKEND_URL`), `TRUEWATCH_INGEST_KEY`, `EDGE_DELIVERY_ENABLED`
+(default true; without a key delivery is off and the service says so),
+`EDGE_DELIVERY_TIMEOUT_S` (3), `EDGE_DELIVERY_MAX_ATTEMPTS` (5),
+`EDGE_DELIVERY_OUTBOX_MAX` (1000).
+
+Wire format (ARCHITECTURE_V2 section 4.1, unchanged):
+
+```http
+POST {BACKEND_BASE_URL}/api/ingest/event
+Content-Type: application/json
+X-Truewatch-Ingest-Key: <TRUEWATCH_INGEST_KEY>
+X-Truewatch-Timestamp: <RFC3339 UTC, request creation time>
+X-Truewatch-Nonce: <uuid4, fresh on every attempt>
+```
+
+**Created event** = the section 4.2 `truewatch.event.v1` body, `stage:
+"provisional"`, with `explanation: null` on the wire (the backend's validator
+rejects anything else while provisional). Locally, in the ring, the log and
+`GET /pipeline/events`, the event carries the rule sentence,
+`{"text": "...", "source": "template", "model": null, "latency_ms": null}`,
+so the reason is never empty.
+
+**Reason updates** use the backend's `truewatch.update.v1`
+(`POST /api/ingest/update`, same headers, strict schema). Up to two are sent
+per event, in order behind the created event: at once the rule sentence
+(`source: "template"`), and later, only if the model's sentence passed the
+guardrails, the model's:
+
+```json
+{"schema": "truewatch.update.v1", "event_id": "<same uuid as the created event>",
+ "explanation": {"text": "...", "source": "vlm", "model": "moondream2", "latency_ms": 2840}}
+```
+
+Nothing but `schema`, `event_id` and `explanation`. Idempotent, and always
+after its created event (one ordered sender); an update whose created event
+was lost is skipped.
+
+Behaviour: the pipeline thread only appends to the outbox, which never blocks.
+A full outbox drops the oldest message (counted). Each message gets up to
+`MAX_ATTEMPTS` tries with exponential backoff (0.5 s doubling to 8 s) on a
+transport error or 408/425/429/5xx, each with a new nonce and the same
+`event_id` (the idempotency key). 2xx and 409 count as delivered (409 = the
+backend already has it); other 4xx are dropped at once and logged. Counters are in
+`GET /pipeline/status` under `delivery`. `tests/test_delivery.py` runs a real
+local HTTP server, including a dead port.
+
+## Face detection in the live loop (edge/face/stage.py)
+
+`FACE_ENABLED=true` runs YuNet on the head region of PERSON tracks whose box
+is at least `FACE_MIN_PERSON_HEIGHT_FRAC` (0.25) of the frame height, once
+per track with a bounded retry schedule, and stores a blurred crop (faces
+blurred) under `FACE_STORE_DIR`. The unblurred face is stored only sealed
+with `FACE_UNSEAL_KEY`; with no key only blurred crops are kept, never a clear
+one. Unsealing stays Supervisor-only with an audit row per attempt, and
+sealed crops are purged after 30 days (hourly job, audited). Nothing is added
+to the event contract. Measured cost: YuNet takes 1.4 ms on a 216x200 head
+crop and 2.7 ms on 400x300 (Apple M5, CPU), called a few times per track, so
+it does not hurt FPS; it is off by default because it stores personal data,
+not for speed. The sample clips contain no close-range faces (0 found), so
+detection quality was covered by unit tests with a stand-in detector.
 
 ## Semantic footage search (edge/search)
 
@@ -352,6 +507,15 @@ number's clothes. The fixed version still preserves ranking exactly (sigmoid
 is monotonic), but an unrelated query now legitimately scores low —
 `tests/test_search.py::test_unrelated_query_does_not_score_as_a_strong_match`
 is the regression test for this.
+
+**Keeping the index current (`search/incremental.py`).** With
+`SEARCH_ENABLED=true` the service embeds the frame of every fusion-agreed
+event (one clip per track, up to 3 keyframes) on a bounded background worker,
+never blocking the pipeline (a full queue drops the oldest), into the same
+in-memory index `/api/search` reads, and saves it to `SEARCH_INDEX_PATH`.
+Sealed clips written under `SEARCH_CLIPS_DIR` are picked up every minute
+through the backfill code. Measured on the sample clip: 9 events, 9 keyframes
+indexed, 0 errors, queries answered in the unchanged FootageSearch shape.
 
 Index: a plain numpy brute-force cosine scan (`search/index.py`), justified
 for a single post's archive (bounded well under 100k keyframes) over
