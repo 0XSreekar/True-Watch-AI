@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import {
   FALLBACK_ANALYTICS,
@@ -7,22 +8,51 @@ import {
   FALLBACK_PLACEHOLDERS,
   FALLBACK_POSTS,
 } from '../data/fallbacks';
-import { alertsApi, analyticsApi, camerasApi, evidenceApi, searchApi, withFallback } from '../services';
+import {
+  alertsApi,
+  analyticsApi,
+  authApi,
+  camerasApi,
+  evidenceApi,
+  searchApi,
+  withFallback,
+} from '../services';
+import {
+  addAlert,
+  confirmAlert,
+  patchAlert,
+  planSnapshot,
+  removeAlert,
+  stageAlert,
+  toDisplayAlert,
+} from '../services/alertReducer';
+import { createLiveAlerts } from '../services/liveAlerts';
+import { createOfflineAlert } from '../services/offlineAlerts';
+import {
+  bootSession,
+  getAccessToken,
+  getSession,
+  guardDecision,
+  refreshSession,
+  subscribeSession,
+} from '../services/session';
 import { stamp } from '../utils/format';
 
 const SPAWN_DELAYS = [500, 3400, 6600];
 const SPAWN_INTERVAL = 9500;
 const CONFIRM_AFTER = 2400;
 const TYPE_TICK = 22;
-const MAX_ALERTS = 6;
 
 /**
  * All operator-console state in one place: the live camera set, the alert
  * lifecycle, footage search, the evidence chain and the analytics strip.
  *
- * Detections come from the API (`POST /api/alerts/simulate`); the two-stage
+ * Alerts arrive over the API's server-sent event stream (`GET /api/stream`);
+ * if that stream is unavailable the console keeps itself current by polling
+ * while it reconnects with backoff (see services/liveAlerts.js). The two-stage
  * reveal — provisional badge, then the judge's reason typing out — is animated
- * here so it stays smooth regardless of network timing.
+ * here so it stays smooth regardless of network timing. A later reason patch
+ * (`alert.updated`) changes the card in place without moving it.
  */
 export const useConsole = () => {
   const [cameras, setCameras] = useState(FALLBACK_CAMERAS);
@@ -57,8 +87,31 @@ export const useConsole = () => {
     return id;
   }, []);
 
+  // ── route guard ───────────────────────────────────────────────────
+  // /console needs a session. On a fresh page load the in-memory token is gone, so the first check
+  // trades the refresh cookie for a new one; only a definite "no session" sends the operator to
+  // /login. Nothing below talks to the API until the guard has said yes.
+  const navigate = useNavigate();
+  const session = useSyncExternalStore(subscribeSession, getSession);
+  const decision = guardDecision(session.status);
+  const ready = decision === 'allow';
+
+  useEffect(() => {
+    bootSession();
+  }, []);
+
+  useEffect(() => {
+    if (decision === 'redirect') navigate('/login', { replace: true });
+  }, [decision, navigate]);
+
+  const signOut = useCallback(async () => {
+    await authApi.logout();
+    navigate('/login', { replace: true });
+  }, [navigate]);
+
   // ── reference data ────────────────────────────────────────────────
   useEffect(() => {
+    if (!ready) return undefined;
     let alive = true;
     Promise.all([
       withFallback(camerasApi.fetchCameras(), FALLBACK_CAMERAS, 'cameras'),
@@ -68,58 +121,113 @@ export const useConsole = () => {
       withFallback(searchApi.fetchPlaceholders(), FALLBACK_PLACEHOLDERS, 'search placeholders'),
     ]).then(([cams, pts, an, ch, ph]) => {
       if (!alive) return;
-      setCameras(cams);
-      setPosts(pts);
-      setAnalytics(an);
-      setTraffic(an.traffic);
-      setChain(ch);
-      setPlaceholders(ph);
+      // A reply that is the wrong shape must not blank the console: keep the sample data instead.
+      const list = (value, sample) => (Array.isArray(value) && value.length ? value : sample);
+      const stats = an && Array.isArray(an.traffic) ? an : FALLBACK_ANALYTICS;
+      setCameras(list(cams, FALLBACK_CAMERAS));
+      setPosts(list(pts, FALLBACK_POSTS));
+      setAnalytics(stats);
+      setTraffic(stats.traffic);
+      setChain(list(ch, FALLBACK_CHAIN));
+      setPlaceholders(list(ph, FALLBACK_PLACEHOLDERS));
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [ready]);
 
   // ── alert lifecycle ───────────────────────────────────────────────
-  const spawn = useCallback(async () => {
-    const payload = await withFallback(alertsApi.simulateAlert(), null, 'alert simulate');
-    if (!payload) return;
+  // Ids already on (or through) the queue, so a stream event, a poll and a POST reply for the same
+  // alert never add it twice.
+  const seen = useRef(new Set());
+  const [link, setLink] = useState('connecting');
 
-    const alert = { ...payload, typed: 0, conf: 0, stage: 'prov', time: payload.time || stamp() };
-    setAlerts((list) => [alert, ...list].slice(0, MAX_ALERTS));
-    setBudget((b) => {
-      const used = Math.min(b.total, b.used + 1);
-      return { ...b, used, near: used >= b.total - 3 };
-    });
+  const admit = useCallback(
+    (incoming, { countBudget = true } = {}) => {
+      if (!incoming?.id || incoming.stage === 'gone' || seen.current.has(incoming.id)) return;
+      seen.current.add(incoming.id);
 
-    // The judge finishes a couple of seconds after the provisional box appears.
-    later(() => {
-      setAlerts((list) =>
-        list.map((a) => (a.id === alert.id ? { ...a, stage: 'conf', conf: alert.confidence } : a)),
-      );
-      let i = 0;
-      const typer = setInterval(() => {
-        i += 2;
-        setAlerts((list) => list.map((a) => (a.id === alert.id ? { ...a, typed: i } : a)));
-        if (i >= alert.reason.length) clearInterval(typer);
-      }, TYPE_TICK);
-      timers.current.push(typer);
-    }, CONFIRM_AFTER);
-  }, [later]);
+      const alert = toDisplayAlert(incoming, stamp);
+      setAlerts((list) => addAlert(list, alert));
+      if (countBudget) {
+        setBudget((b) => {
+          const used = Math.min(b.total, b.used + 1);
+          return { ...b, used, near: used >= b.total - 3 };
+        });
+      }
+      // The judge finishes a couple of seconds after the provisional box appears.
+      if (alert.stage === 'prov') later(() => setAlerts((list) => confirmAlert(list, alert.id)), CONFIRM_AFTER);
+    },
+    [later],
+  );
 
   useEffect(() => {
-    SPAWN_DELAYS.forEach((d) => later(spawn, d));
-    const id = setInterval(spawn, SPAWN_INTERVAL);
-    return () => {
-      clearInterval(id);
+    if (!ready) return undefined;
+    const live = createLiveAlerts({
+      streamUrl: alertsApi.streamUrl(),
+      // The stream authenticates at connect time, so each (re)connect asks for the current token.
+      getToken: getAccessToken,
+      refreshToken: refreshSession,
+      fetchSnapshot: alertsApi.fetchAlerts,
+      simulate: alertsApi.simulateAlert,
+      demo: alertsApi.DEMO_MODE,
+      // API unreachable and demo mode on: keep the wall moving with clearly unsigned samples.
+      offlineAlert: () => createOfflineAlert(FALLBACK_CAMERAS),
+      demoDelays: SPAWN_DELAYS,
+      pollMs: SPAWN_INTERVAL,
+      onMode: setLink,
+      onCreated: (alert) => admit(alert),
+      onUpdated: ({ id, patch, alert }) => {
+        // An update for a card we never saw (it was created before we connected) adds it whole.
+        if (!seen.current.has(id)) admit(alert, { countBudget: false });
+        else setAlerts((list) => patchAlert(list, id, patch));
+      },
+      onStage: ({ id, stage }) => {
+        if (!seen.current.has(id)) return;
+        setAlerts((list) => stageAlert(list, id, stage));
+        if (stage === 'gone') later(() => setAlerts((list) => removeAlert(list, id)), 400);
+      },
+      onSnapshot: (snapshot, { skip, initial }) => {
+        const { fresh, patches } = planSnapshot(snapshot, { seen: seen.current, skip });
+        fresh.forEach((alert) => admit(alert, { countBudget: !initial }));
+        if (patches.length) {
+          setAlerts((list) => patches.reduce((next, p) => patchAlert(next, p.id, p.patch), list));
+        }
+      },
+    });
+    live.start();
+    // stop() aborts the stream request and every timer the controller owns.
+    return () => live.stop();
+  }, [admit, later, ready]);
+
+  // Every timer this hook owns is cleared together on unmount.
+  useEffect(
+    () => () => {
       timers.current.forEach(clearTimeout);
       timers.current.forEach(clearInterval);
       timers.current = [];
-    };
-  }, [later, spawn]);
+    },
+    [],
+  );
+
+  // One typer for every card that still has reason text to reveal; it exists only while needed.
+  const typing = alerts.some((a) => a.stage !== 'prov' && a.typed < a.reason.length);
+  useEffect(() => {
+    if (!typing) return undefined;
+    const id = setInterval(() => {
+      setAlerts((list) =>
+        list.some((a) => a.stage !== 'prov' && a.typed < a.reason.length)
+          ? list.map((a) =>
+              a.stage !== 'prov' && a.typed < a.reason.length ? { ...a, typed: a.typed + 2 } : a,
+            )
+          : list,
+      );
+    }, TYPE_TICK);
+    return () => clearInterval(id);
+  }, [typing]);
 
   const actOnAlert = useCallback((id) => {
-    setAlerts((list) => list.map((a) => (a.id === id ? { ...a, stage: 'sealed' } : a)));
+    setAlerts((list) => stageAlert(list, id, 'sealed'));
     setVerified(0);
     setVerifying(-1);
     withFallback(alertsApi.actOnAlert(id), null, 'seal evidence');
@@ -127,8 +235,8 @@ export const useConsole = () => {
 
   const dismissAlert = useCallback(
     (id) => {
-      setAlerts((list) => list.map((a) => (a.id === id ? { ...a, stage: 'gone' } : a)));
-      later(() => setAlerts((list) => list.filter((a) => a.id !== id)), 400);
+      setAlerts((list) => stageAlert(list, id, 'gone'));
+      later(() => setAlerts((list) => removeAlert(list, id)), 400);
       withFallback(alertsApi.dismissAlert(id), null, 'dismiss alert');
     },
     [later],
@@ -190,7 +298,9 @@ export const useConsole = () => {
   // ── live tickers ──────────────────────────────────────────────────
   useEffect(() => {
     const trafficId = setInterval(async () => {
-      const payload = await withFallback(analyticsApi.fetchTrafficSample(), null, 'traffic sample');
+      const payload = ready
+        ? await withFallback(analyticsApi.fetchTrafficSample(), null, 'traffic sample')
+        : null;
       const sample = payload?.sample ?? 3 + Math.round(Math.random() * 11);
       setTraffic((t) => t.slice(1).concat([sample]));
     }, 2200);
@@ -199,7 +309,7 @@ export const useConsole = () => {
       clearInterval(trafficId);
       clearInterval(clockId);
     };
-  }, []);
+  }, [ready]);
 
   const visibleCameras = sector === 'all' ? cameras : cameras.filter((c) => c.sector === sector);
 
@@ -217,6 +327,11 @@ export const useConsole = () => {
     budget,
     // alerts
     alerts,
+    // 'connecting' | 'stream' | 'polling' — no UI slot exists for it yet (ConsoleTopBar shows a static "LINK OK")
+    connection: link,
+    // session (the console page still shows its static operator card; see report)
+    user: session.user,
+    signOut,
     actOnAlert,
     dismissAlert,
     // map

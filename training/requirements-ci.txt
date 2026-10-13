@@ -1,0 +1,10 @@
+# Dependencies for the training unit tests that CI runs. No ultralytics and no torch: the tests that
+# need them skip. This is the cheap check that the scripts' pure logic (metrics, manifests, export
+# guards) still holds, not a training run.
+numpy
+pillow
+pyyaml
+opencv-python-headless
+onnxruntime
+huggingface_hub
+pytest

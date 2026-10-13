@@ -8,6 +8,12 @@
 # points `train` at the balanced epoch list it writes into the run dir, and writes the result as
 # <run-dir>/data_resolved.yaml. That resolved file is what Ultralytics reads.
 #
+# THE CART GATE (DATASET_SPEC 1.5; datasets/config/schema.yaml cart_gate.on_failure: withdraw_class_4). With fewer than 300 hand-verified
+# carts the class is withdrawn. The dataset's own data.yaml may then list only ids 0..3, or keep all five names with no cart label; train.py
+# accepts both, and nothing else. This file keeps nc 5 either way: the schema says id 4 stays reserved, so the wire names of
+# ARCHITECTURE_V2 4.2 and the ONNX output shape are the same under both outcomes. A withdrawn class trains as an output with no positives,
+# its AP is n/a, and preflight fails if it still has label rows. run_state.json records `withdrawn_classes`.
+#
 # There is deliberately NO `test` key. The test split is sealed until Phase 11 (DATASET_SPEC 2.5) and
 # a trainer must not be able to address it by accident. train.py asserts that the resolved file has
 # none and that these names equal datasets/config/schema.yaml, the taxonomy every other component
@@ -17,7 +23,7 @@ path: ../../datasets/processed/yolo
 train: images/train   # replaced at run time by <run-dir>/train_list.txt (balanced list, duplicates allowed)
 val: images/val       # Phase 2 measures on val only
 
-nc: 5                 # class id 4 (cart) is always reserved, even if the class is withdrawn (DATASET_SPEC 1.5)
+nc: 5                 # the head ALWAYS has 5 outputs: id 4 (cart) stays reserved even when the cart gate withdraws the class
 names:
   0: person
   1: two_wheeler

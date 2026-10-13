@@ -1,0 +1,22 @@
+{
+  "class_names": [
+    "person",
+    "two_wheeler",
+    "car",
+    "truck",
+    "cart"
+  ],
+  "created": "2026-09-26T01:35:47+00:00",
+  "export_record": "export_final.json",
+  "file": "final.onnx",
+  "imgsz": 640,
+  "opset": 17,
+  "repo_id": "sreekar12/truewatch-yolo11s",
+  "resolve_url": "https://huggingface.co/sreekar12/truewatch-yolo11s/resolve/9fe209f0d9200d5cf77aecc65144634c1ef4c996/final.onnx",
+  "revision": "9fe209f0d9200d5cf77aecc65144634c1ef4c996",
+  "schema": "truewatch.hf_model.v1",
+  "sha256": "dd63db0a7b4e5ef6b22687f54953742b6d5012c31b4b6f432656fc7c5f39921b",
+  "size": 37949127,
+  "source_url": "https://github.com/0XSreekar/True-Watch-AI",
+  "source_weights_sha256": "9c84ced99b63825061f2d7ae33a10a101acf62e5ff37eb64423c952d96ee9e67"
+}

@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 """Single-channel LWIR -> 3-channel, per DATASET_SPEC.md section 3.4 and slide 4.
 
-The invariant, and the whole point of this script: B = G = R. No false colour.
-MEASUREMENTS.md section 1 measured what false-colour thermal costs a COCO-pretrained
-detector: AP@50 = 0.133, precision 0.364, recall 0.093. This pipeline replicates the
-channel instead, and gate G10 verifies the stored artefact really is 3-channel.
+The invariant: B = G = R. No false colour. MEASUREMENTS.md section 1 measured what
+false-colour thermal costs a COCO-pretrained detector: AP@50 = 0.133, precision 0.364,
+recall 0.093. This pipeline replicates the channel instead.
 
-Steps: read single channel (16-bit sources are linearly rescaled to 8-bit and the
-fact is recorded) -> CLAHE -> np.repeat to three channels -> write lossless PNG.
+The conversion itself (read single channel, 16-bit linearly rescaled to 8-bit, CLAHE clip 2.0
+grid 8x8, np.repeat to three channels) lives in _lib.ir_to_three_channel and is applied by
+_lib.load_for_output at the moment a pixel is written into the dataset, by 08 (tiles) and 09
+(frames). Nothing 3-channel is stored in between: at Kaggle scale a lossless 3-channel
+intermediate of ~31k LWIR frames would take ~36 GB, more than the whole output budget.
+
+What this step does, for every LWIR record:
+  * decodes the source frame and counts anything undecodable (never silently skipped);
+  * runs the conversion and asserts B = G = R on the result;
+  * records bit depth, colour-input and the raw intensity standard deviation (`ir_std`),
+    which 06_split.py uses for the hard set's heavy-infrared bucket;
+  * writes <processed>/index/combined.jsonl: every source index, LWIR records annotated.
+Gate G10 then verifies the FINAL dataset files: 3 channels and B = G = R.
 """
 
 from __future__ import annotations
@@ -22,10 +32,12 @@ from _lib import (  # noqa: E402
     Counters,
     Logger,
     base_parser,
-    imwrite,
-    load_augment,
+    ir_conversion_params,
+    ir_probe_worker,
+    load_sources,
     load_state,
-    require_dirs,
+    parallel_map,
+    read_jsonl,
     run,
     save_state,
     write_json,
@@ -35,158 +47,87 @@ from _lib import (  # noqa: E402
 SCRIPT = "04_ir_to_3ch"
 
 
-def to_three_channel(path: Path, clip: float, grid: int, counters: Counters, log: Logger):
-    import cv2
-    import numpy as np
-
-    data = np.fromfile(str(path), dtype=np.uint8)
-    if data.size == 0:
-        log.warn("empty file", image=path.as_posix())
-        counters.bump("image.empty")
-        return None
-    raw = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
-    if raw is None:
-        log.warn("undecodable", image=path.as_posix())
-        counters.bump("image.undecodable")
-        return None
-
-    if raw.ndim == 3:
-        if raw.shape[2] == 3 and np.array_equal(raw[..., 0], raw[..., 1]) and np.array_equal(
-            raw[..., 1], raw[..., 2]
-        ):
-            counters.bump("image.already_replicated")
-            return raw
-        channel = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
-        counters.bump("image.colour_input_flattened")
-    else:
-        channel = raw
-
-    if channel.dtype != np.uint8:
-        counters.bump("image.rescaled_from_16bit")
-        channel = cv2.normalize(channel, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-
-    clahe = cv2.createCLAHE(clipLimit=float(clip), tileGridSize=(int(grid), int(grid)))
-    equalised = clahe.apply(channel)
-
-    # The invariant. B = G = R, no colormap, ever.
-    three = np.repeat(equalised[:, :, None], 3, axis=2)
-    counters.bump("image.replicated")
-    return three
-
-
 def main() -> int:
     ap = base_parser(__doc__)
-    ap.add_argument(
-        "--index",
-        default=None,
-        help="jsonl index to read (default: every *.jsonl under <processed>/index)",
-    )
+    ap.add_argument("--max-failures", type=int, default=0,
+                    help="undecodable LWIR frames tolerated (each is dropped, logged and counted)")
     args = ap.parse_args()
     log = Logger(SCRIPT)
     counters = Counters()
 
     processed = Path(args.processed).resolve()
     index_dir = processed / "index"
-    out_root = processed / "ir3"
+    clip, grid = ir_conversion_params()  # refuses a false-colour config outright
 
-    # Only the per-source indexes. Globbing *.jsonl would re-read combined.jsonl and the
-    # later derived indexes, which appends this script's own output back into its input
-    # and multiplies the corpus on every re-run.
-    source_indexes = ("idd.jsonl", "kaist.jsonl", "llvip.jsonl")
-    indexes = [Path(args.index)] if args.index else [index_dir / n for n in source_indexes]
-    indexes = [p for p in indexes if p.exists()]
-    if not indexes:
-        log.error("no index files found - run the converters first", looked_in=str(index_dir))
+    # Only the per-source indexes of ENABLED sources. Globbing *.jsonl would re-read this
+    # script's own output and multiply the corpus on every re-run.
+    enabled = [name for name, spec in load_sources()["sources"].items() if spec.get("enabled", True)]
+    indexes = [index_dir / f"{name}.jsonl" for name in sorted(enabled)]
+    present = [p for p in indexes if p.exists()]
+    for path in indexes:
+        if not path.exists():
+            log.error("source index missing - run its converter first", index=str(path))
+    if not present or len(present) != len(indexes):
         return 1
 
-    augment = load_augment()["infrared_conversion"]
-    if augment.get("false_colour"):
-        log.error("augment.yaml enables false colour; section 3.4 forbids it")
-        return 1
-    clip = float(augment.get("clahe_clip", 2.0))
-    grid = int(augment.get("clahe_tile_grid", 8))
+    records: list[dict] = []
+    for path in present:
+        chunk = read_jsonl(path)
+        log.info("index read", index=path.name, records=len(chunk))
+        records.extend(chunk)
 
     state = load_state(processed, SCRIPT)
-    done = set(state.get("done", [])) if not args.force else set()
-    require_dirs(out_root)
+    cache: dict[str, dict] = {} if args.force else dict(state.get("probe", {}))
+    lwir = [r for r in records if r.get("modality") == "lwir"]
+    if args.limit:
+        lwir = lwir[: args.limit]
+    todo = sorted({r["image"] for r in lwir if r["image"] not in cache})
+    log.info("lwir frames", total=len(lwir), to_probe=len(todo), cached=len(lwir) - len(todo),
+             clahe_clip=clip, grid=grid, workers=args.workers)
 
-    rewritten: list[str] = []
-    converted = 0
+    if args.dry_run:
+        log.info("dry-run: would probe", frames=len(todo))
+        return 0
+
+    for position, (path, result) in enumerate(zip(todo, parallel_map(ir_probe_worker, todo, args.workers, 32)), 1):
+        cache[path] = result
+        if position % 5000 == 0:
+            log.info("probing", done=position, total=len(todo))
+
     failures = 0
-    seen = 0
+    for record in records:
+        if record.get("modality") != "lwir":
+            continue
+        probe = cache.get(record["image"])
+        if probe is None:
+            continue  # beyond --limit
+        if not probe.get("ok"):
+            failures += 1
+            counters.bump(f"lwir.failed.{probe.get('why', 'unknown')}")
+            if failures <= 10:
+                log.warn("LWIR frame failed conversion", image=record["image"], why=probe.get("why"))
+            record["ir_failed"] = True
+            continue
+        record["channels"] = 3
+        record["ir_conversion"] = f"clahe{clip}_g{grid}_replicate3"
+        record["ir_std"] = probe["ir_std"]
+        record["ir_bit16"] = probe["bit16"]
+        counters.bump("lwir.verified_bgr_equal")
+        if probe.get("bit16"):
+            counters.bump("lwir.rescaled_from_16bit")
+        if probe.get("colour_input"):
+            counters.bump("lwir.colour_input_flattened")
 
-    for index_path in indexes:
-        log.info("reading index", index=index_path.name)
-        with index_path.open(encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line:
-                    continue
-                record = json.loads(line)
-                if record.get("modality") != "lwir":
-                    rewritten.append(json.dumps(record, sort_keys=True))
-                    continue
-
-                seen += 1
-                if args.limit and seen > args.limit:
-                    rewritten.append(json.dumps(record, sort_keys=True))
-                    continue
-
-                source = Path(record["image"])
-                target = out_root / record.get("source", "unknown") / f"{source.stem}.png"
-
-                if target.exists() and not args.force:
-                    counters.bump("image.already_converted")
-                    record["image"] = target.as_posix()
-                    record["channels"] = 3
-                    rewritten.append(json.dumps(record, sort_keys=True))
-                    done.add(source.as_posix())
-                    continue
-
-                if args.dry_run:
-                    counters.bump("image.would_convert")
-                    rewritten.append(json.dumps(record, sort_keys=True))
-                    continue
-
-                if not source.exists():
-                    log.warn("source image missing", image=source.as_posix())
-                    counters.bump("image.missing")
-                    failures += 1
-                    rewritten.append(json.dumps(record, sort_keys=True))
-                    continue
-
-                three = to_three_channel(source, clip, grid, counters, log)
-                if three is None:
-                    failures += 1
-                    rewritten.append(json.dumps(record, sort_keys=True))
-                    continue
-
-                if not imwrite(target, three):
-                    log.error("write failed", image=target.as_posix())
-                    counters.bump("image.write_failed")
-                    failures += 1
-                    rewritten.append(json.dumps(record, sort_keys=True))
-                    continue
-
-                record["image"] = target.as_posix()
-                record["channels"] = 3
-                rewritten.append(json.dumps(record, sort_keys=True))
-                done.add(source.as_posix())
-                converted += 1
-
-    out_index = processed / "index" / "combined.jsonl"
-    if not args.dry_run:
-        write_lines(out_index, rewritten)
-        state["done"] = sorted(done)
-        save_state(processed, SCRIPT, state)
-        write_json(
-            processed / "reports" / "ir_to_3ch.json",
-            {"converted": converted, "failures": failures, "counters": counters.as_dict()},
-        )
+    kept = [r for r in records if not r.get("ir_failed")]
+    write_lines(index_dir / "combined.jsonl", [json.dumps(r, sort_keys=True) for r in kept])
+    state["probe"] = cache
+    save_state(processed, SCRIPT, state)
+    write_json(processed / "reports" / "ir_to_3ch.json",
+               {"lwir": len(lwir), "failures": failures, "records_out": len(kept), "counters": counters.as_dict()})
 
     counters.report(log)
-    log.info("done", lwir_seen=seen, converted=converted, failures=failures, index=str(out_index))
-    return 1 if failures else 0
+    log.info("done", records=len(kept), lwir_failed=failures, index=str(index_dir / "combined.jsonl"))
+    return 1 if failures > args.max_failures else 0
 
 
 if __name__ == "__main__":

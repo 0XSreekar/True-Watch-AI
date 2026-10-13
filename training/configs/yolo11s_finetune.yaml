@@ -1,0 +1,57 @@
+# Stage 1 of a fine-tune LINEAGE (training/notebooks/kaggle_train.ipynb LINEAGE / INIT_WEIGHTS): an already trained
+# TRUEWATCH detector continued on an expanded dataset, not COCO weights on a new task. It differs from yolo11s_day.yaml only
+# where starting from a trained 5-class model changes the reasoning; each changed line says why. The notebook passes
+# --model <INIT_WEIGHTS> and --epochs, so `model` below is only the fallback for a direct run.
+#
+stage: day
+model: yolo11s.pt        # fallback only: the notebook passes --model <INIT_WEIGHTS> (the trained lineage's best.pt)
+
+close_mosaic_epochs: 3    # a 10-epoch run with the policy's final-10 would never use mosaic; mosaic is a main source of small objects
+
+schedule:
+  unfreeze_epoch: null  # nothing is frozen: the head is already trained on these classes, there is no new head to protect
+
+sampling:                # how train_list.txt is built (DATASET_SPEC 3.1: image repeats only, never loss reweighting)
+  rare_classes: [3, 4]   # truck and cart: the classes an image is repeated for
+  rare_repeat: 2         # an image holding a rare class enters the epoch list twice
+  lwir_repeat: 1         # stage 1 weights day and IR by their natural share; stage 2 is the IR-emphasis polish
+  max_repeat: 2          # cap: no image is seen more than twice per epoch, whatever combination of rules applies
+
+train:                   # passed to Ultralytics; every line carries the reason for its value
+  epochs: 10             # the first run levelled off by epoch ~15 from COCO; continuing from it needs fewer; last 3 without mosaic
+  imgsz: 640             # the edge latency TARGET (YOLO11-s INT8, Jetson hardware not owned) is defined at 640; far field is handled by 640x640 SAHI tiles
+  batch: 32              # fits a 16 GB T4 with AMP at 640; Ultralytics reaches nbs by accumulating 2 steps
+  nbs: 64                # nominal batch size for loss and weight-decay scaling; explicit so a batch override cannot change the optimisation
+  workers: 4             # Kaggle provides 4 vCPU; Ultralytics forces 0 on CPU or MPS regardless
+  optimizer: SGD         # explicit: 'auto' would pick SGD at this size anyway, but a resume must never be able to change it
+  momentum: 0.937        # Ultralytics SGD default, tuned for YOLO fine-tuning; no evidence yet to move it
+  weight_decay: 0.0005   # Ultralytics default; scaled by batch*accumulate/nbs inside the trainer
+  lr0: 0.002             # below the first run's 0.005: continuing a converged model on more data, not adapting COCO
+  lrf: 0.01              # final LR fraction; with cos_lr the rate decays smoothly to lr0*0.01 by the last epoch
+  cos_lr: true           # cosine decay avoids the late-training LR cliff of the linear schedule
+  warmup_epochs: 1       # the head is not fresh; one epoch only eases the optimiser state in
+  warmup_momentum: 0.8   # Ultralytics default warmup momentum
+  warmup_bias_lr: 0.02   # keeps Ultralytics' 10:1 bias warmup ratio to lr0
+  amp: true              # mixed precision roughly doubles T4 throughput; ignored on CPU
+  deterministic: false   # bitwise reproducibility costs about 15% speed the weekly GPU budget cannot spare; the seed is still recorded
+  seed: 42               # recorded in args.yaml and used for the --fraction subsample
+  patience: 6            # early stop after 6 epochs without fitness gain (restored across sessions from train_log.csv); see fitness note
+  freeze: 0              # no freeze: see unfreeze_epoch
+  pretrained: true       # load the COCO weights named by `model`
+  cls_remap: true        # Ultralytics copies COCO head rows into the 5-class head by class name (person, car and truck match)
+  cls_pw: 0.0            # no class-weighted loss: DATASET_SPEC 3.1 rules out loss reweighting; balance comes from the epoch list
+  box: 7.5               # Ultralytics default box gain; no evidence yet to move it
+  cls: 0.5               # Ultralytics default classification gain
+  dfl: 1.5               # Ultralytics default distribution-focal gain
+  cache: false           # ~80k images decoded at 640 are ~60 GB, over Kaggle's ~30 GB of RAM; the input mount is read-only for cache=disk
+  plots: false           # training plots cost I/O and time; evaluate.py produces the reported figures
+  val: true              # validate every epoch: it drives best.pt, early stopping and the logged metrics
+  save_period: 5         # extra rollback points every 5 epochs; last.pt is written every epoch and rolled to last_good.pt by train.py
+
+# Notes that belong beside the numbers:
+#  * EMA: Ultralytics always keeps an exponential moving average of the weights; last.pt and best.pt hold the EMA weights. There is no switch.
+#  * Fitness: in the installed Ultralytics 8.4.155 a detection model's fitness is class-mean mAP50-95 alone (weights 0, 0, 0, 1), not the
+#    older 0.1*mAP50 + 0.9*mAP50-95. It is kept as the checkpoint criterion because a person-only fitness would let the vehicle classes die.
+#    AP50 for every class (ap50_person ... ap50_cart) is logged every epoch in train_log.csv, so a dying class is visible to the human.
+#  * The per-epoch validation numbers are computed over the whole val set, day and IR together. They select checkpoints and stop the run;
+#    they are not reported results. evaluate.py reports day and IR separately, on val, with the host recorded.

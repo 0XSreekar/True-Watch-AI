@@ -150,15 +150,73 @@ def test_cross_check_ap_against_ultralytics_ap_per_class():
         (0.86, 0.83, None, M.PARTIAL),       # reached, not established
         (0.85, 0.85, None, M.MET),           # boundary is inclusive
         (0.849, 0.80, None, M.NOT_MET),
-        (0.80, 0.77, 0.87, M.PARTIAL),       # only the narrower reading reaches it
-        (0.80, 0.77, 0.83, M.NOT_MET),
+        (0.80, 0.77, (0.87, 0.86, 400), M.PARTIAL),   # the narrower reading establishes it on its own
+        (0.80, 0.77, (0.87, 0.80, 400), M.NOT_MET),   # narrower point reaches it, its bound does not
+        (0.80, 0.77, (0.99, 0.95, 12), M.NOT_MET),    # a tiny daylight subset is an anecdote
+        (0.80, 0.77, (0.87, None, 400), M.NOT_MET),   # no interval on the narrower reading
+        (0.80, 0.77, (0.83, 0.80, 400), M.NOT_MET),
         (0.90, None, None, M.PARTIAL),       # no interval: cannot claim MET
         (None, None, None, M.NOT_ASSESSED),
     ],
 )
 def test_map_verdict(point, low, narrow, expected):
-    verdict, reason = M.map_verdict(point, low, 0.85, narrow)
+    n_point, n_low, n_gt = narrow if narrow else (None, None, None)
+    verdict, reason = M.map_verdict(point, low, 0.85, n_point, n_low, n_gt)
     assert verdict == expected and reason
+
+
+def test_verdict_text_never_rounds_a_miss_onto_the_target():
+    verdict, reason = M.map_verdict(0.84962, 0.80, 0.85)
+    assert verdict == M.NOT_MET
+    assert "0.8496 < 0.85" in reason and "0.850" not in reason
+    assert M.fmt_floor(0.84999999) == "0.8499" and M.fmt_floor(0.29) == "0.2900" and M.fmt_floor(None) == "n/a"
+    _, reason = M.map_verdict(0.87, 0.84996, 0.85)
+    assert "lower 95% bound 0.8499 < target" in reason
+
+
+def test_crowd_matching_follows_ultralytics_prediction_first_order():
+    """GT X and Y overlap. Pred A: IoU(X)=0.905, IoU(Y)=0.739; pred B: IoU(Y)=0.667 -> two TPs, not one.
+
+    Taking each ground truth's best prediction first would hand both X and Y to A, keep only A->X,
+    and leave B unmatched. Ultralytics keeps each prediction's best ground truth first.
+    """
+    iou = np.array([[0.905, 0.739], [0.0, 0.667]])
+    assigned = M._greedy(iou, 0.5, np.ones(2, dtype=bool), np.arange(2))
+    assert assigned.tolist() == [0, 1]
+    # at IoU 0.70 B's only candidate is gone, and A still takes its best (X)
+    assert M._greedy(iou, 0.70, np.ones(2, dtype=bool), np.arange(2)).tolist() == [0, -1]
+
+
+def test_crowd_matching_with_real_boxes_scores_two_true_positives():
+    # Unit-height boxes on a line, so IoU is interval overlap; they reproduce the IoUs of the test above.
+    X = np.array([0.0, 0.0, 10.0, 1.0])
+    Y = np.array([1.0, 0.0, 11.0, 1.0])
+    A = np.array([-0.5, 0.0, 9.5, 1.0])       # IoU(A,X)=0.905, IoU(A,Y)=0.739
+    B = np.array([4.3, 0.0, 11.05, 1.0])      # IoU(B,Y)=0.667 (and IoU(B,X)=0.516)
+    iou = M.box_iou(np.stack([A, B]), np.stack([X, Y]))
+    assert iou[0, 0] == pytest.approx(0.905, abs=1e-3) and iou[0, 1] == pytest.approx(0.739, abs=1e-3)
+    assert iou[1, 1] == pytest.approx(0.667, abs=1e-3)
+    tp, ignore = M.match_image_class(np.stack([X, Y]), np.zeros(2, bool), np.stack([A, B]), np.zeros(2, bool),
+                                     np.array([0.5]))
+    assert tp[0].tolist() == [True, True] and not ignore.any()
+
+
+def test_greedy_matches_ultralytics_match_predictions_on_random_crowds():
+    torch = pytest.importorskip("torch")
+    validator = pytest.importorskip("ultralytics.engine.validator")
+    rng = np.random.default_rng(3)
+    stub = type("Stub", (), {"iouv": torch.linspace(0.5, 0.95, 10)})()
+    for _ in range(200):
+        g = rng.integers(1, 8)
+        p = rng.integers(1, 10)
+        gt = np.sort(rng.uniform(0, 60, (g, 2, 2)), axis=1).reshape(g, 4)[:, [0, 2, 1, 3]]
+        pr = gt[rng.integers(0, g, p)] + rng.normal(0, 3, (p, 4))
+        pr[:, 2:] = np.maximum(pr[:, 2:], pr[:, :2] + 1)
+        iou = M.box_iou(pr, gt)
+        ours = np.stack([M._greedy(iou, t, np.ones(p, bool), np.arange(g)) >= 0 for t in M.IOU_THRS], axis=1)
+        theirs = validator.BaseValidator.match_predictions(
+            stub, torch.zeros(p), torch.zeros(g), torch.from_numpy(iou.T.copy())).numpy()
+        assert (ours == theirs).all()
 
 
 def test_size_bucket_helper_agrees_with_engine():

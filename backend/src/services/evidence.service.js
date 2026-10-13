@@ -1,23 +1,76 @@
-import { CAMERAS } from '../data/mockData.js';
-import { hex, pad } from '../utils/random.js';
+import { sha256 } from '../utils/crypto.js';
+import { notFound } from '../utils/httpError.js';
 
-/**
- * SHA-256 hash chain over captured clips.
- * Real system: digests computed on the edge box at capture and anchored periodically.
- */
-const chain = Array.from({ length: 5 }, (_, i) => ({
-  n: 1041 + i,
-  hash: `${hex(10)}…${hex(6)}`,
-  camera: CAMERAS[i % CAMERAS.length].id,
-  time: `14 AUG · ${pad(1 + i)}:${pad(12 + i * 7)}`,
-}));
+const CHAIN_WINDOW = 20;
 
-export const getChain = () => chain;
+/** Merkle root over block hashes: pairs are hashed left||right, an odd node is paired with itself. */
+export const merkleRoot = (leaves) => {
+  let level = leaves;
+  while (level.length > 1) {
+    const next = [];
+    for (let i = 0; i < level.length; i += 2) next.push(sha256(level[i], level[i + 1] ?? level[i]));
+    level = next;
+  }
+  return level[0];
+};
 
-/** Verifies every block links to its predecessor. Always intact in the demo. */
-export const verifyChain = () => ({
-  intact: true,
-  verified: chain.length,
-  total: chain.length,
-  blocks: chain.map((b) => ({ n: b.n, ok: true })),
+export const createEvidenceService = ({ repos, verifier, audit, edge }) => ({
+  /**
+   * Frozen shape: [{ n, hash, camera, time }], the latest window in ascending order. The edge chain
+   * (sealed at capture) is the source of truth when the edge answers; the local table is the fallback
+   * so the console still shows a chain with no edge running.
+   */
+  async getChain() {
+    const remote = edge?.enabled ? await edge.evidenceChain(CHAIN_WINDOW) : null;
+    return remote && remote.length ? remote : repos.evidence.chain(CHAIN_WINDOW);
+  },
+
+  /** Frozen shape: { intact, verified, total, blocks:[{ n, ok }] }. Every verification is audited. */
+  async verifyChain(actor) {
+    const result = await verifier.verify();
+    audit.record(actor, 'evidence.verify', 'chain', {
+      intact: result.intact,
+      verified: result.verified,
+      total: result.total,
+    });
+    return result;
+  },
+
+  /** One block with its predecessor link. The stored clip path is never exposed. */
+  getBlock(evidenceId) {
+    const row = repos.evidence.findByEvidenceId(evidenceId);
+    if (!row) throw notFound('Evidence block not found');
+    return {
+      n: row.n,
+      evidence_id: row.evidence_id,
+      camera: row.camera_id,
+      time: row.time_label,
+      hash: row.display_hash,
+      clip_sha256: row.clip_sha256,
+      prev_sha256: row.prev_sha256,
+      block_sha256: row.block_sha256,
+      sealed_at: row.sealed_at,
+      alert_id: row.alert_id,
+    };
+  },
+
+  /** The Merkle root for one UTC day of sealed blocks, recomputed and stored on request. */
+  getDailyRoot(day) {
+    const blocks = repos.evidence.forDay(day);
+    if (!blocks.length) {
+      const stored = repos.dailyRoots.get(day);
+      if (!stored) throw notFound('No sealed evidence for that day');
+      return stored;
+    }
+    return repos.dailyRoots.upsert({
+      day,
+      merkle_root: merkleRoot(blocks.map((b) => b.block_sha256)),
+      leaf_count: blocks.length,
+      first_n: blocks[0].n,
+      last_n: blocks[blocks.length - 1].n,
+      computed_at: new Date().toISOString(),
+    });
+  },
 });
+
+export default createEvidenceService;

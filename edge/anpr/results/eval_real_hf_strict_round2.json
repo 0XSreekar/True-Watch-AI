@@ -1,0 +1,25 @@
+{
+  "summary": {
+    "count": 57,
+    "exact_match_rate": 0.2456,
+    "mean_cer": 0.5689,
+    "buckets": {
+      "near (proxy: plate >= 200px wide)": {
+        "count": 28,
+        "exact_match_rate": 0.1786,
+        "mean_cer": 0.6176
+      },
+      "mid, under 25 m proxy (120-199px)": {
+        "count": 27,
+        "exact_match_rate": 0.3333,
+        "mean_cer": 0.5024
+      },
+      "far, beyond 25 m proxy (<120px)": {
+        "count": 2,
+        "exact_match_rate": 0.0,
+        "mean_cer": 0.7857
+      }
+    }
+  },
+  "note": "summary only; per-sample results are kept outside the repository"
+}

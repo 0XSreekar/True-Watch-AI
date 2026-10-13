@@ -16,6 +16,15 @@ WHAT is measured, per run, batch 1, with time.perf_counter after --warmup discar
                 decode of the video stream, tracking and fusion are not in it, so it is NOT an
                 end-to-end latency.
 
+WHICH weights. inference_ms follows the graph and the host, so a randomly initialised export of the
+same architecture times the same. pipeline_ms does not: NMS cost grows with the candidate boxes,
+and a random head scores nearly every anchor alike, so it hands NMS thousands of boxes a trained
+detector never produces and inflates the figure. The record therefore carries `weights_kind`
+(trained / random / unknown; "random" is also inferred from --weights-provenance) and
+`pipeline_representative`, true only for trained weights on a real --image. Measure the trained
+export with `--onnx training/weights/<tag>.onnx --weights-kind trained --image <frame>`.
+make_metrics.py shows only inference_ms for a random-weight record.
+
 WHAT the number is not. It is FP32 on whatever CPU ran it. It is not INT8 and it is not the
 Jetson Orin Nano Super. The ~30 ms TARGET on slide 3 is a design budget for INT8 inference at
 640 px on that board, hardware this project does not own; it is not comparable to anything this
@@ -453,8 +462,10 @@ def run_benchmark(
     image: Path | None = None,
     conf: float = DEFAULT_CONF,
     iou: float = DEFAULT_NMS_IOU,
+    weights_kind: str | None = None,
 ) -> dict:
     """Time the graph and return the benchmark record (schema truewatch.benchmark.v1)."""
+    kind = infer_weights_kind(weights_kind, weights_provenance)
     session, ort = open_session(model, threads)
     input_name, precision = check_input(session, imgsz)
     header = read_onnx_header(model)
@@ -495,6 +506,7 @@ def run_benchmark(
             "opset": opset,
             "precision": precision,
             "weights_provenance": weights_provenance,
+            "weights_kind": kind,
         },
         "config": {
             "imgsz": imgsz,
@@ -523,8 +535,33 @@ def run_benchmark(
             "candidates_max": int(candidates.max()),
             "detections_mean": round(float(detections.mean()), 2),
         },
+        "pipeline_representative": bool(kind == "trained" and image is not None),
+        "pipeline_note": pipeline_note(kind, image is not None),
         "caveat": CAVEAT,
     }
+
+
+WEIGHTS_KINDS = ("trained", "random", "unknown")
+
+
+def infer_weights_kind(explicit: str | None, provenance: str) -> str:
+    """The stated kind, else 'random' when the provenance says so, else 'unknown'. Never guesses 'trained'."""
+    if explicit:
+        if explicit not in WEIGHTS_KINDS:
+            raise SystemExit(f"--weights-kind must be one of {', '.join(WEIGHTS_KINDS)}, got {explicit!r}")
+        return explicit
+    return "random" if "random" in (provenance or "").lower() else "unknown"
+
+
+def pipeline_note(kind: str, real_image: bool) -> str:
+    if kind == "random":
+        return ("random weights: every anchor scores near the head bias, so NMS receives thousands of candidates a trained "
+                "detector never produces; pipeline_ms is inflated and is not a detector-stage latency. Use inference_ms only.")
+    if kind != "trained":
+        return "weights of unknown kind: pipeline_ms depends on how many boxes the head proposes; pass --weights-kind."
+    if not real_image:
+        return "trained weights on a synthetic noise frame: pipeline_ms reflects the boxes proposed on noise; pass --image."
+    return "trained weights on a real frame: pipeline_ms is the detector-stage latency for that frame."
 
 
 # --------------------------------------------------------------------------------------------
@@ -546,7 +583,7 @@ def render_table(record: dict) -> str:
     lines = [
         f"Benchmark {record['label']}",
         f"Model     {m['file']}  {m['size_bytes'] / 1e6:.1f} MB  opset {m['opset']}  {m['precision']}  sha256 {m['sha256'][:16]}",
-        f"Weights   {m['weights_provenance']}",
+        f"Weights   {m['weights_provenance']} (kind: {m.get('weights_kind', 'unknown')})",
         f"Host      {h['cpu']} | {h['platform']}",
         f"CPUs      {h['cpu_count_logical']} logical, {h['cpu_count_usable']} usable, {quota}, effective {h['effective_cpus']:g}",
         f"Runtime   onnxruntime {c['onnxruntime']}, provider {c['provider']}, threads {threads}",
@@ -559,6 +596,7 @@ def render_table(record: dict) -> str:
         "",
         f"NMS input   {d['candidates_mean']} candidate boxes per frame on average (max {d['candidates_max']}) "
         f"at conf {d['conf']}; pipeline_ms grows with this number.",
+        f"PIPELINE    {record.get('pipeline_note', '')}",
         "",
         f"CAVEAT      {record['caveat']}",
     ]
@@ -589,14 +627,18 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         epilog="Exit codes: 0 done, 2 bad input.",
     )
-    p.add_argument("--model", required=True, type=Path, help="the exported .onnx file")
+    p.add_argument("--model", "--onnx", dest="model", required=True, type=Path,
+                   help="the exported .onnx file, e.g. training/weights/<tag>.onnx from export_onnx.py")
     p.add_argument("--label", required=True, help="host label used in the output name, e.g. mac-apple-m5-cpu or hf-space-cpu-basic")
     p.add_argument("--imgsz", type=int, default=640, help="square input side in pixels")
     p.add_argument("--runs", type=int, default=200, help="timed iterations per measurement")
     p.add_argument("--warmup", type=int, default=20, help="untimed iterations before each measurement")
     p.add_argument("--threads", type=int, default=0, help="onnxruntime intra-op threads; 0 keeps the default")
     p.add_argument("--weights-provenance", default="not stated", help="one line on what the weights are, stored in the JSON")
-    p.add_argument("--image", type=Path, default=None, help="optional real frame for the pipeline timing (needs OpenCV or Pillow)")
+    p.add_argument("--weights-kind", choices=WEIGHTS_KINDS, default=None,
+                   help="trained, random or unknown; default: 'random' if --weights-provenance says so, else unknown. "
+                        "Only trained weights on a real --image make pipeline_ms representative")
+    p.add_argument("--image", type=Path, default=None, help="real frame for the pipeline timing (needs OpenCV or Pillow)")
     p.add_argument("--conf", type=float, default=DEFAULT_CONF, help="confidence threshold for the NMS input")
     p.add_argument("--nms-iou", type=float, default=DEFAULT_NMS_IOU, help="IoU threshold for class-aware NMS")
     p.add_argument("--out", type=Path, default=None, help="result JSON path (default training/results/benchmark_<label>.json)")
@@ -625,7 +667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         validate(args)
         record = run_benchmark(
             args.model, args.label, args.imgsz, args.runs, args.warmup, args.threads,
-            args.weights_provenance, args.image, args.conf, args.nms_iou,
+            args.weights_provenance, args.image, args.conf, args.nms_iou, args.weights_kind,
         )
     except SystemExit as exc:
         if isinstance(exc.code, str):

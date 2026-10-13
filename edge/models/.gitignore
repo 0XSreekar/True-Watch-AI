@@ -5,3 +5,5 @@
 *.engine
 *.bin
 *.safetensors
+# Detector downloads land here at boot (models/detector_weights.py).
+cache/

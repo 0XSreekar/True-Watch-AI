@@ -18,6 +18,23 @@ incrementally.
 - Clear service boundaries for replacing demo data with production systems
 - Reduced-motion support and a responsive visual system
 
+## Status
+
+TrueWatch is a **prototype with preliminary validation on public datasets**. It has not been tested
+in the field.
+
+- **Latency.** The Jetson figures (about 30 ms detector, about 3 s explanation) are design estimates.
+  They were not measured on hardware; no measurement in this repository was taken on a Jetson.
+- **Detector.** Day person mAP@50 is 0.549 against a 0.85 target: **NOT MET**. The infrared figure
+  is 0.845 against a 0.75 target: **MET**.
+- **Number plates.** Nepali plate exact-match on real photographs is 52.6% (57 plates, strict
+  matching) against an 85% target: **NOT MET**.
+- **Deployment.** Out of scope for this build: the three processes run locally (see Quick start
+  below). CI runs the tests and the repository hygiene checks.
+
+Detector figures: [training/results/METRICS.md](training/results/METRICS.md). Plate figures:
+[edge/anpr/results/ANPR_METRICS.md](edge/anpr/results/ANPR_METRICS.md).
+
 ## Quick start
 
 **Prerequisite:** Node.js 20 or newer.

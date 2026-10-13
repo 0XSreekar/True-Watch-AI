@@ -47,6 +47,11 @@ datasets/**/*.jpeg
 datasets/**/*.png
 datasets/**/*.mp4
 datasets/**/*.zip
+
+# ANPR demo asset (edge/anpr/compare_latin.py renders it on demand; not data).
+edge/anpr/samples/
+# Kaggle packaging output (edge/anpr/scripts/package_plates_for_kaggle.py writes it).
+edge/anpr/kaggle_upload/
 datasets/**/*.tar
 datasets/**/*.tar.gz
 datasets/**/*.pt
@@ -61,5 +66,13 @@ datasets/**/*.onnx
 *.safetensors
 training/weights/
 training/runs/
-**/runs/
+# Ultralytics run folders stay inside training/. A bare **/runs/ also matched unrelated folders such as a
+# future frontend/src/runs/ or backend/runs/, so it is scoped. /runs/ is the folder Ultralytics creates in
+# the working directory when a training command is started from the repository root.
+training/**/runs/
+/runs/
 training/results/cache/
+
+# Demo clips built locally by edge/pipeline/make_samples.py. Dataset licences are not read as permitting
+# redistribution, so media never enters git.
+samples/*.mp4

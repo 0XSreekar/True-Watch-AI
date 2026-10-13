@@ -6,13 +6,26 @@ Nothing falls through to a default: a native class this script has never seen is
 FAILURE, not a silent drop, because an unmapped class is exactly how a taxonomy
 quietly rots.
 
-IDD's on-disk layout is not assumed (OQ-2). The parser detects it at runtime and
-logs which layout it found.
+Layout (verified 2026-09 on the Kaggle mirror vinayak21574/idd-detection, which keeps the
+original IDD_Detection tree):
+
+    Annotations/<subset>/<drive>/<frame>.xml     subset = frontFar, frontNear, highquality_16k,
+    JPEGImages/<subset>/<drive>/<frame>.jpg               rearNear, sideLeft, sideRight
+    train.txt, val.txt, test.txt                 one <subset>/<drive>/<frame> per line
+
+The official split comes from those lists, never from the path. Frame names repeat across
+drives (2,694 stems occur in more than one drive), so every record is keyed by its full
+<subset>/<drive>/<frame> path and its image is staged under a collision-proof name
+(<subset>__<drive>__<frame>) as a symlink: no pixel is copied and the source root may be
+read-only. Anything under Annotations/ that is not an .xml file (the mirror carries editor
+swap files such as .001542_r.xml.swp) is counted and ignored.
 """
 
 from __future__ import annotations
 
+import csv
 import json
+import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -20,17 +33,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _lib import (  # noqa: E402
-    IMAGE_SUFFIXES,
+    CART_SHEET_FIELDS,
     Counters,
     Logger,
     base_parser,
+    cart_sheet_path,
     class_ids,
     format_label_line,
+    imread_any,
     load_state,
     merge_jsonl,
+    read_cart_sheet,
     require_dirs,
+    resolve_source_root,
     run,
     save_state,
+    stage_link,
     write_json,
     write_lines,
     xyxy_to_yolo,
@@ -58,67 +76,59 @@ IDD_MAP: dict[str, str | None] = {
     "vehicle fallback": "__cart_review__",
 }
 
-# Frames whose only content is one of these become hard negatives (section 5).
-NEGATIVE_WORTHY = {"animal"}
+# Dropped classes that are still OBJECTS in the frame. Their boxes are kept on the record as
+# `nonschema_boxes` so a far-field negative tile never contains one, and a frame holding one
+# of the vehicle-like ones is never a negative (an unlabelled vehicle is not an empty scene).
+UNLABELLED_OBJECTS = {"animal", "train", "vehicle fallback"}
+BLOCKS_NEGATIVE = {"train", "vehicle fallback"}
 
 
 def normalise_native(name: str) -> str:
     return " ".join(name.strip().lower().replace("_", " ").split())
 
 
-def detect_layout(root: Path, log: Logger) -> tuple[str, list[Path]]:
-    """Find the annotation files without assuming IDD's directory shape (OQ-2)."""
-    xmls = list(root.rglob("*.xml"))
-    if xmls:
-        parallel = any("Annotations" in p.parts or "annotations" in p.parts for p in xmls[:50])
-        layout = "voc_xml_parallel_tree" if parallel else "voc_xml_flat"
-        log.info("layout detected", layout=layout, annotations=len(xmls))
-        return layout, xmls
-    jsons = [p for p in root.rglob("*.json") if p.name not in ("fetch_manifest.json",)]
-    if jsons:
-        log.info("layout detected", layout="json_index", annotations=len(jsons))
-        return "json_index", jsons
-    log.error("no annotation files found under the source root", root=str(root))
-    return "unknown", []
+def read_split_lists(root: Path, counters: Counters) -> dict[str, str]:
+    """<subset>/<drive>/<frame> -> official split, from train.txt / val.txt / test.txt."""
+    listed: dict[str, str] = {}
+    for split in ("train", "val", "test"):
+        path = root / f"{split}.txt"
+        if not path.exists():
+            counters.bump(f"list.missing.{split}")
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            key = line.strip().strip("/")
+            if not key:
+                continue
+            if key in listed and listed[key] != split:
+                counters.bump("list.entry_in_two_lists")
+            listed[key] = split
+            counters.bump(f"list.{split}")
+    return listed
 
 
-def find_image_for(annotation: Path, root: Path, index: dict[str, Path]) -> Path | None:
-    stem = annotation.stem
-    direct = index.get(stem)
-    if direct is not None:
-        return direct
-    for suffix in IMAGE_SUFFIXES:
-        candidate = annotation.with_suffix(suffix)
+def scan_annotations(root: Path, counters: Counters, log: Logger) -> list[str]:
+    """Every .xml under Annotations/, as <subset>/<drive>/<frame>. Non-xml files are counted."""
+    ann_root = root / "Annotations"
+    found: list[str] = []
+    for directory, _dirs, files in os.walk(ann_root):
+        for name in files:
+            if name.lower().endswith(".xml") and not name.startswith("."):
+                rel = (Path(directory) / name).relative_to(ann_root).with_suffix("")
+                found.append(rel.as_posix())
+            else:
+                counters.bump("annotation_dir.non_xml_ignored")
+                if counters.get("annotation_dir.non_xml_ignored") <= 5:
+                    log.warn("non-annotation file under Annotations/ ignored", file=str(Path(directory) / name))
+    return sorted(found)
+
+
+def find_image(root: Path, key: str) -> Path | None:
+    base = root / "JPEGImages" / key
+    for suffix in (".jpg", ".png", ".jpeg"):
+        candidate = Path(str(base) + suffix)
         if candidate.exists():
             return candidate
     return None
-
-
-def build_image_index(root: Path) -> dict[str, Path]:
-    index: dict[str, Path] = {}
-    for path in root.rglob("*"):
-        if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
-            index.setdefault(path.stem, path)
-    return index
-
-
-def sequence_key(image: Path, root: Path) -> str:
-    """splits.yaml idd.sequence_key = drive_folder. The drive is the parent directory."""
-    try:
-        relative = image.relative_to(root)
-    except ValueError:
-        return f"idd/{image.parent.name}"
-    parts = relative.parts
-    drive = parts[-2] if len(parts) >= 2 else "root"
-    return f"idd/{drive}"
-
-
-def official_split_of(image: Path, root: Path) -> str:
-    parts = {p.lower() for p in image.relative_to(root).parts} if root in image.parents else set()
-    for candidate in ("train", "val", "test"):
-        if candidate in parts:
-            return candidate
-    return "train"
 
 
 def parse_voc(path: Path, counters: Counters, log: Logger):
@@ -142,12 +152,7 @@ def parse_voc(path: Path, counters: Counters, log: Logger):
             counters.bump("object.no_bndbox")
             continue
         try:
-            coords = (
-                float(box.findtext("xmin")),
-                float(box.findtext("ymin")),
-                float(box.findtext("xmax")),
-                float(box.findtext("ymax")),
-            )
+            coords = tuple(float(box.findtext(k)) for k in ("xmin", "ymin", "xmax", "ymax"))
         except (TypeError, ValueError):
             counters.bump("object.bad_coords")
             continue
@@ -157,69 +162,86 @@ def parse_voc(path: Path, counters: Counters, log: Logger):
 
 def main() -> int:
     ap = base_parser(__doc__)
-    ap.add_argument("--source", default=None, help="IDD root (default: <raw>/idd)")
+    ap.add_argument("--source", default=None, help="IDD root, or any directory above it")
+    ap.add_argument(
+        "--subset-ok",
+        action="store_true",
+        help="the root is a deliberately partial fixture: listed frames with no file are counted, not fatal",
+    )
     args = ap.parse_args()
     log = Logger(SCRIPT)
     counters = Counters()
 
-    root = Path(args.source).resolve() if args.source else Path(args.raw).resolve() / "idd"
+    root = resolve_source_root("idd", args, log)
+    if root is None:
+        log.error("IDD root not found - run 00_fetch.py or pass --source")
+        return 1
     processed = Path(args.processed).resolve()
     out_labels = processed / "labels" / "idd"
+    out_stage = processed / "stage" / "idd"
     out_index = processed / "index" / "idd.jsonl"
-    cart_review = processed / "cart_review" / "vehicle_fallback.csv"
-
-    if not root.exists():
-        log.error("source root does not exist - run 00_fetch.py first", root=str(root))
-        return 1
+    sheet = cart_sheet_path(processed)
 
     ids = class_ids()
-    layout, annotations = detect_layout(root, log)
-    if layout == "unknown" or not annotations:
+    listed = read_split_lists(root, counters)
+    annotations = scan_annotations(root, counters, log)
+    log.info("layout", layout="IDD_Detection lists + Annotations/JPEGImages tree", listed=len(listed), xml=len(annotations))
+    if not annotations:
+        log.error("no annotation files under Annotations/", root=str(root))
         return 1
-    if layout == "json_index":
-        log.error(
-            "this build supports IDD's VOC XML annotations; a JSON index was found instead",
-            hint="report the layout so the parser can be extended rather than guessed at",
+
+    present = set(annotations)
+    listed_trainval = sorted(k for k, s in listed.items() if s in ("train", "val"))
+    missing_xml = [k for k in listed_trainval if k not in present]
+    if missing_xml:
+        counters.bump("list.trainval_without_xml", len(missing_xml))
+        (log.warn if args.subset_ok else log.error)(
+            "listed train/val frames have no annotation file", count=len(missing_xml), example=missing_xml[0]
         )
-        return 1
 
     if args.limit:
         annotations = annotations[: args.limit]
 
     state = load_state(processed, SCRIPT)
     done = set(state.get("done", [])) if not args.force else set()
+    require_dirs(out_labels, out_index.parent, sheet.parent)
 
-    log.info("indexing images", root=str(root))
-    index = build_image_index(root)
-    log.info("image index built", images=len(index))
-
-    require_dirs(out_labels, out_index.parent, cart_review.parent)
-
+    # The review sheet is a human's work. Verdicts already written are carried over, keyed by
+    # frame and box, so a re-run can never erase a completed review.
+    previous_verdicts = {
+        (row.get("uid"), row.get("xmin"), row.get("ymin"), row.get("xmax"), row.get("ymax")): row.get("verdict", "")
+        for row in read_cart_sheet(sheet)
+    }
+    cart_rows: list[dict] = []
     records: list[str] = []
-    cart_rows: list[str] = ["image,xmin,ymin,xmax,ymax,verdict"]
     unknown_classes: set[str] = set()
+    missing_images = 0
     written = 0
 
-    for annotation in annotations:
-        key = str(annotation.relative_to(root))
-        if key in done:
-            counters.bump("annotation.already_done")
+    for key in annotations:
+        official = listed.get(key)
+        if official is None:
+            counters.bump("annotation.unlisted_skipped")
+            continue
+        if official == "test":
+            counters.bump("annotation.official_test_unused")
             continue
 
-        parsed = parse_voc(annotation, counters, log)
+        uid = key.replace("/", "__")
+        parsed = parse_voc(root / "Annotations" / f"{key}.xml", counters, log)
         if parsed is None:
             continue
         width, height, objects = parsed
 
-        image = find_image_for(annotation, root, index)
+        image = find_image(root, key)
         if image is None:
-            log.warn("annotation has no image", annotation=key)
+            missing_images += 1
             counters.bump("annotation.no_image")
+            if missing_images <= 5:
+                log.warn("annotation has no image", annotation=key)
             continue
 
         if width <= 0 or height <= 0:
-            from _lib import imread_any
-
             probe = imread_any(image)
             if probe is None:
                 log.warn("unreadable image", image=str(image))
@@ -229,23 +251,29 @@ def main() -> int:
             counters.bump("image.size_recovered")
 
         lines: list[str] = []
-        native_only: set[str] = set()
+        natives: set[str] = set()
+        nonschema: list[list[float]] = []
         for native, coords in objects:
-            native_only.add(native)
+            natives.add(native)
             if native not in IDD_MAP:
                 unknown_classes.add(native)
                 counters.bump(f"native.UNKNOWN.{native}")
                 continue
+            if native in UNLABELLED_OBJECTS:
+                nonschema.append([round(coords[0] / width, 5), round(coords[1] / height, 5),
+                                  round(coords[2] / width, 5), round(coords[3] / height, 5)])
             target = IDD_MAP[native]
             if target is None:
                 counters.bump(f"dropped.{native}")
                 continue
             if target == "__cart_review__":
                 counters.bump("cart_review.queued")
-                cart_rows.append(
-                    f"{image.relative_to(root)},{coords[0]:.1f},{coords[1]:.1f},"
-                    f"{coords[2]:.1f},{coords[3]:.1f},UNVERIFIED"
-                )
+                row = {"uid": uid, "image": key, "xmin": f"{coords[0]:.1f}", "ymin": f"{coords[1]:.1f}",
+                       "xmax": f"{coords[2]:.1f}", "ymax": f"{coords[3]:.1f}"}
+                row["verdict"] = previous_verdicts.get(
+                    (uid, row["xmin"], row["ymin"], row["xmax"], row["ymax"]), ""
+                ) or "UNVERIFIED"
+                cart_rows.append(row)
                 continue
             geometry = xyxy_to_yolo(*coords, width, height)
             if geometry is None:
@@ -254,64 +282,82 @@ def main() -> int:
             lines.append(format_label_line(ids[target], *geometry))
             counters.bump(f"mapped.{target}")
 
-        label_path = out_labels / (annotation.stem + ".txt")
+        if key in done and not args.force:
+            counters.bump("annotation.already_done")
+            continue
+
+        staged = out_stage / f"{uid}{image.suffix.lower()}"
+        if not stage_link(image, staged, counters, args.dry_run):
+            log.error("could not stage image", image=str(image))
+            continue
+        label_path = out_labels / f"{uid}.txt"
         if not args.dry_run:
             write_lines(label_path, lines)
         written += 1
 
-        negative_worthy = bool(native_only) and native_only.issubset(NEGATIVE_WORTHY)
+        empty = not lines
+        negative_worthy = empty and not (natives & BLOCKS_NEGATIVE)
         records.append(
             json.dumps(
                 {
-                    "image": image.as_posix(),
+                    "image": staged.as_posix(),
+                    "source_image": image.as_posix(),
                     "label": label_path.as_posix(),
                     "source": "idd",
                     "modality": "visible",
-                    "sequence_key": sequence_key(image, root),
-                    "official_split": official_split_of(image, root),
+                    "lighting": "day",
+                    "sequence_key": "idd/" + "/".join(key.split("/")[:2]),
+                    "official_split": official,
                     "img_w": int(width),
                     "img_h": int(height),
                     "objects": len(lines),
-                    "negative_worthy": bool(negative_worthy or not native_only),
+                    "negative_worthy": bool(negative_worthy),
+                    "animal_only": bool(negative_worthy and "animal" in natives),
+                    "nonschema_boxes": nonschema,
                 },
                 sort_keys=True,
             )
         )
-        if not lines:
+        if empty:
             counters.bump("image.zero_objects")
         done.add(key)
 
     if unknown_classes:
-        log.error(
-            "native classes not present in the class map - refusing to guess",
-            classes=",".join(sorted(unknown_classes)),
-        )
+        log.error("native classes not present in the class map - refusing to guess",
+                  classes=",".join(sorted(unknown_classes)))
 
     if not args.dry_run:
         write_lines(out_index, merge_jsonl(out_index, records))
-        write_lines(cart_review, cart_rows)
+        # Rows for frames outside this run (a --limit run) are preserved, never dropped.
+        seen = {(r["uid"], r["xmin"], r["ymin"], r["xmax"], r["ymax"]) for r in cart_rows}
+        for row in read_cart_sheet(sheet):
+            k = (row.get("uid"), row.get("xmin"), row.get("ymin"), row.get("xmax"), row.get("ymax"))
+            if k not in seen:
+                cart_rows.append({f: row.get(f, "") for f in CART_SHEET_FIELDS})
+        cart_rows.sort(key=lambda r: (r["uid"], float(r["xmin"]), float(r["ymin"])))
+        tmp = sheet.with_suffix(".csv.tmp")
+        with tmp.open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=CART_SHEET_FIELDS)
+            writer.writeheader()
+            writer.writerows(cart_rows)
+        tmp.replace(sheet)
         state["done"] = sorted(done)
-        state["layout"] = layout
         save_state(processed, SCRIPT, state)
-        write_json(
-            processed / "reports" / "convert_idd.json",
-            {"layout": layout, "written": written, "counters": counters.as_dict()},
-        )
+        write_json(processed / "reports" / "convert_idd.json", {"written": written, "counters": counters.as_dict()})
 
     counters.report(log)
+    log.info("done", labels_written=written, cart_candidates=len(cart_rows), review_sheet=str(sheet))
     log.info(
-        "done",
-        layout=layout,
-        labels_written=written,
-        cart_candidates=counters.get("cart_review.queued"),
-        review_sheet=str(cart_review),
+        "cart review",
+        sheet=str(sheet),
+        rule="mark each row cart or not_cart; class 4 ships only at >= 300 verified (DATASET_SPEC.md 1.5)",
     )
-    log.info(
-        "NEXT: hand-verify the cart candidates",
-        sheet=str(cart_review),
-        gate="class 4 ships only at >= 300 verified instances (DATASET_SPEC.md section 1.5)",
-    )
-    return 1 if unknown_classes else 0
+    if unknown_classes:
+        return 1
+    if (missing_xml or missing_images) and not args.subset_ok:
+        log.error("listed frames are missing from the source root", missing_xml=len(missing_xml), missing_images=missing_images)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
-"""Fetch IDD, LLVIP and KAIST into a git-ignored directory.
+"""Locate or fetch every enabled source, verify its counts, record where it lives.
 
-Resumable, count-verified, and it never re-downloads what is already present.
-IDD is behind a registration and licence gate at IIIT Hyderabad: this script does
-not scrape it. It prints the registration URL, verifies a manually placed archive
-and extracts it. That refusal is deliberate.
+Three ways to give this script a source, in order of precedence:
 
-Licence strings are READ AT FETCH TIME from the upstream dataset card and written
-to reports/licences/. Nothing here paraphrases a licence from memory.
+  --root NAME=PATH        an existing directory, used where it is: never copied, never
+                          extracted, never written to. Read-only mounts are fine.
+  --mode kaggle_input     search --input-base (default /kaggle/input) for each source's
+                          marker (sources.yaml `marker`), e.g. /kaggle/input/<slug>/... or
+                          /kaggle/input/datasets/<owner>/<slug>/...
+  --mode download         (default) download the Kaggle mirror with the kaggle CLI into
+                          <raw>/<name>, resumable: a finished download is never repeated.
+
+Whatever the mode, the resolved root of each source is written to
+<processed>/_state/source_roots.json, which every converter reads, so later steps never need
+to be told again. Disabled sources (sources.yaml enabled: false) are skipped and say why.
+
+Counts are verified against sources.yaml `expected`. A mismatch is logged and counted; it is a
+warning, not a failure, because a deliberately partial fixture (the local smoke run) must pass
+through the same code.
 """
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
-import tarfile
-import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -24,10 +35,12 @@ from _lib import (  # noqa: E402
     Counters,
     Logger,
     base_parser,
-    count_images,
     load_sources,
     load_state,
+    locate_root,
+    read_json,
     require_dirs,
+    roots_state_path,
     run,
     save_state,
     write_json,
@@ -36,218 +49,220 @@ from _lib import (  # noqa: E402
 SCRIPT = "00_fetch"
 
 
-def fetch_huggingface(name: str, spec: dict, dest: Path, log: Logger, args, counters: Counters) -> bool:
-    try:
-        from huggingface_hub import list_repo_files, snapshot_download
-    except ImportError:
-        log.error("huggingface_hub is not installed", fix="pip install -r datasets/requirements.txt")
-        return False
-
-    repo_id = spec["repo_id"]
-    repo_type = spec.get("repo_type", "dataset")
-
-    try:
-        files = list_repo_files(repo_id, repo_type=repo_type)
-    except Exception as exc:  # network, auth, gating - all are failures worth naming
-        log.error("listing failed", source=name, repo=repo_id, error=type(exc).__name__, detail=str(exc)[:200])
-        counters.bump(f"{name}.list_failed")
-        return False
-
-    log.info("listed", source=name, repo=repo_id, files=len(files))
-
-    expected = spec.get("expected_file_count")
-    if expected:
-        tolerance = float(spec.get("count_tolerance", 0.02))
-        low, high = expected * (1 - tolerance), expected * (1 + tolerance)
-        if not low <= len(files) <= high:
-            log.warn(
-                "upstream file count differs from the recorded figure",
-                source=name,
-                found=len(files),
-                expected=expected,
-            )
-            counters.bump(f"{name}.count_mismatch")
-
-    _record_licence(name, repo_id, repo_type, log, args)
-
-    if args.dry_run:
-        log.info("dry-run: would fetch", source=name, repo=repo_id, dest=str(dest))
-        return True
-
-    dest.mkdir(parents=True, exist_ok=True)
-    patterns = spec.get("allow_patterns")
-    try:
-        snapshot_download(
-            repo_id=repo_id,
-            repo_type=repo_type,
-            local_dir=str(dest),
-            allow_patterns=patterns,
-            max_workers=4,
-            resume_download=True,
-        )
-    except Exception as exc:
-        log.error("download failed", source=name, error=type(exc).__name__, detail=str(exc)[:200])
-        counters.bump(f"{name}.download_failed")
-        return False
-
-    present = sum(1 for p in dest.rglob("*") if p.is_file())
-    log.info("fetched", source=name, files=present, dest=str(dest))
-    counters.bump(f"{name}.files", present)
-    return True
+# --------------------------------------------------------------------------- counting
 
 
-def _record_licence(name: str, repo_id: str, repo_type: str, log: Logger, args) -> None:
-    """Write the upstream licence string verbatim. OQ-4 and OQ-5 in DATASET_SPEC.md."""
-    out = REPORT_DIR / "licences" / f"{name}.txt"
-    if args.dry_run:
-        log.info("dry-run: would record licence", source=name, path=str(out))
-        return
-    text = f"source: {name}\nrepo: {repo_id}\n"
-    try:
-        from huggingface_hub import DatasetCard
-
-        card = DatasetCard.load(repo_id)
-        licence = getattr(card.data, "license", None)
-        text += f"licence field: {licence}\n\n--- card text, verbatim ---\n{card.text}\n"
-    except Exception as exc:
-        text += (
-            f"licence field: UNREAD ({type(exc).__name__})\n"
-            "OPEN QUESTION OQ-5 remains open. Redistribution stays assumed FORBIDDEN.\n"
-        )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(text, encoding="utf-8")
-    log.info("licence recorded", source=name, path=str(out))
+def count_lines(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
-def fetch_manual(name: str, spec: dict, dest: Path, log: Logger, args, counters: Counters) -> bool:
-    url = spec["registration_url"]
-    archives = spec.get("expected_archives", [])
-
-    log.info("this source is licence-gated and is never scraped", source=name, register_at=url)
-
-    dest.mkdir(parents=True, exist_ok=True)
-    found = [p for p in dest.iterdir() if p.is_file() and p.suffix in (".gz", ".tar", ".zip", ".tgz")]
-    extracted_marker = dest / ".extracted"
-
-    if extracted_marker.exists() and not args.force:
-        images = count_images(dest)
-        log.info("already extracted", source=name, images=images)
-        counters.bump(f"{name}.images", images)
-        return _verify_idd_count(name, spec, images, log, counters)
-
-    if not found:
-        log.error(
-            "no archive found - download it manually, then re-run",
-            source=name,
-            register_at=url,
-            place_in=str(dest),
-            expected=",".join(archives) if archives else "the detection archive",
-        )
-        counters.bump(f"{name}.missing_archive")
-        return False
-
-    if args.dry_run:
-        log.info("dry-run: would extract", source=name, archives=len(found))
-        return True
-
-    for archive in found:
-        log.info("extracting", source=name, archive=archive.name)
-        try:
-            if archive.suffix == ".zip":
-                with zipfile.ZipFile(archive) as zf:
-                    zf.extractall(dest)
-            else:
-                with tarfile.open(archive) as tf:
-                    tf.extractall(dest)
-        except Exception as exc:
-            log.error("extraction failed", archive=archive.name, error=type(exc).__name__)
-            counters.bump(f"{name}.extract_failed")
-            return False
-
-    extracted_marker.write_text("extracted\n", encoding="utf-8")
-    images = count_images(dest)
-    counters.bump(f"{name}.images", images)
-    log.info("extracted", source=name, images=images)
-    return _verify_idd_count(name, spec, images, log, counters)
+def count_files(directory: Path, suffixes: tuple[str, ...]) -> int:
+    if not directory.is_dir():
+        return 0
+    return sum(1 for entry in os.scandir(directory) if entry.is_file() and Path(entry.name).suffix.lower() in suffixes)
 
 
-def _verify_idd_count(name: str, spec: dict, images: int, log: Logger, counters: Counters) -> bool:
-    expected = spec.get("expected_image_count")
-    if not expected:
-        return True
+def observed_counts(name: str, root: Path, spec: dict) -> dict[str, int]:
+    """Cheap, file-system-only counts that correspond to sources.yaml `expected`."""
+    images = (".jpg", ".jpeg", ".png")
+    if name == "idd":
+        return {
+            "train_list": count_lines(root / "train.txt"),
+            "val_list": count_lines(root / "val.txt"),
+            "test_list": count_lines(root / "test.txt"),
+        }
+    if name == "flir":
+        return {subset: count_files(root / subset / "data", images) for subset in sorted(spec.get("subsets", {}))}
+    if name == "llvip":
+        return {
+            "annotations": count_files(root / "Annotations", (".xml",)),
+            "train_pairs": count_files(root / "infrared" / "train", images),
+            "test_pairs": count_files(root / "infrared" / "test", images),
+        }
+    return {}
+
+
+def verify_counts(name: str, root: Path, spec: dict, log: Logger, counters: Counters) -> dict:
+    expected = spec.get("expected") or {}
     tolerance = float(spec.get("count_tolerance", 0.02))
-    if not expected * (1 - tolerance) <= images <= expected * (1 + tolerance):
-        log.warn("image count differs from the recorded figure", source=name, found=images, expected=expected)
-        counters.bump(f"{name}.count_mismatch")
-    return True
+    observed = observed_counts(name, root, spec)
+    for key, want in sorted(expected.items()):
+        have = observed.get(key)
+        if have is None:
+            continue
+        if not want * (1 - tolerance) <= have <= want * (1 + tolerance):
+            log.warn("count differs from the recorded figure", source=name, item=key, found=have, expected=want)
+            counters.bump(f"{name}.count_mismatch")
+        else:
+            log.info("count verified", source=name, item=key, found=have, expected=want)
+    return observed
+
+
+# --------------------------------------------------------------------------- modes
+
+
+def download_kaggle(name: str, spec: dict, dest: Path, log: Logger, args, counters: Counters) -> Path | None:
+    """Download and unzip one mirror into <raw>/<name>. A `.complete` flag makes it resumable."""
+    marker = list(spec.get("marker") or [])
+    done_flag = dest / ".complete"
+    existing = locate_root(dest, marker) if dest.exists() else None
+    if existing is not None and done_flag.exists() and not args.force:
+        log.info("already downloaded", source=name, root=str(existing))
+        return existing
+    if args.dry_run:
+        log.info("dry-run: would download", source=name, ref=spec.get("kaggle_ref"), dest=str(dest))
+        return existing
+    if shutil.which("kaggle") is None:
+        log.error("kaggle CLI not found", fix="pip install kaggle and place the API token under ~/.kaggle/")
+        counters.bump(f"{name}.no_cli")
+        return None
+    dest.mkdir(parents=True, exist_ok=True)
+    command = ["kaggle", "datasets", "download", "-d", spec["kaggle_ref"], "-p", str(dest), "--unzip"]
+    log.info("downloading", source=name, command=" ".join(command))
+    result = subprocess.run(command, check=False)
+    if result.returncode != 0:
+        log.error("download failed", source=name, exit=result.returncode)
+        counters.bump(f"{name}.download_failed")
+        return None
+    root = locate_root(dest, marker)
+    if root is None:
+        log.error("download finished but the marker is missing", source=name, marker=",".join(marker))
+        counters.bump(f"{name}.marker_missing")
+        return None
+    done_flag.write_text("complete\n", encoding="utf-8")
+    return root
+
+
+def record_licence(name: str, spec: dict, root: Path | None, log: Logger, dry_run: bool) -> None:
+    """Write what is known about the licence. A mirror uploader's label is not a licence."""
+    out = REPORT_DIR / "licences" / f"{name}.txt"
+    if dry_run:
+        return
+    lines = [
+        f"source: {name}",
+        f"mirror: kaggle {spec.get('kaggle_ref', spec.get('repo_id', ''))}",
+        f"original: {spec.get('mirror_of', 'n/a')}",
+        f"third-party mirror: {spec.get('third_party_mirror', False)}",
+        f"licence (sources.yaml): {spec.get('licence')}",
+        f"redistribution (sources.yaml): {spec.get('redistribution')}",
+        "The licence of the ORIGINAL release governs. See docs/DATASET_CARD.md.",
+    ]
+    if root is not None:
+        for candidate in ("LICENSE", "LICENSE.txt", "license.txt", "README.md", "readme.txt"):
+            path = root / candidate
+            if path.is_file():
+                lines += ["", f"--- {candidate}, verbatim ---", path.read_text(encoding="utf-8", errors="replace")]
+                break
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    log.info("licence note recorded", source=name, path=str(out))
+
+
+def parse_roots(values: list[str], log: Logger) -> dict[str, Path] | None:
+    out: dict[str, Path] = {}
+    for value in values:
+        if "=" not in value:
+            log.error("--root must be NAME=PATH", got=value)
+            return None
+        name, path = value.split("=", 1)
+        out[name.strip()] = Path(path.strip())
+    return out
 
 
 def main() -> int:
     ap = base_parser(__doc__)
-    ap.add_argument(
-        "--only",
-        default=None,
-        help="fetch one source only: kaist, llvip or idd",
-    )
+    ap.add_argument("--only", default=None, help="one source only: idd, flir, llvip or kaist")
+    ap.add_argument("--mode", choices=("download", "kaggle_input"), default="download")
+    ap.add_argument("--input-base", default="/kaggle/input", help="where --mode kaggle_input searches")
+    ap.add_argument("--root", action="append", default=[], help="NAME=PATH, an existing source root (repeatable)")
     args = ap.parse_args()
     log = Logger(SCRIPT)
     counters = Counters()
 
+    overrides = parse_roots(args.root, log)
+    if overrides is None:
+        return 2
     sources = load_sources()["sources"]
+    unknown = sorted(set(overrides) - set(sources))
+    if unknown:
+        log.error("--root names an unknown source", names=",".join(unknown))
+        return 2
+
     raw_root = Path(args.raw).resolve()
     processed = Path(args.processed).resolve()
-    require_dirs(raw_root, REPORT_DIR)
+    require_dirs(processed)
 
     state = load_state(processed, SCRIPT)
+    roots: dict[str, str] = {}
     manifest: dict[str, dict] = {}
     failures = 0
 
     for name, spec in sources.items():
         if args.only and args.only != name:
             continue
-        dest = raw_root / name
-        log.info("source", source=name, kind=spec["kind"], dest=str(dest))
-
-        if state.get(name, {}).get("complete") and not args.force:
-            log.info("already complete, skipping", source=name, hint="--force to redo")
-            manifest[name] = state[name]
+        if not spec.get("enabled", True):
+            log.info("source disabled, skipped", source=name, reason=" ".join(str(spec.get("disabled_reason", "")).split()))
             continue
 
-        if spec["kind"] == "huggingface":
-            ok = fetch_huggingface(name, spec, dest, log, args, counters)
-        elif spec["kind"] == "manual_registration":
-            ok = fetch_manual(name, spec, dest, log, args, counters)
+        marker = list(spec.get("marker") or [])
+        root: Path | None = None
+        if name in overrides:
+            origin = "--root"
+            root = locate_root(overrides[name], marker) if marker else overrides[name]
+            if root is None:
+                log.error("--root has no marker", source=name, path=str(overrides[name]), marker=",".join(marker))
+        elif args.mode == "kaggle_input":
+            origin = "kaggle_input"
+            root = locate_root(Path(args.input_base), marker, max_depth=7) if marker else None
+            if root is None:
+                log.error("marker not found under the input base", source=name, base=args.input_base, marker=",".join(marker))
+        elif spec.get("kind") == "kaggle":
+            origin = "download"
+            root = download_kaggle(name, spec, raw_root / name, log, args, counters)
         else:
-            log.error("unknown source kind", source=name, kind=spec["kind"])
-            ok = False
+            origin = "none"
+            log.error("no fetch path for this source kind", source=name, kind=spec.get("kind"))
 
-        if not ok:
+        if root is None:
+            if args.dry_run and origin == "download":
+                continue
             failures += 1
+            counters.bump(f"{name}.unresolved")
             continue
 
-        entry = {
-            "complete": not args.dry_run,
-            "dest": str(dest),
-            "files": sum(1 for p in dest.rglob("*") if p.is_file()) if dest.exists() else 0,
+        root = root.resolve()
+        log.info("source resolved", source=name, root=str(root), origin=origin, writable=os.access(root, os.W_OK))
+        observed = verify_counts(name, root, spec, log, counters)
+        record_licence(name, spec, root, log, args.dry_run)
+        roots[name] = str(root)
+        manifest[name] = {
+            "root": str(root),
+            "origin": origin,
+            "kaggle_ref": spec.get("kaggle_ref"),
+            "observed": observed,
+            "expected": spec.get("expected"),
             "licence": spec.get("licence"),
             "redistribution": spec.get("redistribution"),
         }
-        manifest[name] = entry
-        if not args.dry_run:
-            state[name] = entry
 
     if not args.dry_run:
+        recorded = read_json(roots_state_path(processed), default={}) or {}
+        recorded.update(roots)
+        write_json(roots_state_path(processed), recorded)
+        state.update({k: {"root": v} for k, v in roots.items()})
         save_state(processed, SCRIPT, state)
-        write_json(Path(args.processed).resolve() / "fetch_manifest.json", manifest)
+        write_json(processed / "fetch_manifest.json", manifest)
 
     log.info("manifest")
     for name, entry in sorted(manifest.items()):
-        print(f"    {name:<8} files={entry.get('files', 0):<8} dest={entry.get('dest')}", flush=True)
-
+        print(f"    {name:<6} origin={entry['origin']:<13} root={entry['root']}", flush=True)
+        print(f"           observed={entry['observed']}", flush=True)
     counters.report(log)
 
     if failures:
-        log.error("one or more sources failed", failures=failures)
+        log.error("one or more enabled sources could not be resolved", failures=failures)
         return 1
     log.info("done", sources=len(manifest))
     return 0

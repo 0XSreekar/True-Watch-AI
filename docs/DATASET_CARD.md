@@ -5,19 +5,32 @@ classes in `docs/DATASET_SPEC.md` §1.1. Design and reasoning are in that spec; 
 is the record of what the data is, where it came from, and what may lawfully be done
 with it.
 
-**Redistribution, up front: this corpus cannot be published.** Two of its three sources
-are research-use datasets whose terms are not confirmed to permit re-hosting, so the
-pipeline never uploads source imagery anywhere. It uploads scripts and manifests, and the
-corpus is rebuilt on whatever machine needs it. The only publishable component is the
-synthetic plate set, which is ours.
+**Redistribution, up front: this corpus cannot be published.** None of its three sources
+has terms confirmed to permit re-hosting, so the pipeline never publishes source imagery.
+The corpus is rebuilt from the sources on a Kaggle notebook, and the built output stays a
+private working copy attached to the training notebook. The only publishable component is
+the synthetic plate set, which is ours.
+
+**Source change, 2026-09: KAIST is replaced by Teledyne FLIR ADAS v2.** The Hugging Face KAIST
+mirror holds images for `set00` and `set05` only and no annotation files, and the official
+KAIST label archives are behind dead links. `sources.yaml` keeps KAIST with `enabled: false`.
+
+**All three sources are read from third-party Kaggle mirrors** of the original releases. The
+mirror uploader's licence label ("other" / "unknown" on Kaggle) is not a licence; the terms of
+the ORIGINAL publisher govern, and redistribution is assumed forbidden for all three.
 
 ## Sources
 
 | source | content | size | licence | may we re-host it |
 |---|---|---|---|---|
-| **IDD Detection** (IIIT Hyderabad) | Indian road scenes, 15 detection classes, visible only | 46,588 images (31,569 / 10,225 / 4,794), `docs/MEASUREMENTS.md` | Research use, behind registration and a click-through agreement at `idd.insaan.iiit.ac.in`. **The exact clause text is OPEN QUESTION OQ-4** and is quoted verbatim into `datasets/reports/licences/` at fetch time rather than paraphrased. | **No.** `00_fetch.py` refuses to bypass the gate and nothing derived from IDD is re-hosted. |
-| **LLVIP** | registered visible/infrared pairs, pedestrians only | Hugging Face `jsonhash/LLVIP`; the commonly cited figure is 15,488 pairs, verified against the actual listing at fetch time — **OQ-5** | **OQ-5.** The Hub dataset card's licence string is copied verbatim at fetch time. | **Assume no** until that card says otherwise. |
-| **KAIST Multispectral Pedestrian** | paired visible + LWIR, pedestrians only | Hugging Face `richidubey/KAIST-Multispectral-Pedestrian-Detection-Dataset`, 23,210 files, `docs/MEASUREMENTS.md` | **OQ-5**, recorded the same way. | **Assume no.** |
+| **IDD Detection** (IIIT Hyderabad) | Indian road scenes, 15 detection classes, visible only | 46,588 images (31,569 / 10,225 / 4,794), `docs/MEASUREMENTS.md`; read from the **third-party Kaggle mirror `vinayak21574/idd-detection`** (original `IDD_Detection` layout; list counts verified 2026-09) | Original: research use, behind registration and a click-through agreement at `idd.insaan.iiit.ac.in`. **The exact clause text is OPEN QUESTION OQ-4.** The mirror states no licence ("unknown"). | **No.** Nothing derived from IDD is published. |
+| **Teledyne FLIR ADAS Thermal Dataset v2** | vehicle-mounted RGB + thermal (LWIR) frames, day and night, people and vehicles | 10,318 / 1,085 / 3,749 RGB and 10,742 / 1,144 / 3,749 thermal (train / val / video test), from the **third-party Kaggle mirror `samdazel/teledyne-flir-adas-thermal-dataset-v2`** (original `FLIR_ADAS_v2` layout; counts verified 2026-09) | Original: distributed free by Teledyne FLIR after a registration form (`oem.flir.com`). The public pages checked 2026-09 state no terms, and the mirror labels it "other" with no text. **OPEN QUESTION OQ-12.** Commercial use and redistribution are not assumed. | **Assume no.** |
+| **LLVIP** (BUPT) | registered visible/infrared pairs, pedestrians only | 15,488 pairs, 12,025 train / 3,463 test (upstream README, confirmed against the files), from the **third-party Kaggle mirror `afradhossain/llvip-dataset`** | Original: research use; the upstream repository states its own terms. **OQ-5.** The mirror states no licence ("unknown"). | **Assume no.** |
+| **HIT-UAV** (Harbin Institute of Technology) | UAV LWIR frames from 60-130 m, day and night | 2,898 images, from the **third-party Kaggle mirror `pandrii000/hituav-a-highaltitude-infrared-thermal-dataset`** | Original repository: **CC BY 4.0** (attribution required). | **No** (not needed; attribution kept here). |
+| **AAU-PD-T** (Aalborg University) | fixed LWIR surveillance cameras about 9 m up, people | 2,941 images, **third-party Kaggle mirror `noorulhuda90/aaupdt`** | Described as publicly available; no licence named. **OQ-15.** | **Assume no.** |
+| **BIRDSAI** (Conservation Drones, LILA BC) | aerial LWIR night video, humans and animals | real videos only, every 10th annotated frame; **third-party Kaggle mirror `manitagarwal/birdsai`** | Original (LILA BC): **CDLA-Permissive-1.0**. | **Assume no.** |
+| **VisDrone2019-DET** (Tianjin University) | visible drone frames of Asian streets, 10 classes | 8,629 images, **third-party Kaggle mirror `kushagrapandya/visdrone-dataset`** | Original: **CC BY-NC-SA 3.0, academic use only**. This project is non-commercial research. | **No.** |
+| ~~KAIST Multispectral Pedestrian~~ | disabled | no labelled copy reachable | **OQ-5** | **Assume no.** |
 | **Synthetic Nepali plates** | >= 20,000 rendered and degraded plate crops | generated by `datasets/plates/gen_plates.py` | Ours. Rendered with Noto Sans Devanagari under the SIL Open Font License 1.1, which permits free use of the rendered output. | **Yes.** The only part of the corpus that is ours to publish. |
 
 This repository is AGPL-3.0. **That licence does not extend to any dataset fetched by
@@ -31,43 +44,55 @@ exact strings `ARCHITECTURE_V2` §4.2 freezes on the wire. Full per-source mappi
 every native class either mapped, merged or explicitly dropped, is in `DATASET_SPEC.md`
 §1.2 to §1.4.
 
-**Class 4, `cart`, is conditional.** None of the three sources has a cart class. IDD's
-`vehicle fallback` is the only place a cart can be, and it is a heterogeneous catch-all.
-Class 4 ships only if hand verification yields **>= 300 instances**; below that it is
-withdrawn, capability 2 ships as three vehicle classes, and the withdrawal is stated here
-rather than hidden behind a class with forty examples. See `DATASET_SPEC.md` §1.5.
+**Class 4, `cart`, is conditional — and currently WITHDRAWN.** None of the three sources has a
+cart class. IDD's `vehicle fallback` is the only place a cart can be, and it is a
+heterogeneous catch-all. Class 4 ships only if hand verification yields **>= 300
+instances**. The review has not been done, so every build withdraws class 4: no class-4
+label is written, `data.yaml` keeps `nc: 5` with id 4 reserved and a comment stating the
+withdrawal, and the decision is recorded in `manifests/cart_gate.json`. Capability 2 ships as
+three vehicle classes (`two_wheeler`, `car`, `truck`) until the review sheet
+(`manifests/vehicle_fallback.csv`) holds 300 verified carts. See `DATASET_SPEC.md` §1.5.
+
+FLIR's `other vehicle` (like IDD's `vehicle fallback`) is dropped from the labels rather than
+merged into `truck`; frames containing one are never used as negatives.
 
 ## Splits
 
-Sequence-level, never frame-level. 70 / 15 / 15 ± 3%, each split between 55:45 and 70:30
-visible:infrared. KAIST set assignment is explicit in `datasets/config/splits.yaml`. The
+Sequence-level, never frame-level (IDD drive, FLIR videoId, LLVIP scene). 70 / 15 / 15 ± 3%,
+each split between 55:45 and 70:30 visible:infrared. FLIR keeps its official partition (train,
+val, video test at every third frame); no videoId appears in two splits, asserted in code. To
+reach the visible:infrared band, whole IDD drives are dropped by a seeded rule (roughly half of
+IDD at full scale); infrared is never dropped, and every dropped image is listed in
+`manifests/balance_dropped.txt` (`DATASET_SPEC.md` §2.7). The
 test split is **sealed until Phase 11** and `data.yaml` deliberately carries no `test:`
 key so a trainer cannot address it by accident.
 
 A 280-image hard set — tiny objects, heavy infrared, crowds, occlusion — is frozen in
 `datasets/manifests/hard_set.txt` and acts as a regression gate in every later phase.
 
-**Disclosed overlap:** `MEASUREMENTS.md` §1, §2 and §3 were produced on KAIST `set00/V007`,
-which this spec assigns to **train**. Those numbers all came from a **pretrained, not
-fine-tuned** model, so no fine-tuned figure is ever reported on data the fine-tune saw.
-Recorded here so it is not later mistaken for a leak.
+**Disclosed note:** `MEASUREMENTS.md` §1, §2 and §3 were produced on KAIST `set00/V007`, with a
+**pretrained** model. KAIST is no longer in the corpus, so no overlap with any split exists.
 
 ## Known biases
 
-- **Geographic.** IDD is Indian urban and semi-urban roads; KAIST is Korean campus and
-  downtown; LLVIP is Chinese street scenes. **No source is an Indo-Nepal border post.**
+- **Geographic.** IDD is Indian urban and semi-urban roads; FLIR ADAS is North American and
+  European driving; LLVIP is Chinese street scenes. **No source is an Indo-Nepal border post.**
   Every number this corpus produces is a public-dataset number, exactly as slide 5's
   status line already says.
-- **Viewpoint.** IDD is dashcam height; KAIST and LLVIP are near eye level. **None is
+- **Viewpoint.** IDD and FLIR are vehicle-mounted; LLVIP is an elevated street camera. **None is
   pole-mounted at 4–6 m looking down a 150 m approach.** Far-field tiling and the
   downscale augmentation are partial compensations, not a fix.
-- **Taxonomy impurity.** KAIST `cyclist` boxes enter as `person` and enclose the bicycle
-  with the rider; KAIST `people` and `person?` boxes become ignore regions.
-- **Class skew.** `person` dominates, at an expected 55–70% of instances. `cart` is
-  conditional and, if it ships, rare.
+- **Taxonomy impurity.** FLIR `other vehicle` and IDD `vehicle fallback` are unlabelled
+  vehicles inside labelled frames. FLIR `scooter` (rare) is mapped to two-wheeler without
+  knowing whether it is a kick or motor scooter (OQ-14).
+- **Balancing loss.** About half of IDD, the only Indian-road source, is dropped to satisfy the
+  visible:infrared band (`DATASET_SPEC.md` §2.7).
+- **Class skew.** `person` and `car` dominate (FLIR is car-heavy). `cart` is withdrawn.
 - **Spectral.** Infrared is LWIR only. No NIR, no active illumination. Infrared polarity
   convention per sequence is unknown (OQ-6), so polarity inversion is excluded from
-  augmentation.
+  augmentation. FLIR RGB and thermal frames are not registered pairs.
+- **Negatives.** Whole empty frames are scarce; most of the 10% negative pool is empty
+  far-field crops (640×640 native upper-strip tiles no annotated box touches).
 - **Single-class contamination.** LLVIP annotates people only, so its frames contain
   unlabelled vehicles. Those records are flagged `person_only` and are excluded from the
   negative pool for that reason.
@@ -98,6 +123,8 @@ Redistribution of the source datasets. Commercial use of anything derived from I
 
 ## Validation
 
-Nineteen automated gates with numeric thresholds, plus one manual 100-image visual check,
-all in `DATASET_SPEC.md` §9 and implemented in `datasets/scripts/10_validate.py`. The gate
-exits non-zero if any check fails.
+Nineteen gates with numeric thresholds, one of them a manual 100-image visual check, all in
+`DATASET_SPEC.md` §9 and implemented in `datasets/scripts/10_validate.py`, which validates the
+built dataset and exits non-zero if any check fails. On a detection-only Kaggle build the plate
+gate (G17) is reported SKIP, never PASS, and G19 stays FAIL until a human has looked at
+`reports/spotcheck/` and written the verdict.

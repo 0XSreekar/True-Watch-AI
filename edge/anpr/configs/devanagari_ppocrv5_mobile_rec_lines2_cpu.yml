@@ -1,0 +1,130 @@
+# Round 2 of the CPU fine-tune: continues from round 1's best_accuracy on line crops re-cut with the fixed line splitter
+# (rectify.py, commit c00538a), at half the learning rate. Same schedule otherwise; 1,121 iterations at batch 32.
+# Paths are relative to a PaddleOCR v3.3.0 checkout; run: python tools/train.py -c <this file>
+Global:
+  model_name: devanagari_PP-OCRv5_mobile_rec  # the name PaddleX's loader checks at inference
+  debug: false
+  use_gpu: false
+  epoch_num: 1
+  log_smooth_window: 20
+  print_batch_step: 50
+  save_model_dir: ./output/devanagari_finetune_lines2
+  save_epoch_step: 1
+  eval_batch_step: [0, 997]
+  cal_metric_during_train: true
+  pretrained_model: ./output/devanagari_finetune_lines/best_accuracy
+  checkpoints:
+  save_inference_dir:
+  use_visualdl: false
+  infer_img:
+  character_dict_path: ppocr/utils/dict/ppocrv5_devanagari_dict.txt
+  max_text_length: &max_text_length 25
+  infer_mode: false
+  use_space_char: true
+  distributed: false
+  save_res_path: ./train_data/output/predicts_devanagari.txt
+  d2s_train_image_shape: [3, 48, 320]
+
+Optimizer:
+  name: Adam
+  beta1: 0.9
+  beta2: 0.999
+  lr:
+    name: Cosine
+    learning_rate: 0.00015
+    warmup_epoch: 0
+  regularizer:
+    name: L2
+    factor: 3.0e-05
+
+Architecture:
+  model_type: rec
+  algorithm: SVTR_LCNet
+  Transform:
+  Backbone:
+    name: PPLCNetV3
+    scale: 0.95
+  Head:
+    name: MultiHead
+    head_list:
+      - CTCHead:
+          Neck:
+            name: svtr
+            dims: 120
+            depth: 2
+            hidden_dims: 120
+            kernel_size: [1, 3]
+            use_guide: True
+          Head:
+            fc_decay: 0.00001
+      - NRTRHead:
+          nrtr_dim: 384
+          max_text_length: *max_text_length
+
+Loss:
+  name: MultiLoss
+  loss_config_list:
+    - CTCLoss:
+    - NRTRLoss:
+
+PostProcess:
+  name: CTCLabelDecode
+
+Metric:
+  name: RecMetric
+  main_indicator: acc
+  ignore_space: False
+
+Train:
+  dataset:
+    name: SimpleDataSet
+    data_dir: ./train_data2/lines
+    label_file_list:
+    - ./train_data2/train_lines_list.txt
+    transforms:
+    - DecodeImage:
+        img_mode: BGR
+        channel_first: false
+    - RecAug:
+    - MultiLabelEncode:
+        gtc_encode: NRTRLabelEncode
+    - RecResizeImg:
+        image_shape: [3, 48, 320]
+    - KeepKeys:
+        keep_keys:
+        - image
+        - label_ctc
+        - label_gtc
+        - length
+        - valid_ratio
+  loader:
+    shuffle: true
+    batch_size_per_card: 32
+    drop_last: true
+    num_workers: 4
+Eval:
+  dataset:
+    name: SimpleDataSet
+    data_dir: ./train_data2/lines
+    label_file_list:
+    - ./train_data2/val_lines_list.txt
+    transforms:
+    - DecodeImage:
+        img_mode: BGR
+        channel_first: false
+    - MultiLabelEncode:
+        gtc_encode: NRTRLabelEncode
+    - RecResizeImg:
+        image_shape: [3, 48, 320]
+    - KeepKeys:
+        keep_keys:
+        - image
+        - label_ctc
+        - label_gtc
+        - length
+        - valid_ratio
+  loader:
+    shuffle: false
+    drop_last: false
+    batch_size_per_card: 32
+    num_workers: 2

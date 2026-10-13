@@ -7,8 +7,9 @@ mismatch or a broken resume shows up here in a few minutes instead of at hour ei
 
 Two of the steps prove the checkpoint story rather than assume it:
 
-  * KILL AND RESUME. Training is started in a child process and killed with SIGKILL after the
-    second epoch has been written; a second invocation with --resume must continue with no gap
+  * KILL AND RESUME. Training is started in a child process and killed with SIGKILL once the
+    second epoch is in train_log.csv AND weights/last_good.pt carries that epoch (the epoch index
+    stored inside the checkpoint is polled, not a fixed sleep); a second invocation with --resume must continue with no gap
     and no duplicate epoch in train_log.csv.
   * TORN CHECKPOINT. Ultralytics writes last.pt with a plain write, so a session killed mid-write
     leaves a truncated file. A second run is killed the same way, last.pt is then truncated by
@@ -88,18 +89,66 @@ def epochs_in_log(run_dir: Path) -> list[int]:
         return [int(float(row["epoch"])) for row in csv.DictReader(fh) if row.get("epoch")]
 
 
+def checkpoint_epoch(path: Path) -> int | None:
+    """The 0-based epoch index stored in an Ultralytics checkpoint, or None if it is missing or unreadable.
+
+    last_good.pt is replaced atomically (os.replace), so a read sees either the old or the new file,
+    never half of one. Loading needs torch and Ultralytics, which this preflight already requires.
+    """
+    if not path.exists():
+        return None
+    try:
+        import torch
+
+        ckpt = torch.load(str(path), map_location="cpu", weights_only=False)
+        epoch = ckpt.get("epoch") if isinstance(ckpt, dict) else None
+        return int(epoch) if epoch is not None else None
+    except Exception:
+        return None
+
+
+def wait_for_last_good(run_dir: Path, epochs_wanted: int, deadline: float, proc: subprocess.Popen) -> bool:
+    """Poll until weights/last_good.pt holds epoch `epochs_wanted` (1-based) or later.
+
+    The epoch marker inside the checkpoint is what is waited on, not a fixed sleep and not the order in
+    which train.py happens to write the log row and the copy: on a slow disk a fixed pause can kill the
+    run before last_good.pt of the second epoch exists, and the resume would then be tested against an
+    older checkpoint than the log claims. The file is only re-read when its mtime changes.
+    """
+    last_good = run_dir / "weights" / "last_good.pt"
+    seen_mtime = None
+    while time.time() < deadline and proc.poll() is None:
+        try:
+            mtime = last_good.stat().st_mtime_ns
+        except FileNotFoundError:
+            mtime = None
+        if mtime is not None and mtime != seen_mtime:
+            seen_mtime = mtime
+            epoch = checkpoint_epoch(last_good)
+            if epoch is not None and epoch + 1 >= epochs_wanted:
+                return True
+        time.sleep(0.2)
+    return False
+
+
 def kill_after_epochs(cmd: list[str], run_dir: Path, epochs_wanted: int, log: Path, timeout: float) -> tuple[bool, list[int]]:
-    """Start training, SIGKILL it once `epochs_wanted` epochs are logged. Returns (killed, epochs)."""
+    """Start training, SIGKILL it once `epochs_wanted` epochs are logged AND last_good.pt holds them.
+
+    Returns (killed, epochs). `killed` is False when training ended, or the timeout passed, before
+    both conditions held, so the caller's check fails instead of testing a resume from the wrong point.
+    """
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("w", encoding="utf-8") as fh:
         proc = subprocess.Popen([sys.executable, *cmd], stdout=fh, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = time.time() + timeout
         while time.time() < deadline and proc.poll() is None:
             if len(epochs_in_log(run_dir)) >= epochs_wanted:
-                time.sleep(0.5)  # let last_good.pt finish copying; a real kill is not this polite
+                ready = wait_for_last_good(run_dir, epochs_wanted, deadline, proc)
+                if proc.poll() is not None:
+                    break  # training finished on its own: nothing was killed
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
-                return True, epochs_in_log(run_dir)
+                return ready, epochs_in_log(run_dir)
             time.sleep(0.5)
         if proc.poll() is None:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -232,17 +281,18 @@ def main() -> int:
     wdir = work / "onnx"
     code, out = run([str(SCRIPTS / "export_onnx.py"), "--weights", str(weights), "--imgsz", str(a.imgsz), "--tag", "smoke",
                      "--out", str(wdir), "--results-dir", str(res)], logs / "export.log")
-    parity = re.search(r"PARITY max_abs_diff=(\S+) tolerance=\S+ -> (PASS|FAIL)", out)
+    parity = re.search(r"PARITY raw_max_abs_diff=(\S+) gated_max_abs_diff=(\S+) gated_box_units=\S+ tolerance=\S+ -> (PASS|FAIL)", out)
     onnx_file = next(iter(sorted(wdir.glob("*.onnx"))), None)
     rep.add("export: torch vs onnxruntime parity printed and passing",
-            code == 0 and bool(parity) and parity.group(2) == "PASS" and onnx_file is not None,
+            code == 0 and bool(parity) and parity.group(3) == "PASS" and onnx_file is not None,
             parity.group(0) if parity else f"exit {code}, no PARITY line", time.time() - t)
 
     # ---- 9. benchmark (a handful of runs; the point is that it runs)
     if onnx_file is not None:
         t = time.time()
         code, out = run([str(SCRIPTS / "benchmark_cpu.py"), "--model", str(onnx_file), "--imgsz", str(a.imgsz), "--runs", "20",
-                         "--warmup", "3", "--label", "smoke", "--out", str(res / "benchmark_smoke.json")], logs / "benchmark.log")
+                         "--warmup", "3", "--label", "smoke", "--weights-kind", "trained", "--out", str(res / "benchmark_smoke.json")],
+                        logs / "benchmark.log")
         bench = C.read_json(res / "benchmark_smoke.json", {})
         ms = bench.get("inference_ms", {})
         rep.add("benchmark: p50 and p95 reported", code == 0 and "p50" in ms and "p95" in ms,

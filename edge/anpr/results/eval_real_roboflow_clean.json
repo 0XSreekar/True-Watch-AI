@@ -1,0 +1,25 @@
+{
+  "set": "Roboflow test splits (sushant-kvyez/license-plate-s8svk v11, prajwal-ghimire-tngts/nepali-characters-detection v8, college-fyp-ewmvi/license-plate-detection-system-nktef v4; CC BY 4.0)",
+  "held_out_rule": "only test plates whose registration text never occurs in the training lines (114 of 208; 94 photographs show a vehicle that also appears in training)",
+  "models": {
+    "g4_latest": {
+      "count": 114,
+      "exact_match_rate": 0.5965,
+      "mean_cer": 0.1251,
+      "all_208_exact_match_rate": 0.601
+    },
+    "g5_latest": {
+      "count": 114,
+      "exact_match_rate": 0.7807,
+      "mean_cer": 0.0688,
+      "all_208_exact_match_rate": 0.7596
+    },
+    "g6_latest": {
+      "count": 114,
+      "exact_match_rate": 0.7281,
+      "mean_cer": 0.1052,
+      "all_208_exact_match_rate": 0.7452
+    }
+  },
+  "note": "summary only; per-sample results are kept outside the repository"
+}

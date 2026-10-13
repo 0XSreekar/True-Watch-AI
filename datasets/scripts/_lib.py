@@ -23,10 +23,13 @@ from typing import Any, Callable, Iterable, Iterator
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATASETS_ROOT = REPO_ROOT / "datasets"
 CONFIG_DIR = DATASETS_ROOT / "config"
-MANIFEST_DIR = DATASETS_ROOT / "manifests"
-REPORT_DIR = DATASETS_ROOT / "reports"
+# Manifests and reports default to the repository. A Kaggle build points both into its output
+# directory (TRUEWATCH_MANIFEST_DIR / TRUEWATCH_REPORT_DIR) so they travel with the dataset
+# instead of dying with the notebook's repository clone.
+MANIFEST_DIR = Path(os.environ.get("TRUEWATCH_MANIFEST_DIR") or DATASETS_ROOT / "manifests").resolve()
+REPORT_DIR = Path(os.environ.get("TRUEWATCH_REPORT_DIR") or DATASETS_ROOT / "reports").resolve()
 DEFAULT_RAW = REPO_ROOT / "var" / "datasets"
-DEFAULT_PROCESSED = DATASETS_ROOT / "processed"
+DEFAULT_PROCESSED = Path(os.environ.get("TRUEWATCH_PROCESSED") or DATASETS_ROOT / "processed")
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
@@ -115,7 +118,20 @@ def base_parser(description: str) -> argparse.ArgumentParser:
     )
     ap.add_argument("--limit", type=int, default=None, help="process at most this many items")
     ap.add_argument("--force", action="store_true", help="redo work already done")
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=default_workers(),
+        help="worker processes for image-heavy steps (1 = run in-process)",
+    )
     return ap
+
+
+def default_workers() -> int:
+    env = os.environ.get("TRUEWATCH_WORKERS", "").strip()
+    if env.isdigit() and int(env) > 0:
+        return int(env)
+    return max(1, min(4, os.cpu_count() or 1))
 
 
 # --------------------------------------------------------------------------- io
@@ -386,3 +402,443 @@ def require_dirs(*paths: Path) -> None:
 
 def env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+# --------------------------------------------------------------------------- source roots
+#
+# A source root may be a downloaded directory under --raw, or a read-only directory some
+# other system mounted (a Kaggle input). Nothing in this pipeline writes under a source root.
+
+
+def roots_state_path(processed: Path) -> Path:
+    return processed / "_state" / "source_roots.json"
+
+
+def locate_root(base: Path, marker: list[str], max_depth: int = 6) -> Path | None:
+    """First directory at or below `base` (breadth first, sorted) holding every marker entry."""
+    base = Path(base)
+    if not base.exists():
+        return None
+    frontier = [base]
+    for _depth in range(max_depth + 1):
+        next_frontier: list[Path] = []
+        for directory in frontier:
+            if all((directory / m).exists() for m in marker):
+                return directory
+            try:
+                children = sorted(p for p in directory.iterdir() if p.is_dir() and not p.name.startswith("."))
+            except OSError:
+                continue
+            next_frontier.extend(children)
+        frontier = next_frontier
+        if not frontier:
+            break
+    return None
+
+
+def resolve_source_root(name: str, args, log: "Logger") -> Path | None:
+    """--source, else the root 00_fetch.py recorded, else <raw>/<name>; then find the marker."""
+    spec = load_sources()["sources"].get(name, {})
+    marker = list(spec.get("marker") or [])
+    processed = Path(args.processed).resolve()
+    candidates: list[tuple[str, Path]] = []
+    if getattr(args, "source", None):
+        candidates.append(("--source", Path(args.source)))
+    recorded = (read_json(roots_state_path(processed), default={}) or {}).get(name)
+    if recorded:
+        candidates.append(("00_fetch record", Path(recorded)))
+    candidates.append(("--raw", Path(args.raw) / name))
+    for origin, candidate in candidates:
+        root = locate_root(candidate, marker) if marker else (candidate if candidate.exists() else None)
+        if root is not None:
+            log.info("source root", source=name, root=str(root), origin=origin, writable=os.access(root, os.W_OK))
+            return root.resolve()
+        log.warn("candidate root has no marker", source=name, candidate=str(candidate), marker=",".join(marker))
+    return None
+
+
+def stage_link(target: Path, link: Path, counters: "Counters", dry_run: bool = False) -> bool:
+    """Give a read-only source file a collision-proof name without copying it.
+
+    IDD and KAIST reuse frame names across drives and videos (IDD: 2,694 stems appear in more
+    than one drive). Every later step, and training/, names files after Path(image).stem, so the
+    record's image path must itself carry a unique stem. A symlink costs no disk; when the
+    filesystem refuses one the file is copied and the copy is counted."""
+    if dry_run:
+        return True
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if link.is_symlink() or link.exists():
+        try:
+            if link.resolve() == target.resolve():
+                counters.bump("stage.already_linked")
+                return True
+        except OSError:
+            pass
+        link.unlink()
+    try:
+        link.symlink_to(target)
+        counters.bump("stage.linked")
+        return True
+    except OSError:
+        import shutil
+
+        try:
+            shutil.copy2(target, link)
+            counters.bump("stage.copied_symlink_refused")
+            return True
+        except OSError:
+            counters.bump("stage.failed")
+            return False
+
+
+def assert_unique(keys: Iterable[str], what: str) -> None:
+    """Fail loudly on a duplicate. A duplicate final name means one file overwrote another."""
+    seen: dict[str, int] = {}
+    for key in keys:
+        seen[key] = seen.get(key, 0) + 1
+    dupes = sorted(k for k, n in seen.items() if n > 1)
+    if dupes:
+        raise AssertionError(f"{len(dupes)} duplicate {what}: {dupes[:5]}")
+
+
+def final_stem(record: dict) -> str:
+    """The one naming rule for a placed file: {source}_{stem of record['image']}_{modality}.
+
+    training/scripts (eval_hardset.final_stem_of, _common.MetaResolver) re-derive final names
+    with exactly this rule, so it must not change. Uniqueness is guaranteed upstream by giving
+    every record an image path whose stem is unique within its source (see stage_link)."""
+    return f"{record.get('source', 'x')}_{Path(record['image']).stem}_{record.get('modality', 'visible')}"
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    out: list[dict] = []
+    if not path.exists():
+        return out
+    with path.open(encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if line:
+                out.append(json.loads(line))
+    return out
+
+
+# --------------------------------------------------------------------------- infrared
+
+
+def ir_conversion_params() -> tuple[float, int]:
+    conv = load_augment()["infrared_conversion"]
+    if conv.get("false_colour"):
+        raise SystemExit("augment.yaml enables false colour; DATASET_SPEC.md section 3.4 forbids it")
+    return float(conv.get("clahe_clip", 2.0)), int(conv.get("clahe_tile_grid", 8))
+
+
+def ir_to_three_channel(gray, clip: float, grid: int):
+    """Section 3.4: CLAHE, then B = G = R. No false colour, ever."""
+    import cv2
+    import numpy as np
+
+    clahe = cv2.createCLAHE(clipLimit=float(clip), tileGridSize=(int(grid), int(grid)))
+    return np.repeat(clahe.apply(gray)[:, :, None], 3, axis=2)
+
+
+def load_for_output(record: dict, ir_params: tuple[float, int] | None = None):
+    """The pixels a record contributes to the dataset. LWIR is converted here, at write time,
+    so no 3-channel intermediate is ever stored (at Kaggle scale that intermediate alone would
+    exceed the 20 GB output limit). Tiles are cut from this same function's output, so a tile
+    is already converted and is read as is."""
+    path = Path(record["image"])
+    if record.get("modality") == "lwir" and not record.get("tiled"):
+        gray = imread_gray(path)
+        if gray is None:
+            return None
+        clip, grid = ir_params or ir_conversion_params()
+        return ir_to_three_channel(gray, clip, grid)
+    return imread_any(path)
+
+
+def encode_jpeg(image, quality: int) -> bytes | None:
+    import cv2
+
+    ok, buffer = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)])
+    return buffer.tobytes() if ok else None
+
+
+def cap_long_side(image, cap: int):
+    import cv2
+
+    height, width = image.shape[:2]
+    longest = max(height, width)
+    if cap and longest > cap:
+        scale = cap / float(longest)
+        size = (max(1, int(round(width * scale))), max(1, int(round(height * scale))))
+        return cv2.resize(image, size, interpolation=cv2.INTER_AREA), True
+    return image, False
+
+
+def detector_px(h_norm: float, img_w: int, img_h: int, imgsz: int = 640) -> float:
+    """Normalised box height -> pixels at the detector input (long side letterboxed to imgsz).
+
+    MEASUREMENTS.md section 3's 19/14/9 px cliff is measured at the detector input, so every
+    small-object count in this pipeline is expressed on that scale."""
+    longest = max(1, max(int(img_w or 0), int(img_h or 0)))
+    return float(h_norm) * float(img_h or 0) * imgsz / longest
+
+
+# --------------------------------------------------------------------------- composition
+
+
+def load_composition() -> dict:
+    return load_splits_config().get("composition", {})
+
+
+def tile_windows(width: int, height: int, tile: int, overlap: float, strip_top: float, strip_bottom: float):
+    """Tile origins over the far-field strip. Empty when the frame is smaller than a tile."""
+    if width < tile or height < tile:
+        return []
+    y1 = int(height * strip_top)
+    y2 = int(height * strip_bottom)
+    if y2 - y1 < tile:
+        y2 = min(height, y1 + tile)  # strip thinner than a tile: one row anchored at the strip top
+    if y2 - y1 < tile:
+        return []
+
+    def origins(extent: int) -> list[int]:
+        if extent <= tile:
+            return [0]
+        step = max(1, int(round(tile * (1.0 - overlap))))
+        out = list(range(0, max(1, extent - tile + 1), step))
+        if out[-1] != extent - tile:
+            out.append(extent - tile)
+        return out
+
+    return [(ox, y1 + oy) for oy in origins(y2 - y1) for ox in origins(width)]
+
+
+def clip_box_to_tile(cx, cy, w, h, width, height, ox, oy, tile, min_retained):
+    x1, y1 = (cx - w / 2.0) * width, (cy - h / 2.0) * height
+    x2, y2 = (cx + w / 2.0) * width, (cy + h / 2.0) * height
+    area = max(1e-9, (x2 - x1) * (y2 - y1))
+    ix1, iy1 = max(x1, ox), max(y1, oy)
+    ix2, iy2 = min(x2, ox + tile), min(y2, oy + tile)
+    if ix2 <= ix1 or iy2 <= iy1:
+        return None, False
+    if (ix2 - ix1) * (iy2 - iy1) / area < min_retained:
+        return None, True  # touches the tile but too little survives
+    return (((ix1 + ix2) / 2.0 - ox) / tile, ((iy1 + iy2) / 2.0 - oy) / tile, (ix2 - ix1) / tile, (iy2 - iy1) / tile), True
+
+
+def plan_object_tiles(train_records: list[dict], seed: int) -> list[dict]:
+    """Deterministic far-field tile plan, shared by 07 (which sizes the negative pool against
+    it) and 08 (which cuts it). Same inputs and seed -> the same list, element for element.
+
+    Tiles holding a small object (<= small_object_px at native resolution) are taken first,
+    because the small-object tail is what tiling exists for; the budget is split by modality
+    at composition.tiles.lwir_share so tiles do not push the visible share out of band."""
+    import random
+
+    cfg = load_composition().get("tiles", {})
+    tile = int(cfg.get("size", 640))
+    overlap = float(cfg.get("overlap", 0.20))
+    top, bottom = float(cfg.get("strip_top", 0.0)), float(cfg.get("strip_bottom", 0.40))
+    min_retained = float(cfg.get("min_box_area_retained", 0.30))
+    budget = int(cfg.get("max_tiles", 6000))
+    lwir_share = float(cfg.get("lwir_share", 0.35))
+    small_px = float(cfg.get("small_object_px", 27))
+
+    pools: dict[str, list[dict]] = {"visible": [], "lwir": []}
+    for record in sorted(train_records, key=lambda r: r["image"]):
+        if record.get("objects", 0) <= 0 or record.get("is_negative") or record.get("tiled"):
+            continue
+        width, height = int(record.get("img_w") or 0), int(record.get("img_h") or 0)
+        windows = tile_windows(width, height, tile, overlap, top, bottom)
+        if not windows:
+            continue
+        rows, _errors = parse_label_file(Path(record["label"]))
+        for ox, oy in windows:
+            kept = []
+            small = False
+            for class_id, cx, cy, w, h in rows:
+                clipped, _touch = clip_box_to_tile(cx, cy, w, h, width, height, ox, oy, tile, min_retained)
+                if clipped is None:
+                    continue
+                kept.append((class_id, *clipped))
+                if h * height <= small_px:
+                    small = True
+            if not kept:
+                continue
+            pools.setdefault(record.get("modality", "visible"), []).append(
+                {"parent": record["image"], "ox": ox, "oy": oy, "rows": kept, "small": small,
+                 "modality": record.get("modality", "visible")}
+            )
+
+    rng = random.Random(seed)
+    ordered: dict[str, list[dict]] = {}
+    for modality, pool in sorted(pools.items()):
+        smalls = [c for c in pool if c["small"]]
+        others = [c for c in pool if not c["small"]]
+        rng.shuffle(smalls)
+        rng.shuffle(others)
+        ordered[modality] = smalls + others
+
+    want_ir = int(round(budget * lwir_share))
+    take_ir = ordered.get("lwir", [])[:want_ir]
+    take_vis = ordered.get("visible", [])[: budget - len(take_ir)]
+    if len(take_vis) + len(take_ir) < budget:  # visible short: top up with more infrared
+        take_ir = ordered.get("lwir", [])[: budget - len(take_vis)]
+    chosen = take_vis + take_ir
+    chosen.sort(key=lambda c: (c["parent"], c["oy"], c["ox"]))
+    return chosen
+
+
+# --------------------------------------------------------------------------- cart gate
+
+
+CART_SHEET_FIELDS = ["uid", "image", "xmin", "ymin", "xmax", "ymax", "verdict"]
+
+
+def cart_sheet_path(processed: Path) -> Path:
+    return processed / "cart_review" / "vehicle_fallback.csv"
+
+
+def read_cart_sheet(path: Path) -> list[dict]:
+    import csv
+
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8", newline="") as fh:
+        return [dict(row) for row in csv.DictReader(fh)]
+
+
+def cart_gate_status(processed: Path) -> dict:
+    """DATASET_SPEC.md section 1.5, evaluated. Class 4 ships only at >= min_verified_instances
+    rows marked `cart` by a human; otherwise it is withdrawn and id 4 stays reserved."""
+    gate = load_schema().get("cart_gate", {})
+    threshold = int(gate.get("min_verified_instances", 300))
+    rows = read_cart_sheet(cart_sheet_path(processed))
+    verdicts = [str(r.get("verdict", "")).strip().lower() for r in rows]
+    verified = sum(1 for v in verdicts if v == "cart")
+    rejected = sum(1 for v in verdicts if v in ("not_cart", "notcart", "no"))
+    unreviewed = len(rows) - verified - rejected
+    shipped = verified >= threshold
+    return {
+        "candidates": len(rows),
+        "verified_cart": verified,
+        "rejected_not_cart": rejected,
+        "unreviewed": unreviewed,
+        "threshold": threshold,
+        "shipped": shipped,
+        "decision": "ship_class_4" if shipped else "withdraw_class_4",
+        "reason": (
+            f"{verified} hand-verified instances >= {threshold}"
+            if shipped
+            else f"{verified} hand-verified instances < {threshold} "
+            f"({unreviewed} of {len(rows)} candidates never reviewed); class 4 withdrawn, id 4 reserved"
+        ),
+    }
+
+
+# --------------------------------------------------------------------------- parallel
+
+
+def parallel_map(func: Callable, items: list, workers: int, chunksize: int = 16) -> Iterator:
+    """Ordered map over a process pool; in-process when workers <= 1 or the list is tiny.
+
+    The worker function must live at module level in an importable module (this one), because
+    macOS starts workers with spawn and re-imports it."""
+    if workers <= 1 or len(items) < 2 * chunksize:
+        for item in items:
+            yield func(item)
+        return
+    import multiprocessing as mp
+
+    with mp.get_context("spawn").Pool(processes=workers) as pool:
+        for result in pool.imap(func, items, chunksize=chunksize):
+            yield result
+
+
+def phash_worker(path: str):
+    gray = imread_gray(Path(path))
+    return None if gray is None else phash64(gray)
+
+
+def ir_probe_worker(path: str):
+    """04: decode one LWIR frame, report bit depth and intensity spread, prove B = G = R."""
+    import cv2
+    import numpy as np
+
+    data = np.fromfile(path, dtype=np.uint8)
+    if data.size == 0:
+        return {"ok": False, "why": "empty"}
+    raw = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+    if raw is None:
+        return {"ok": False, "why": "undecodable"}
+    colour_input = raw.ndim == 3
+    gray = imread_gray(Path(path))
+    clip, grid = ir_conversion_params()
+    three = ir_to_three_channel(gray, clip, grid)
+    replicated = bool(np.array_equal(three[..., 0], three[..., 1]) and np.array_equal(three[..., 1], three[..., 2]))
+    return {
+        "ok": replicated,
+        "why": "" if replicated else "channels differ after conversion",
+        "bit16": bool(raw.dtype != np.uint8),
+        "colour_input": colour_input,
+        "ir_std": round(float(gray.std()), 3),
+    }
+
+
+def place_worker(job: dict) -> dict:
+    """09: write one final image (JPEG) and its label. Returns sizes for the projection."""
+    record = job["record"]
+    target = Path(job["target_image"])
+    label_target = Path(job["target_label"])
+    result = {"ok": False, "bytes": 0, "downscaled": False, "why": ""}
+    if job.get("skip_image") and target.exists():
+        result.update(ok=True, bytes=target.stat().st_size, why="already_placed")
+    else:
+        image = load_for_output(record, tuple(job["ir_params"]))
+        if image is None:
+            result["why"] = "unreadable"
+            return result
+        downscaled = False
+        if not record.get("tiled"):
+            image, downscaled = cap_long_side(image, int(job["long_side_cap"]))
+        payload = encode_jpeg(image, int(job["quality"]))
+        if payload is None:
+            result["why"] = "encode_failed"
+            return result
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(".tmp")
+        tmp.write_bytes(payload)
+        tmp.replace(target)
+        result.update(ok=True, bytes=len(payload), downscaled=downscaled)
+    label_target.parent.mkdir(parents=True, exist_ok=True)
+    label_target.write_text("".join(line + "\n" for line in job["lines"]), encoding="utf-8")
+    return result
+
+
+def tile_worker(job: dict) -> dict:
+    """08: cut every planned tile of one parent frame and write them as JPEG."""
+    record = job["record"]
+    image = load_for_output(record, tuple(job["ir_params"]))
+    if image is None:
+        return {"ok": False, "written": 0, "why": "unreadable"}
+    tile = int(job["tile"])
+    written = 0
+    wrong = 0
+    for spec in job["tiles"]:
+        ox, oy = int(spec["ox"]), int(spec["oy"])
+        crop = image[oy : oy + tile, ox : ox + tile]
+        if crop.shape[0] != tile or crop.shape[1] != tile:
+            wrong += 1
+            continue
+        payload = encode_jpeg(crop, int(job["quality"]))
+        if payload is None:
+            wrong += 1
+            continue
+        out = Path(spec["image"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(payload)
+        Path(spec["label"]).parent.mkdir(parents=True, exist_ok=True)
+        Path(spec["label"]).write_text("".join(line + "\n" for line in spec["lines"]), encoding="utf-8")
+        written += 1
+    return {"ok": wrong == 0, "written": written, "wrong": wrong, "why": "" if wrong == 0 else "wrong_shape"}
