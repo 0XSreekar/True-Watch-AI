@@ -79,12 +79,15 @@ fail on different frames:
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Sequence
 
 from pipeline.motion import MotionChannel, MotionField, motion_reliability
 from pipeline.types import ChannelScore, FrameRef, FusedEvent, Track
+
+log = logging.getLogger("truewatch.edge.fusion")
 
 
 def _env_weight(name: str) -> float | None:
@@ -94,8 +97,11 @@ def _env_weight(name: str) -> float | None:
     try:
         v = float(raw)
     except ValueError:
+        v = None
+    if v is None or not 0.0 <= v <= 1.0:
+        log.warning("%s=%r is not a number in [0, 1]; using the measured weight instead", name, raw)
         return None
-    return v if 0.0 <= v <= 1.0 else None
+    return v
 
 
 def modality_weights(modality: str) -> tuple[float, float]:
@@ -123,7 +129,7 @@ class FusionConfig:
             if raw:
                 kw["threshold"] = float(raw)
         except ValueError:
-            pass
+            log.warning("FUSION_THRESHOLD_DEFAULT=%r is not a number; using %.2f", raw, cls.threshold)
         kw.update(overrides)
         return cls(**kw)
 

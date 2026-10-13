@@ -84,17 +84,21 @@ open file handles flat at 188-189. No handle leak; the slow memory rise should b
 | Unpinned `paddleocr` resolves 2.x: plate reading breaks and `edge/tools` is shadowed | P0 on a fresh install | pinned + `edge/requirements.lock` (`4289d9f`) |
 | Backend validator dropped `nullable` when chained with `optional`: every edge template reason patch refused (400) | P0 | `f0ea645` + regression test |
 | Two evidence chains (backend digest differs from edge canonical block hash); live pipeline never sealed clips | P1 | `d7cf23e` edge seals at capture; backend reads the edge chain first |
-| Default `TARGET_FPS=8` decimated 20 fps cameras; fusion then emitted no alerts at all (0 at 8 and 10 fps, 8 at native rate) | P0 | default 25 (`d7cf23e`); a time-based temporal gate is the proper fix (open) |
+| Default `TARGET_FPS=8` decimated 20 fps cameras; fusion then emitted no alerts at all (0 at 8 and 10 fps, 8 at native rate) | P0 | default 25 (`d7cf23e`); root cause measured below, proper fix open |
 | Backend dismiss feedback posted to an edge route that did not exist; a baseline relearn would also have erased dismissals | P1 | edge `/pipeline/feedback` + dismissal replay after relearn |
 | Detector metrics named the wrong owning phases | P2 | `bb6a54e` |
 
 ## 5. Open items (honest remaining work)
 
 - P1: false-alert rate per camera per 24 h and fence-crossing miss rate are not measured (need event-free footage and scripted crossings).
-- P1: fusion's temporal gate counts frames, not seconds; it only works near the camera's native frame rate.
+- P1: fusion only works near the camera's native frame rate. Measured with `pipeline.demo --log-jsonl` on the day
+  sample at 20 fps vs the same clip decimated to 10 fps: the calibration warm-up is 100 *frames* (100 of 435 frames
+  at 20 fps, 100 of 218 at 10 fps), the motion gate passes 8% of candidates at 20 fps but 2% at 10 fps, the spatial
+  gate 28% vs 11%, and fused frames fall from 50 to 5. The motion score is calibrated on frame-to-frame flow, so it
+  changes with the frame rate. The temporal gate (3 agreeing frames) is not the cause. Fix: express the warm-up in
+  seconds and normalise flow by the frame interval, then re-measure; until then do not decimate (`TARGET_FPS=25`).
 - P2: `VITE_DEMO_MODE` (default on) opens the console on sample data when the API is unreachable; set it off for any real use.
 - P2: backend's local fallback Merkle root duplicates an odd leaf; the authoritative edge root promotes it.
-- P2: `pipeline/fusion.py` ignores a malformed `FUSION_THRESHOLD_DEFAULT` silently.
 - Not built: trained plate locator (classical locator found 3 of 13 real plates earlier), cart class, SAHI accuracy on far field.
 - Not testable here: Jetson latency, 150 m range, field false-alert rate.
 - Deployment: out of scope by the owner's decision; the system runs locally.
