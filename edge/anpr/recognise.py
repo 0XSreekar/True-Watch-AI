@@ -307,4 +307,3 @@ def _rescue(result: RecognitionResult) -> RecognitionResult | None:
     if piece is None:
         return None
     return RecognitionResult(text=piece, script="devanagari", line_confidences=result.line_confidences, lines=result.lines)
-
