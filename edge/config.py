@@ -81,10 +81,10 @@ class Config:
     replay_file_path: Path = field(
         default_factory=lambda: _path("REPLAY_FILE_PATH", "./var/samples/sample.mp4")
     )
-    # 25: keep every frame of a 20-25 fps camera. The motion score is calibrated on frame-to-frame flow and the
-    # warm-up is counted in frames, so decimating a 20 fps clip to 10 fps cut motion-gate passes from 8% to 2%
-    # and left the sample clips with no alerts (docs/VERIFICATION_REPORT.md section 5).
-    target_fps: float = field(default_factory=lambda: _float("TARGET_FPS", 25.0))
+    # 8: fusion is frame-rate independent (flow per 1/20 s, warm-up in seconds, detector-interval ceiling), and
+    # the sample clips give the same alerts at 8 fps as at their native 20 fps for 56-61% of the compute per second
+    # of footage (docs/VERIFICATION_REPORT.md section 4.1).
+    target_fps: float = field(default_factory=lambda: _float("TARGET_FPS", 8.0))
     camera_id: str = field(default_factory=lambda: _str("CAMERA_ID", "RXL-01"))
     post_id: str = field(default_factory=lambda: _str("POST_ID", "RXL"))
 

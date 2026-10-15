@@ -41,10 +41,10 @@ Verdicts: **PASS**, **PARTIAL**, **FAIL** (target not met), **NOT MEASURED** (po
 | 4 | DORI grading per IEC 62676-4 | `edge/rules/dori.py` | `test_rules.py` | PASS | bands exactly 25/62/125/250 px/m; refuses claims beyond the detect band |
 | 5 | Person mAP@50 0.85 day | detector v2 | `training/results/METRICS.md` | **FAIL** | 0.549 (95% CI 0.495-0.610) |
 | 5 | Person mAP@50 0.75 IR | detector v2 | METRICS.md | PASS | 0.845 (95% CI 0.782-0.876) |
-| 5 | <= 5 false alerts per camera per day | throttle + fusion | - | NOT MEASURED | rate limiter proven (`test_rules.py`: 50 repeats -> within budget); no event-free footage was available to measure a false-alert rate |
+| 5 | <= 5 false alerts per camera per day | throttle + fusion | `tools/measure_false_alerts.py` (self-check only) | NOT MEASURED | rate limiter proven (`test_rules.py`: 50 repeats -> within budget); harness built and proven on generated footage; no event-free footage exists yet |
 | 5 | Detection range 150 m at 25 px/m | `rules/dori.py` | - | NOT TESTABLE HERE | needs a calibrated real camera |
 | 5 | 85% Nepali plates under 25 m | ANPR | section 2 | **FAIL** | best real result 52.6% (57 plates); no range-labelled real set |
-| 5 | < 2% missed fence crossings | fence rule | - | NOT MEASURED | needs scripted crossings on video |
+| 5 | < 2% missed fence crossings | fence rule | `tools/measure_fence_misses.py` (self-check only) | NOT MEASURED | harness proven on 50 generated crossings (counts 2 deliberately hidden ones as missed); needs recorded crossings with ground-truth times |
 
 ## 2. Plate reader (published model, round G6, HF `sreekar12/truewatch-anpr-devanagari@064b6a0`)
 
@@ -84,19 +84,64 @@ open file handles flat at 188-189. No handle leak; the slow memory rise should b
 | Unpinned `paddleocr` resolves 2.x: plate reading breaks and `edge/tools` is shadowed | P0 on a fresh install | pinned + `edge/requirements.lock` (`4289d9f`) |
 | Backend validator dropped `nullable` when chained with `optional`: every edge template reason patch refused (400) | P0 | `f0ea645` + regression test |
 | Two evidence chains (backend digest differs from edge canonical block hash); live pipeline never sealed clips | P1 | `d7cf23e` edge seals at capture; backend reads the edge chain first |
-| Default `TARGET_FPS=8` decimated 20 fps cameras; fusion then emitted no alerts at all (0 at 8 and 10 fps, 8 at native rate) | P0 | default 25 (`d7cf23e`); root cause measured below, proper fix open |
+| Default `TARGET_FPS=8` decimated 20 fps cameras; fusion then emitted no alerts at all (0 at 8 and 10 fps, 8 at native rate) | P0 | fixed: fusion is frame-rate independent (section 4.1); default back to 8 |
+| A track whose sampled ground point lands exactly on a fence was never counted as crossing (strict signs on both path segments) | P1 | found by `tools/measure_fence_misses.py` on scripted footage (25 of 50 crossings missed); on-line points are bridged, `test_rules.py` regression |
 | Backend dismiss feedback posted to an edge route that did not exist; a baseline relearn would also have erased dismissals | P1 | edge `/pipeline/feedback` + dismissal replay after relearn |
 | Detector metrics named the wrong owning phases | P2 | `bb6a54e` |
 
+### 4.1 Frame-rate invariance, measured
+
+Cause (measured): flow was scored in px per frame and the calibration warm-up was 100 frames, so at 10 fps the
+learnt thresholds came from 10 s of scene instead of 5 s and in different units, and object energy over threshold
+fell (median E_in/tau 0.57 at 20 fps, 0.40 at 10 fps). Fix: flow is scaled to px per 1/20 s (the section 1 frame
+interval; factor 1 at 20 fps, so the 1.9x/3.4x figures, the day/night weights and the Farneback parameters are
+unchanged), the warm-up is 5 s of the camera's clock (floor 25 frames), a file is decimated and timed on its own
+media clock, and the detector runs at least every 0.125 s (at 8 fps a stride of 2 left boxes 0.25 s apart, too far
+for the tracker to associate a fast walker: 0 of 6 scripted crossings tracked). The spatial gate held under the
+larger per-frame displacement (S column). Temporal gate and appearance freshness stay in frames.
+
+`Pipeline` over `samples/day.mp4` and `samples/ir.mp4` (640x512, 20 fps, v2 detector, stride 2), decimated by media
+time. Gate columns are the share of post-warm-up candidate-frames passing each gate; fused = share of post-warm-up
+frames with an agreeing candidate.
+
+| Clip | fps | Before: warm-up frames | M | S | agree | alerts | After: warm-up frames (s) | M | S | agree | fused | alerts |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| day | 20 | 100 | 8.3% | 27.8% | 7.7% | 4 | 101 (5.0) | 8.2% | 27.0% | 7.5% | 14.7% | 4 |
+| day | 10 | 100 | 1.6% | 11.5% | 1.6% | 0 | 51 (5.0) | 8.2% | 30.0% | 6.8% | 13.8% | 3 |
+| day | 8 | 100 | 0.0% | 4.8% | 0.0% | 0 | 41 (5.0) | 8.5% | 38.1% | 7.5% | 13.5% | 4 |
+| ir | 20 | 100 | 71.9% | 93.9% | 39.4% | 7 | 101 (5.0) | 72.0% | 93.9% | 39.1% | 26.0% | 7 |
+| ir | 10 | 100 | 51.9% | 88.5% | 23.7% | 3 | 51 (5.0) | 72.4% | 92.3% | 40.7% | 28.1% | 6 |
+| ir | 8 | 100 | 63.5% | 89.6% | 46.9% | 4 | 41 (5.0) | 74.0% | 90.7% | 44.2% | 28.6% | 7 |
+
+Service path (`pipeline.ingest` at TARGET_FPS -> `CameraService`, shipped defaults), events emitted:
+
+| Clip | TARGET_FPS 25 (native) before / after | TARGET_FPS 10 before / after | TARGET_FPS 8 before / after |
+|---|---|---|---|
+| day | 4 / 4 | 0 / 3 | 0 / 4 |
+| ir | 7 / 7 | 3 / 6 | 3 / 7 |
+
+("Before" at TARGET_FPS 8 actually ran at 10 fps: the old decimation kept every round(20/8) = 2nd frame.)
+Compute per second of footage on this machine (service path, unpaced): day 0.77 s at native, 0.52 s at 10 fps,
+0.43 s at 8 fps; ir 0.82 / 0.59 / 0.50 s. `TARGET_FPS` default is therefore back to 8. Caveat: two 22 s clips; the
+10 fps day run loses one of two alerts raised 0.2 s apart at native rate. Tests: `tests/test_frame_rate.py` runs the
+same synthetic scene at 20 and 8 fps (four fusion cases, full pipeline with calibration) and asserts the same verdict.
+
 ## 5. Open items (honest remaining work)
 
-- P1: false-alert rate per camera per 24 h and fence-crossing miss rate are not measured (need event-free footage and scripted crossings).
-- P1: fusion only works near the camera's native frame rate. Measured with `pipeline.demo --log-jsonl` on the day
-  sample at 20 fps vs the same clip decimated to 10 fps: the calibration warm-up is 100 *frames* (100 of 435 frames
-  at 20 fps, 100 of 218 at 10 fps), the motion gate passes 8% of candidates at 20 fps but 2% at 10 fps, the spatial
-  gate 28% vs 11%, and fused frames fall from 50 to 5. The motion score is calibrated on frame-to-frame flow, so it
-  changes with the frame rate. The temporal gate (3 agreeing frames) is not the cause. Fix: express the warm-up in
-  seconds and normalise flow by the frame interval, then re-measure; until then do not decimate (`TARGET_FPS=25`).
+- P1: false-alert rate per camera per 24 h and fence-crossing miss rate are still NOT MEASURED: no event-free
+  footage and no recorded crossings exist. The tools are built and proven on generated footage with a scripted
+  detector (`edge/README.md`, "Measuring the slide-5 field targets"):
+  - `python -m tools.measure_false_alerts --self-check` (8 fps): two 60 s event-free recordings (textured ground,
+    noise, swaying foliage, a parked box at 0.9) -> 0 alerts in 0.031 alertable camera-hours, reported as 0 per
+    camera per 24 h with a 95% upper bound of 2,903 (the interval shows how little 2 minutes says); a positive
+    control with 3 scripted walks -> 3 alerts.
+  - `python -m tools.measure_fence_misses --self-check 50`: 50 scripted crossings, 2 of them hidden from the
+    detector -> 48 detected, 2 missed, miss rate 4.0%, Wilson 95% 1.1%-13.5%, verdict "not demonstrated"; the same
+    at 20 fps and 8 fps, 0 fence alerts without a true crossing. Showing < 2% needs n >= 189 crossings with no miss.
+  Real numbers need someone to record event-free hours per camera and a scripted-crossing session with the times
+  written down.
+- P2: on fusion-only events of the scripted footage the rule sentence fails its own guardrail and the Phase 4 string
+  is used (`truewatch.vlm` warning "rule sentence failed its own guardrail"); seen, not investigated.
 - P2: `VITE_DEMO_MODE` (default on) opens the console on sample data when the API is unreachable; set it off for any real use.
 - P2: backend's local fallback Merkle root duplicates an odd leaf; the authoritative edge root promotes it.
 - Not built: trained plate locator (classical locator found 3 of 13 real plates earlier), cart class, SAHI accuracy on far field.
@@ -107,7 +152,7 @@ open file handles flat at 188-189. No handle leak; the slow memory rise should b
 
 | Suite | Result |
 |---|---|
-| Edge (`~/.venvs/truewatch-edge`, one process) | 769 passed, 9 skipped (`onnx` package not installed: detector-export checks) |
+| Edge (`~/.venvs/truewatch-edge`, one process) | 796 passed, 9 skipped (`onnx` package not installed: detector-export checks) |
 | Evidence smoke (`scripts/evidence-check.sh`) | clean exit 0, tampered exit 1 |
 | Backend (`npm test`) | 113 passed |
 | Frontend (`node --test frontend/tests`) | 23 passed; build CSS byte-identical |
