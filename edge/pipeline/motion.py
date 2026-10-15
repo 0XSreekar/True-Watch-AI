@@ -26,6 +26,12 @@ What the channel emits per frame
 MotionField   the flow magnitude map at working scale, per-cell background energy, the motion mask
               (magnitude above the camera's learnt per-cell threshold, calibration.py) and its connected
               regions as MotionRegion objects in original-frame pixels.
+              Magnitudes are px per REFERENCE interval (1/20 s, the section 1 frame interval), not per
+              frame: the pair's flow is scaled by REFERENCE_INTERVAL_S / dt, dt taken from the frame
+              timestamps. Displacement of a moving object grows linearly with dt, so after the scaling
+              a person walking at 1 m/s gives the same number at 25, 20, 10 or 8 fps, and a calibration
+              learnt at one rate means the same thing at another. A pair with no usable clock (dt <= 0)
+              is taken as one reference interval.
 score_box()   the motion score m in [0, 1] for one candidate box:
                   E_in   mean magnitude inside the box
                   E_bg   mean magnitude in a ring around the box (other candidate boxes excluded):
@@ -60,7 +66,15 @@ CELL_PX = 32                 # background grid cell edge, at working scale
 C_SAT = 3.0                  # contrast at which the contrast term saturates
 RING_SCALE = 1.0             # the background ring extends this many box sizes beyond the box (half each side)
 MIN_REGION_PX = 24           # smallest motion-mask component kept, working-scale pixels
-DEFAULT_TAU_PX = 0.6         # per-pixel motion threshold before a camera is calibrated, px/frame
+DEFAULT_TAU_PX = 0.6         # per-pixel motion threshold before a camera is calibrated, px per reference interval
+
+# Section 1 was measured on consecutive KAIST frames, which are 20 fps, so its "px/frame" is displacement
+# over 1/20 s. The live channel divides each pair's flow by the pair's real interval and multiplies by this
+# reference interval, so every threshold, calibration and score downstream reads "px per 1/20 s" whatever
+# rate the camera (or TARGET_FPS decimation) delivers. At 20 fps the factor is exactly 1.
+REFERENCE_FPS = 20.0
+REFERENCE_INTERVAL_S = 1.0 / REFERENCE_FPS
+MAX_PAIR_GAP_S = 1.0         # a pair further apart than this is not flow but a cut: restart from this frame
 
 
 # docs/MEASUREMENTS.md section 1: mean Farneback flow magnitude (px/frame) inside detected object boxes and
@@ -160,7 +174,7 @@ def aggregate_contrast(samples: Sequence[tuple[float, float, float]]) -> dict:
 class MotionField:
     """The flow of one frame pair, at working scale, plus what the mask found."""
 
-    mag: np.ndarray                  # float32 (h, w) flow magnitude, px/frame at working scale
+    mag: np.ndarray                  # float32 (h, w) flow magnitude, px per reference interval, working scale
     scale: tuple[float, float]       # (sx, sy): original px per working px
     cell_energy: np.ndarray          # float32 (gy, gx) mean magnitude per background cell
     tau_map: np.ndarray              # float32 (h, w) per-pixel threshold used for the mask
@@ -171,6 +185,8 @@ class MotionField:
     timestamp: float
     elapsed_ms: float
     global_shift: tuple[float, float] = (0.0, 0.0)   # median flow vector removed (camera shake / pan), px
+    interval_s: float = REFERENCE_INTERVAL_S          # real time between the two frames of the pair
+    rate_scale: float = 1.0                           # REFERENCE_INTERVAL_S / interval_s, applied to mag
 
     def to_working(self, b: BBox) -> BBox:
         sx, sy = self.scale
@@ -217,10 +233,19 @@ class MotionChannel:
         self.compensate_global = compensate_global
         self._prev: np.ndarray | None = None
         self._prev_shape: tuple[int, int] | None = None
+        self._prev_ts: float | None = None
 
     def reset(self) -> None:
         self._prev = None
         self._prev_shape = None
+        self._prev_ts = None
+
+    @staticmethod
+    def rate_scale(dt: float | None) -> float:
+        """Factor turning one pair's px into px per reference interval (1.0 when the clock is unusable)."""
+        if dt is None or not np.isfinite(dt) or dt <= 0:
+            return 1.0
+        return REFERENCE_INTERVAL_S / dt
 
     def prepare(self, image: np.ndarray) -> tuple[np.ndarray, tuple[float, float]]:
         h, w = image.shape[:2]
@@ -231,22 +256,29 @@ class MotionChannel:
         return gray, (w / ww, h / wh)
 
     def update(self, image: np.ndarray, timestamp: float, tau_cells: np.ndarray | None = None) -> MotionField | None:
-        """Flow from the previous frame to this one; None on the first frame (or after a size change).
+        """Flow from the previous frame to this one; None on the first frame (or after a size change, or
+        after a gap longer than MAX_PAIR_GAP_S). Magnitudes are normalised to px per reference interval.
 
         tau_cells  the camera's learnt per-cell threshold (calibration.py); DEFAULT_TAU_PX everywhere
                    before calibration exists.
         """
         t0 = time.perf_counter()
         gray, scale = self.prepare(image)
-        prev = self._prev
-        self._prev = gray
+        prev, prev_ts = self._prev, self._prev_ts
+        self._prev, self._prev_ts = gray, timestamp
         if prev is None or prev.shape != gray.shape:
             return None
+        dt = None if prev_ts is None else timestamp - prev_ts
+        if dt is not None and dt > MAX_PAIR_GAP_S:
+            return None
+        k = self.rate_scale(dt)
         flow = farneback(prev, gray)
         shift = (0.0, 0.0)
         if self.compensate_global:
             flow, shift = remove_global_shift(flow)
         mag = flow_magnitude(flow)
+        if k != 1.0:
+            mag = mag * np.float32(k)
         cells = cell_means(mag, self.cell_px)
         if tau_cells is None or tau_cells.shape != cells.shape:
             tau_cells = np.full(cells.shape, DEFAULT_TAU_PX, dtype=np.float32)
@@ -256,7 +288,8 @@ class MotionChannel:
         regions = self._regions(mag, mask, scale)
         return MotionField(mag=mag, scale=scale, cell_energy=cells, tau_map=tau_map, mask=mask, regions=regions,
                            whole_frame=float(mag.mean()), moving_fraction=float(mask.mean()),
-                           timestamp=timestamp, elapsed_ms=(time.perf_counter() - t0) * 1000, global_shift=shift)
+                           timestamp=timestamp, elapsed_ms=(time.perf_counter() - t0) * 1000, global_shift=shift,
+                           interval_s=dt if dt is not None and dt > 0 else REFERENCE_INTERVAL_S, rate_scale=k)
 
     @staticmethod
     def _regions(mag: np.ndarray, mask: np.ndarray, scale: tuple[float, float]) -> list[MotionRegion]:

@@ -103,10 +103,16 @@ class Config:
     # --- detection pipeline in the service loop (Phases 3-5) ---
     # Run the detector every Nth ingested frame; motion, tracking and fusion run on every frame.
     detector_stride: int = field(default_factory=lambda: _int("DETECTOR_STRIDE", 2))
+    # ... but never more than this many seconds between detector passes (pipeline/runner.py): at a low
+    # TARGET_FPS a stride of 2 leaves too long a gap for the tracker to associate a moving box.
+    detector_max_interval_s: float = field(default_factory=lambda: _float("DETECTOR_MAX_INTERVAL_S", 0.125))
     # Per-camera learnt thresholds (pipeline/calibration.py) are written here.
     calibration_dir: Path = field(default_factory=lambda: _path("CALIBRATION_DIR", "./var/calibration"))
-    # Unlabelled frames a camera with no stored calibration learns its thresholds from before fusing.
-    calibration_warmup_frames: int = field(default_factory=lambda: _int("CALIBRATION_WARMUP_FRAMES", 100))
+    # A camera with no stored calibration learns its thresholds from this many SECONDS of unlabelled
+    # frames (on the camera's clock) before fusing, and from no fewer than the minimum frame count.
+    # Seconds, not frames: 100 frames was 5 s at 20 fps but 12.5 s at 8 fps.
+    calibration_warmup_seconds: float = field(default_factory=lambda: _float("CALIBRATION_WARMUP_SECONDS", 5.0))
+    calibration_warmup_min_frames: int = field(default_factory=lambda: _int("CALIBRATION_WARMUP_MIN_FRAMES", 25))
     # Per-camera rule files <camera_id>.json (rules/config.py format; rules/examples/ has a sample).
     # No file for a camera = its rules are off (logged), detection events still flow.
     rules_config_dir: Path = field(default_factory=lambda: _path("RULES_CONFIG_DIR", "./var/rules"))
@@ -193,6 +199,8 @@ class Config:
                 "YOLO_MODEL_URL and YOLO_MODEL_SHA256 must be set together (a URL is only trusted with the "
                 "hash of the file it serves), or both left empty to use YOLO_MODEL_MANIFEST"
             )
+        if self.calibration_warmup_seconds < 0 or self.calibration_warmup_min_frames < 1:
+            raise ConfigError("CALIBRATION_WARMUP_SECONDS must be >= 0 and CALIBRATION_WARMUP_MIN_FRAMES >= 1")
         if self.detector_stride < 1:
             raise ConfigError(f"DETECTOR_STRIDE must be at least 1, got {self.detector_stride}")
         if self.yolo_img_size < 32:

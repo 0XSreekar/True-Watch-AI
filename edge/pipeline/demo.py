@@ -109,7 +109,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--modality", choices=("auto", "visible", "lwir"), default="auto")
     ap.add_argument("--show-scores", action="store_true")
     ap.add_argument("--stride", type=int, default=2, help="run the detector every Nth frame (motion runs on all)")
-    ap.add_argument("--warmup", type=int, default=100, help="unlabelled warm-up frames for per-camera calibration")
+    ap.add_argument("--warmup-seconds", type=float, default=5.0,
+                    help="unlabelled warm-up for per-camera calibration, seconds of the clip's own clock")
+    ap.add_argument("--warmup", type=int, default=None, help="fixed warm-up frame count instead of --warmup-seconds")
     ap.add_argument("--calibration-dir", type=Path, default=EDGE_ROOT / "var" / "calibration")
     ap.add_argument("--keep-calibration", action="store_true", help="reuse a stored calibration instead of re-learning")
     ap.add_argument("--max-frames", type=int, default=None)
@@ -133,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     appearance = load_appearance(args)
     src = open_source(args.source, camera_id=camera_id, max_frames=args.max_frames, resize_to=resize)
     pcfg = PipelineConfig(camera_id=camera_id, modality=args.modality, stride=args.stride, warmup_frames=args.warmup,
+                          warmup_seconds=args.warmup_seconds,
                           calibration_dir=args.calibration_dir, recalibrate=not args.keep_calibration,
                           source=src.label)
     pipe = Pipeline(appearance, pcfg)

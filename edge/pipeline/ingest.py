@@ -41,6 +41,10 @@ class Frame:
     monotonic: float  # time.monotonic() at decode, for latency arithmetic
     source: str  # 'rtsp' | 'file' — the honesty flag
     camera_id: str
+    # A file's own clock: seconds into the recording (decoded frames / declared fps, continuing across
+    # loops). None on a live pull, whose clock is `monotonic`. The pipeline measures flow per second
+    # of scene time, so a file must be judged on its media time, not on how fast this machine decodes.
+    media_time: float | None = None
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -64,18 +68,9 @@ def _open(source: str | Path, is_rtsp: bool) -> cv2.VideoCapture:
     return cap
 
 
-def _decimation(cap: cv2.VideoCapture, target_fps: float) -> int:
-    """How many decoded frames to advance per emitted frame, for a file.
-
-    A file has its own timeline. Sampling it down to target_fps means keeping
-    every Nth frame, not dropping by wall-clock — a fast machine would otherwise
-    read a short clip to its end inside one target interval and emit almost
-    nothing. When the file is slower than the target, every frame is kept.
-    """
+def _file_fps(cap: cv2.VideoCapture) -> float | None:
     declared = cap.get(cv2.CAP_PROP_FPS)
-    if not declared or declared <= 0 or declared <= target_fps:
-        return 1
-    return max(1, round(declared / target_fps))
+    return float(declared) if declared and 0 < declared < 1000 else None
 
 
 def frames(
@@ -94,15 +89,20 @@ def frames(
     The two sources need different reductions, because they have different
     clocks:
 
-    * A **file** is decimated against its own declared frame rate — keep every
-      Nth frame. Its timeline is fixed, so dropping by wall-clock would empty a
-      short clip on a fast machine.
+    * A **file** is decimated on its own timeline (decoded frames / declared
+      fps): a frame is kept when its media time reaches the next 1/target_fps
+      slot, so 20 fps sampled to 8 fps really is 8 fps (alternating gaps of 2
+      and 3 source frames), not round(20/8) = every 2nd frame = 10 fps.
+      Dropping by wall-clock would empty a short clip on a fast machine. Each
+      frame carries its `media_time`; when the file is slower than the target,
+      every frame is kept.
     * A **live pull** is paced by the camera. A frame arriving sooner than the
       target interval is dropped rather than queued, because on a live source a
       stale frame is worse than a missing one.
 
-    `pace=True` additionally sleeps so emissions are spaced at 1/target_fps,
-    which is what a replay needs to look like a live feed. Tests leave it off.
+    `pace=True` additionally sleeps so emissions are spaced by the media time
+    between them, which is what a replay needs to look like a live feed. Tests
+    leave it off.
     """
     if target_fps <= 0:
         raise IngestError(f"target_fps must be positive, got {target_fps}")
@@ -114,9 +114,13 @@ def frames(
     last_emit = 0.0
 
     cap = _open(source, is_rtsp)
-    step = 1 if is_rtsp else _decimation(cap, target_fps)
-    if step > 1:
-        log.info("decimating %s: keeping every %dth frame for %.1f fps", source, step, target_fps)
+    fps = None if is_rtsp else _file_fps(cap)
+    media_dt = 1.0 / fps if fps else interval
+    loop_offset = 0.0
+    next_slot = 0.0
+    last_media: float | None = None
+    if fps and fps > target_fps * 1.01:
+        log.info("decimating %s from %.2f to %.2f fps on its own timeline", source, fps, target_fps)
     try:
         while True:
             if stop is not None and stop.is_set():
@@ -129,6 +133,7 @@ def frames(
             if not ok:
                 if not is_rtsp and loop:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    loop_offset += read * media_dt
                     read = 0
                     continue
                 if emitted == 0:
@@ -137,18 +142,20 @@ def frames(
                 return
 
             now = time.monotonic()
+            media_time = None
             if is_rtsp:
                 # Live: drop anything arriving inside the target interval.
                 if last_emit and (now - last_emit) < interval:
                     continue
             else:
-                # File: keep every step-th decoded frame.
-                keep = read % step == 0
+                # File: keep the frame that reaches the next 1/target_fps slot of media time.
+                media_time = loop_offset + read * media_dt
                 read += 1
-                if not keep:
+                if media_time + 1e-6 < next_slot:
                     continue
-                if pace and last_emit:
-                    delay = interval - (now - last_emit)
+                next_slot = max(next_slot + interval, media_time + interval / 2)
+                if pace and last_emit and last_media is not None:
+                    delay = (media_time - last_media) - (now - last_emit)
                     if delay > 0:
                         if stop is not None and stop.wait(delay):
                             return
@@ -156,6 +163,7 @@ def frames(
                             time.sleep(delay)
                         now = time.monotonic()
             last_emit = now
+            last_media = media_time
 
             yield Frame(
                 index=emitted,
@@ -164,6 +172,7 @@ def frames(
                 monotonic=now,
                 source=label,
                 camera_id=camera_id,
+                media_time=media_time,
             )
             emitted += 1
     finally:
