@@ -275,6 +275,48 @@ plate grammar more often, sends more plates to the Devanagari head. It is **not 
 pipeline keeps the pretrained Latin head. Its weights are archived for a later round that trains on crops cut by
 `rectify.py` itself. Sample size is small (28 plates).
 
+## 3. Plate locator (learned) vs the classical finder
+
+Added after the classical finder (`detect_plate.find_plates_in_crop`) located only 3 of 13 plates on real
+images. A single-class YOLO11n plate detector (training script `training/plate_locator/`, Kaggle T4,
+80 epochs, imgsz 640, about 1.2 GPU hours) is exported to ONNX and run with onnxruntime
+(`anpr/plate_locator.py`); the classical finder remains the fallback. All numbers are REAL photographs
+(no synthetic data in either table). Weights are not committed; the pinned manifest is
+`results/plate_locator_model.json` (sha256 `4f3a0dc2...499ee`, still marked unpublished).
+
+### 3.1 Locating the plate, held-out test split of the plate-box dataset (never trained on)
+
+642 distinct full images, 683 plate boxes (Nepali road photos 549, parked-vehicle photos 88, other 5).
+Classical finder was given the whole image as the "vehicle crop", top-1 box; the locator uses conf >= 0.25.
+IoU >= 0.5 counts as found.
+
+| finder | recall | precision | mAP50 |
+|---|---|---|---|
+| classical (top-1) | 0.138 | 0.148 | 0.043 |
+| ONNX locator | 0.972 | 0.926 | 0.968 |
+
+The training run's own test-split figure was mAP50 0.984, P 0.962, R 0.955. It was computed over 1,284
+images because the Kaggle mount listed each file twice; this repository's figure above uses the
+642 distinct images. Scoring is by source mix of one dataset; it does not show how the locator behaves on
+camera types absent from it (night/IR, far range).
+
+### 3.2 End to end on full photographs: locate, crop, read (plate exact match)
+
+147 full photographs of Nepali plates with a hand-labelled plate text (57 of them the strict subset), none
+of which is in the locator's training, validation or test split. Reader: the fine-tuned Devanagari/Latin
+recogniser of section 2, unchanged. "Oracle" crops the labelled box, giving the ceiling set by the
+recogniser alone.
+
+| locating method | extended (n=147) | strict (n=57) |
+|---|---|---|
+| classical finder | 13 (8.8%) | 3 (5.3%) |
+| ONNX locator | 63 (42.9%) | 31 (54.4%) |
+| ground-truth box (ceiling) | 61 (41.5%) | 30 (52.6%) |
+
+The locator removes the locating loss: end to end it now matches the recogniser's own ceiling. The
+overall plate-read rate is therefore bound by the recogniser (section 2.3). The 85% real-data target
+remains NOT MET (best real figure above: 54.4% strict, 42.9% extended).
+
 ## Running the measurement
 
 ```bash

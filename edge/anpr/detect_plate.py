@@ -9,7 +9,9 @@ satisfies `VehicleDetection` below through structural typing
 unchanged, because a dataclass with a `.bbox` and a `.cls`/class-name attribute
 already satisfies the protocol; no adapter is needed.
 
-A plate is found with classical CV, not a second detector: gradient-based
+When the pinned ONNX plate locator is available (anpr/plate_locator.py) it finds the plate; the
+classical finder below is the fallback whenever it is not (not published, offline, hash mismatch,
+ANPR_FETCH_PLATE_LOCATOR=0). The classical finder: gradient-based
 blackhat + Sobel highlighting, morphological closing into candidate blobs,
 then filtering by aspect ratio and position within the vehicle box. This is
 deliberately cheap (no extra model download, no extra inference pass) because
@@ -22,8 +24,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, Sequence, runtime_checkable
 
+import logging
+
 import cv2
 import numpy as np
+
+from anpr.plate_locator import get_locator
+
+log = logging.getLogger("truewatch.edge.anpr")
 
 # Classes that can carry a plate. Two-wheelers, cars, trucks and carts all can;
 # a bare 'person' cannot, so it is never scanned.
@@ -186,6 +194,20 @@ def find_plates_in_crop(vehicle_bgr: np.ndarray) -> list[tuple[tuple[int, int, i
     return scored
 
 
+def locate_plates_in_crop(vehicle_bgr: np.ndarray) -> list[tuple[tuple[int, int, int, int], float]]:
+    """Plate boxes local to `vehicle_bgr`: the learned locator if available, else the classical finder."""
+    locator = get_locator()
+    if locator is not None:
+        try:
+            found = locator.locate(vehicle_bgr)
+        except Exception as exc:  # a bad frame or runtime fault must not stop the pipeline
+            log.warning("anpr: plate locator failed on a crop (%s); using the classical finder", exc)
+        else:
+            h, w = vehicle_bgr.shape[:2]
+            return [(_clip_box(*box, w, h), score) for box, score in found]
+    return find_plates_in_crop(vehicle_bgr)
+
+
 def detect_plates(
     frame: np.ndarray,
     detections: Sequence[VehicleDetection],
@@ -200,7 +222,7 @@ def detect_plates(
         if cropped is None:
             continue
         vehicle_bgr, (vx1, vy1, _vx2, _vy2) = cropped
-        local_boxes = find_plates_in_crop(vehicle_bgr)[:max_per_vehicle]
+        local_boxes = locate_plates_in_crop(vehicle_bgr)[:max_per_vehicle]
         for (lx1, ly1, lx2, ly2), score in local_boxes:
             candidates.append(
                 PlateCandidate(

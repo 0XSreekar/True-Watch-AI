@@ -1,0 +1,9 @@
+{
+  "schema": "truewatch.plate_locator_model.v1",
+  "published": false,
+  "repo_id": "sreekar12/truewatch-plate-locator",
+  "revision": "UNPUBLISHED",
+  "file": "plate_locator.onnx",
+  "resolve_url": "https://huggingface.co/sreekar12/truewatch-plate-locator/resolve/UNPUBLISHED/plate_locator.onnx",
+  "sha256": "4f3a0dc2cc134a3224b011041401921cdbc5d59aa4bf463cf659dc407dd499ee"
+}
