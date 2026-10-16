@@ -1393,3 +1393,17 @@ def test_a_missing_non_release_model_path_is_still_a_usage_error(tmp_path, monke
     monkeypatch.chdir(tmp_path)
     with pytest.raises(T.UsageError, match="does not exist"):
         T.resolve_init_weights(SimpleNamespace(model=model), SimpleNamespace(stage="day", model="yolo11s.pt"), None, dry_run=False)
+
+
+def test_visible_person_repeat_applies_to_visible_person_images_only():
+    rules = T.SamplingRules(frozenset({3, 4}), 2, 1, 2, visible_person_repeat=2)
+    assert T.repeat_count(entry("a_visible.jpg", [0]), rules) == 2
+    assert T.repeat_count(entry("b_visible.jpg", [2]), rules) == 1
+    assert T.repeat_count(entry("c_lwir.png", [0], "lwir"), rules) == 1
+    assert T.repeat_count(entry("d_visible.jpg", [0, 3]), rules) == 2   # capped by max_repeat
+
+
+def test_v4_configs_load_with_person_repeat():
+    root = Path(__file__).resolve().parents[1] / "configs"
+    assert T.load_stage_config(root / "yolo11s_finetune_v4.yaml", "day").sampling.visible_person_repeat == 2
+    assert T.load_stage_config(root / "yolo11s_ir_v4.yaml", "ir").sampling.visible_person_repeat == 2
