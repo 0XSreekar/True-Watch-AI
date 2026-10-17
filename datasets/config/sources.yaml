@@ -131,6 +131,18 @@ sources:
     modalities: [visible]
     default_dest: var/datasets/visdrone
 
+  # Section 1.8: daytime small and crowded person images, train split only, converted by 13_convert_openimages.py.
+  openimages:
+    enabled: false              # not part of the 00_fetch/01-12 pipeline: 13_convert_openimages.py downloads and converts it itself
+    kind: direct
+    mirror_of: "Open Images V6/V7 (https://storage.googleapis.com/openimages/web/factsfigures_v7.html)"
+    third_party_mirror: false
+    marker: []
+    licence: "annotations CC BY 4.0; images CC BY 2.0 (per-image License column, only the CC BY 2.0 URL is used)"
+    redistribution: attribution_required
+    modalities: [visible]
+    default_dest: var/datasets/openimages
+
   kaist:
     enabled: false
     disabled_reason: >-

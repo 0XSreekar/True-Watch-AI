@@ -230,6 +230,34 @@ clip; AAU-PD-T's official train goes to train, and half of its official test fra
 no camera id) go to val. The added LWIR raises the IR share, so the balance rule (section 2.7)
 drops fewer IDD drives.
 
+### 1.8 Daytime small and crowded person images (added for detector v5)
+
+The v2 detector's weak slice is daytime person AP50 (0.549 against 0.85), concentrated in small and crowded people (IDD 0.52,
+VisDrone 0.37). v4 re-weighted the existing images and gained nothing, so v5 adds new daytime data. One source cleared the
+licence check against its primary source; the others looked at were rejected, none of them used.
+
+| source | licence (primary source) | content | class map |
+|---|---|---|---|
+| **Open Images V6/V7** | annotations **CC BY 4.0**, images **CC BY 2.0**: "The annotations are licensed by Google LLC under CC BY 4.0 license. The images are listed as having a CC BY 2.0 license." (https://storage.googleapis.com/openimages/web/factsfigures_v7.html). Google also says it makes no claim about each image's status, so only images whose own `License` column in `train-images-boxable-with-rotation.csv` is `https://creativecommons.org/licenses/by/2.0/` are used, and the author and landing URL of every kept photo are in the add-on's index. | Flickr photos, filtered by rule to street, plaza, market and event scenes with at least 6 people of which at least 4 are shorter than 15% of the image height; daytime by mean grey level | Person -> person. Nothing else is labelled. |
+
+Selection is by number, in `13_convert_openimages.py`: no `IsGroupOf` or `IsDepiction` person box (a group box is an ignore
+region and an unlabelled person must never become a negative, so such an image is skipped whole), no box of a vehicle or cart
+class (the other four schema classes are not labelled here and would otherwise be taught as background), rotation 0, mean grey
+level >= 70 (night frames dropped and counted). Images come from the official bucket (`open-images-dataset.s3.amazonaws.com`),
+not from a Hugging Face mirror, and are built into tar shards and one private Kaggle dataset. All added images are TRAIN
+only. The held-out photos (`images/val_oi`) come from Open Images' own validation split, are never part of the v2 val split
+used for headline numbers, and are scored separately by `eval_extra_val.py`.
+
+Not used, because no permissive licence could be verified from a primary source (their published terms are known or believed to
+be non-commercial or research-only; this was not re-read for each): CrowdHuman, WiderPerson, TinyPerson, CityPersons and
+Cityscapes, the MOT benchmarks, Stanford Drone Dataset, Objects365, BDD100K, nuImages. COCO is not used: its images are Flickr
+photos under mixed per-image licences, and its terms page could not be read as text here. Pexels and Pixabay are excluded by
+their terms (no machine-learning use).
+
+NOTE for the maintainers: the v2 corpus itself already contains sources whose terms are not in the permissive list (IDD, FLIR
+ADAS, LLVIP, AAU-PD-T, VisDrone is CC BY-NC-SA); see DATASET_CARD.md. Publishing weights derived from them needs a licence decision
+that this section does not make.
+
 ## 2. Split policy
 
 Three splits plus one gate set. The policy exists to make two specific failures structurally
