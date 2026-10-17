@@ -1,0 +1,913 @@
+{
+  "bootstrap": 200,
+  "class_names": [
+    "person",
+    "two_wheeler",
+    "car",
+    "truck",
+    "cart"
+  ],
+  "composition": {
+    "day/flir/daylight": 694,
+    "day/flir/night": 372,
+    "day/flir/unresolved": 15,
+    "day/idd/daylight": 6136,
+    "day/llvip/night": 3296,
+    "day/visdrone/daylight": 547,
+    "ir/aaupdt/n/a": 386,
+    "ir/birdsai/n/a": 1225,
+    "ir/flir/n/a": 1144,
+    "ir/hituav/n/a": 431,
+    "ir/llvip/n/a": 3296
+  },
+  "conf_floor": 0.001,
+  "created": "2026-10-15T23:12:30Z",
+  "device": "0",
+  "host": {
+    "cgroup_cpu_limit": 4.0,
+    "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+    "cpu_count_logical": 4,
+    "cpu_count_usable": 4,
+    "machine": "x86_64",
+    "numpy": "2.1.3",
+    "onnxruntime": "1.31.0",
+    "platform": "Linux-6.18.48+-x86_64-with-glibc2.39",
+    "python": "3.13.15",
+    "torch": "2.11.0+cu128"
+  },
+  "imgsz": 640,
+  "index_used": true,
+  "max_det": 300,
+  "n_images": 17542,
+  "nms_iou": 0.7,
+  "notes": [
+    "measured on the 'val' split; day and IR are separate slices and no figure covers both",
+    "visible lighting: IDD is daylight and LLVIP is night by DATASET_SPEC 3.4 (an assumption, not measured per frame); KAIST lighting is the set's declared lighting in datasets/config/splits.yaml",
+    "object height for the size buckets is measured in input pixels at imgsz 640",
+    "AP uses the 101-point COCO interpolation, so a perfect detector reads 0.995, as in `yolo val`",
+    "ran inference",
+    "bootstrap resamples whole sequences using the split index's sequence_key"
+  ],
+  "report_conf": 0.35,
+  "schema": "truewatch.eval.v1",
+  "size_basis": "input",
+  "slices": {
+    "day": {
+      "at_report_conf": {
+        "classes": {
+          "car": {
+            "precision": 0.8553847214561501,
+            "recall": 0.6370474967907573
+          },
+          "cart": {
+            "precision": null,
+            "recall": null
+          },
+          "person": {
+            "precision": 0.8422599171897956,
+            "recall": 0.4520835200286764
+          },
+          "truck": {
+            "precision": 0.8155655268451184,
+            "recall": 0.5638036153599315
+          },
+          "two_wheeler": {
+            "precision": 0.8383614226593894,
+            "recall": 0.4576948264571054
+          }
+        },
+        "conf": 0.35000000000000003
+      },
+      "bootstrap": {
+        "person": {
+          "ap50_ci95": [
+            0.49676724073239753,
+            0.6153013208032225
+          ],
+          "n_boot": 200,
+          "n_clusters": 644,
+          "n_images": 11060,
+          "resampling": "cluster (sequence) bootstrap; frames without a known group are their own cluster"
+        }
+      },
+      "by_source": {
+        "flir": {
+          "n_images": 1081,
+          "person_ap50": 0.6695108417450988,
+          "person_n_gt": 3216
+        },
+        "idd": {
+          "n_images": 6136,
+          "person_ap50": 0.5210502643162844,
+          "person_n_gt": 29386
+        },
+        "llvip": {
+          "n_images": 3296,
+          "person_ap50": 0.8344986251369908,
+          "person_n_gt": 9296
+        },
+        "visdrone": {
+          "n_images": 547,
+          "person_ap50": 0.38294738849261123,
+          "person_n_gt": 13897
+        }
+      },
+      "classes": {
+        "car": {
+          "ap50": 0.7183162457516081,
+          "ap50_95": 0.4873412445034577,
+          "n_gt": 38950,
+          "precision": 0.8203780839474527,
+          "recall": 0.6573555840821567
+        },
+        "cart": {
+          "ap50": null,
+          "ap50_95": null,
+          "n_gt": 0,
+          "precision": null,
+          "recall": null
+        },
+        "person": {
+          "ap50": 0.5508536079168564,
+          "ap50_95": 0.27688779857323925,
+          "n_gt": 55795,
+          "precision": 0.7990697955362266,
+          "recall": 0.4742001971502823
+        },
+        "truck": {
+          "ap50": 0.6348218934491341,
+          "ap50_95": 0.4512466654852189,
+          "n_gt": 9349,
+          "precision": 0.7832228307869703,
+          "recall": 0.5812386351481442
+        },
+        "two_wheeler": {
+          "ap50": 0.5548529095646482,
+          "ap50_95": 0.3236167015245993,
+          "n_gt": 30540,
+          "precision": 0.797114075687449,
+          "recall": 0.47933857236411265
+        }
+      },
+      "mean_over_present_classes": {
+        "ap50": 0.6147111641705617,
+        "ap50_95": 0.38477310252162883,
+        "precision": 0.7999461964895246,
+        "recall": 0.548033247186174
+      },
+      "modality": "visible",
+      "n_images": 11060,
+      "operating_conf": 0.308,
+      "operating_conf_rule": "argmax of F1 averaged over the classes present in this slice",
+      "size_buckets": {
+        "person": [
+          {
+            "ap50": 0.8862913323040342,
+            "ap50_95": 0.5124914445258099,
+            "bucket_px": 77,
+            "conf": 0.35000000000000003,
+            "n_gt": 13613,
+            "precision": 0.9120906384386371,
+            "recall": 0.8101814442077426
+          },
+          {
+            "ap50": 0.8425569220449483,
+            "ap50_95": 0.5082217090960783,
+            "bucket_px": 54,
+            "conf": 0.35000000000000003,
+            "n_gt": 3326,
+            "precision": 0.8169685414680649,
+            "recall": 0.7730006013229104
+          },
+          {
+            "ap50": 0.7978297092740398,
+            "ap50_95": 0.44251495926841666,
+            "bucket_px": 38,
+            "conf": 0.35000000000000003,
+            "n_gt": 4051,
+            "precision": 0.8523569522680107,
+            "recall": 0.7097013083189336
+          },
+          {
+            "ap50": 0.7024099228772523,
+            "ap50_95": 0.33927872108782015,
+            "bucket_px": 27,
+            "conf": 0.35000000000000003,
+            "n_gt": 5473,
+            "precision": 0.8241050733968581,
+            "recall": 0.5846884706742189
+          },
+          {
+            "ap50": 0.5521633395205496,
+            "ap50_95": 0.22554719569221388,
+            "bucket_px": 19,
+            "conf": 0.35000000000000003,
+            "n_gt": 6782,
+            "precision": 0.7807443365695793,
+            "recall": 0.42686523149513417
+          },
+          {
+            "ap50": 0.3577947893816945,
+            "ap50_95": 0.11978841552409436,
+            "bucket_px": 14,
+            "conf": 0.35000000000000003,
+            "n_gt": 8462,
+            "precision": 0.7399859451862263,
+            "recall": 0.24887733396360198
+          },
+          {
+            "ap50": 0.10702733439528751,
+            "ap50_95": 0.026930590100043884,
+            "bucket_px": 9,
+            "conf": 0.35000000000000003,
+            "n_gt": 14088,
+            "precision": 0.7034120734908137,
+            "recall": 0.05706984667802385
+          }
+        ]
+      }
+    },
+    "day/daylight": {
+      "at_report_conf": {
+        "classes": {
+          "car": {
+            "precision": 0.8555619224983884,
+            "recall": 0.6381120282073884
+          },
+          "cart": {
+            "precision": null,
+            "recall": null
+          },
+          "person": {
+            "precision": 0.8311992870878476,
+            "recall": 0.39042982088960365
+          },
+          "truck": {
+            "precision": 0.815278647463995,
+            "recall": 0.5630879013947454
+          },
+          "two_wheeler": {
+            "precision": 0.8385231584653375,
+            "recall": 0.4579906572800842
+          }
+        },
+        "conf": 0.35000000000000003
+      },
+      "bootstrap": {
+        "person": {
+          "ap50_ci95": [
+            0.463781369991287,
+            0.5253565908907328
+          ],
+          "n_boot": 200,
+          "n_clusters": 635,
+          "n_images": 7377,
+          "resampling": "cluster (sequence) bootstrap; frames without a known group are their own cluster"
+        }
+      },
+      "by_source": {
+        "flir": {
+          "n_images": 694,
+          "person_ap50": 0.6958373039963315,
+          "person_n_gt": 2108
+        },
+        "idd": {
+          "n_images": 6136,
+          "person_ap50": 0.5210502643162844,
+          "person_n_gt": 29386
+        },
+        "visdrone": {
+          "n_images": 547,
+          "person_ap50": 0.38294738849261123,
+          "person_n_gt": 13897
+        }
+      },
+      "classes": {
+        "car": {
+          "ap50": 0.7183932561970949,
+          "ap50_95": 0.4874553788982697,
+          "n_gt": 37437,
+          "precision": 0.8202389271571662,
+          "recall": 0.6584128001709538
+        },
+        "cart": {
+          "ap50": null,
+          "ap50_95": null,
+          "n_gt": 0,
+          "precision": null,
+          "recall": null
+        },
+        "person": {
+          "ap50": 0.4891892738579907,
+          "ap50_95": 0.2526670869348594,
+          "n_gt": 45391,
+          "precision": 0.781697767410863,
+          "recall": 0.4134520059042541
+        },
+        "truck": {
+          "ap50": 0.6339955390102705,
+          "ap50_95": 0.45094318835466674,
+          "n_gt": 9249,
+          "precision": 0.7827354913969087,
+          "recall": 0.5803870688723105
+        },
+        "two_wheeler": {
+          "ap50": 0.5550220762379316,
+          "ap50_95": 0.3237921490007442,
+          "n_gt": 30398,
+          "precision": 0.797397058019358,
+          "recall": 0.47970261201394826
+        }
+      },
+      "mean_over_present_classes": {
+        "ap50": 0.599150036325822,
+        "ap50_95": 0.37871445079713495,
+        "precision": 0.795517310996074,
+        "recall": 0.5329886217403667
+      },
+      "modality": "visible",
+      "n_images": 7377,
+      "operating_conf": 0.308,
+      "operating_conf_rule": "argmax of F1 averaged over the classes present in this slice",
+      "size_buckets": {
+        "person": [
+          {
+            "ap50": 0.9313705598953032,
+            "ap50_95": 0.6737057323696327,
+            "bucket_px": 77,
+            "conf": 0.35000000000000003,
+            "n_gt": 4680,
+            "precision": 0.920278463956883,
+            "recall": 0.8756410256410256
+          },
+          {
+            "ap50": 0.8876322846492336,
+            "ap50_95": 0.5455965274934069,
+            "bucket_px": 54,
+            "conf": 0.35000000000000003,
+            "n_gt": 2881,
+            "precision": 0.8883384146341463,
+            "recall": 0.8090940645609164
+          },
+          {
+            "ap50": 0.8096755250973244,
+            "ap50_95": 0.450228012665737,
+            "bucket_px": 38,
+            "conf": 0.35000000000000003,
+            "n_gt": 3797,
+            "precision": 0.8600125549278091,
+            "recall": 0.7216223334211219
+          },
+          {
+            "ap50": 0.7069065091039484,
+            "ap50_95": 0.34246430839922065,
+            "bucket_px": 27,
+            "conf": 0.35000000000000003,
+            "n_gt": 5218,
+            "precision": 0.8276601447333155,
+            "recall": 0.5917976236105787
+          },
+          {
+            "ap50": 0.5559692914027847,
+            "ap50_95": 0.22728046079309583,
+            "bucket_px": 19,
+            "conf": 0.35000000000000003,
+            "n_gt": 6560,
+            "precision": 0.7823691460055097,
+            "recall": 0.4329268292682927
+          },
+          {
+            "ap50": 0.3592448008895649,
+            "ap50_95": 0.12053365748058358,
+            "bucket_px": 14,
+            "conf": 0.35000000000000003,
+            "n_gt": 8246,
+            "precision": 0.7413485551195148,
+            "recall": 0.25200097016735384
+          },
+          {
+            "ap50": 0.10733843720975805,
+            "ap50_95": 0.027017103458256548,
+            "bucket_px": 9,
+            "conf": 0.35000000000000003,
+            "n_gt": 14009,
+            "precision": 0.7053649956024626,
+            "recall": 0.05724891141409094
+          }
+        ]
+      }
+    },
+    "day/night": {
+      "at_report_conf": {
+        "classes": {
+          "car": {
+            "precision": 0.846079380445305,
+            "recall": 0.6090592334494773
+          },
+          "cart": {
+            "precision": null,
+            "recall": null
+          },
+          "person": {
+            "precision": 0.8695954561261157,
+            "recall": 0.721484900942489
+          },
+          "truck": {
+            "precision": 0.8378378378378378,
+            "recall": 0.6391752577319587
+          },
+          "two_wheeler": {
+            "precision": 0.8,
+            "recall": 0.39436619718309857
+          }
+        },
+        "conf": 0.35000000000000003
+      },
+      "bootstrap": {
+        "person": {
+          "ap50_ci95": [
+            0.6819865292104712,
+            0.8932958945501454
+          ],
+          "n_boot": 200,
+          "n_clusters": 12,
+          "n_images": 3668,
+          "resampling": "cluster (sequence) bootstrap; frames without a known group are their own cluster"
+        }
+      },
+      "by_source": {
+        "flir": {
+          "n_images": 372,
+          "person_ap50": 0.6159899638356601,
+          "person_n_gt": 1102
+        },
+        "llvip": {
+          "n_images": 3296,
+          "person_ap50": 0.8344986251369908,
+          "person_n_gt": 9296
+        }
+      },
+      "classes": {
+        "car": {
+          "ap50": 0.7199986055232461,
+          "ap50_95": 0.48542641938561426,
+          "n_gt": 1435,
+          "precision": 0.723644578313253,
+          "recall": 0.6696864111498257
+        },
+        "cart": {
+          "ap50": null,
+          "ap50_95": null,
+          "n_gt": 0,
+          "precision": null,
+          "recall": null
+        },
+        "person": {
+          "ap50": 0.8146884544625922,
+          "ap50_95": 0.38868690297705816,
+          "n_gt": 10398,
+          "precision": 0.7897805890492192,
+          "recall": 0.7685131756106943
+        },
+        "truck": {
+          "ap50": 0.7412313285877433,
+          "ap50_95": 0.5009867539996207,
+          "n_gt": 97,
+          "precision": 0.8045977011494253,
+          "recall": 0.7216494845360825
+        },
+        "two_wheeler": {
+          "ap50": 0.5196616781930966,
+          "ap50_95": 0.2904207416155038,
+          "n_gt": 142,
+          "precision": 0.6732673267326733,
+          "recall": 0.4788732394366197
+        }
+      },
+      "mean_over_present_classes": {
+        "ap50": 0.6988950166916695,
+        "ap50_95": 0.41638020449444924,
+        "precision": 0.7478225488111427,
+        "recall": 0.6596805776833056
+      },
+      "modality": "visible",
+      "n_images": 3668,
+      "operating_conf": 0.227,
+      "operating_conf_rule": "argmax of F1 averaged over the classes present in this slice",
+      "size_buckets": {
+        "person": [
+          {
+            "ap50": 0.8627234884204051,
+            "ap50_95": 0.4156423428874317,
+            "bucket_px": 77,
+            "conf": 0.35000000000000003,
+            "n_gt": 8933,
+            "precision": 0.9073177117423746,
+            "recall": 0.7758871599686555
+          },
+          {
+            "ap50": 0.5421829052163667,
+            "ap50_95": 0.2677193557350481,
+            "bucket_px": 54,
+            "conf": 0.35000000000000003,
+            "n_gt": 445,
+            "precision": 0.4588910133843212,
+            "recall": 0.5393258426966292
+          },
+          {
+            "ap50": 0.6040052036957889,
+            "ap50_95": 0.3265280141974167,
+            "bucket_px": 38,
+            "conf": 0.35000000000000003,
+            "n_gt": 254,
+            "precision": 0.7219251336898396,
+            "recall": 0.531496062992126
+          },
+          {
+            "ap50": 0.6012530098336284,
+            "ap50_95": 0.269711734203428,
+            "bucket_px": 27,
+            "conf": 0.35000000000000003,
+            "n_gt": 255,
+            "precision": 0.7368421052631579,
+            "recall": 0.4392156862745098
+          },
+          {
+            "ap50": 0.42306804969130707,
+            "ap50_95": 0.16823745982830696,
+            "bucket_px": 19,
+            "conf": 0.35000000000000003,
+            "n_gt": 222,
+            "precision": 0.7051282051282052,
+            "recall": 0.24774774774774774
+          },
+          {
+            "ap50": 0.2736787255950288,
+            "ap50_95": 0.09105197759562977,
+            "bucket_px": 14,
+            "conf": 0.35000000000000003,
+            "n_gt": 212,
+            "precision": 0.6511627906976745,
+            "recall": 0.1320754716981132
+          },
+          {
+            "ap50": 0.062253070432269964,
+            "ap50_95": 0.01605548703413764,
+            "bucket_px": 9,
+            "conf": 0.35000000000000003,
+            "n_gt": 77,
+            "precision": 0.3333333333333333,
+            "recall": 0.025974025974025976
+          }
+        ]
+      }
+    },
+    "day/unresolved": {
+      "at_report_conf": {
+        "classes": {
+          "car": {
+            "precision": 0.9433962264150944,
+            "recall": 0.6410256410256411
+          },
+          "cart": {
+            "precision": null,
+            "recall": null
+          },
+          "person": {
+            "precision": null,
+            "recall": 0.0
+          },
+          "truck": {
+            "precision": 1.0,
+            "recall": 0.3333333333333333
+          },
+          "two_wheeler": {
+            "precision": null,
+            "recall": null
+          }
+        },
+        "conf": 0.35000000000000003
+      },
+      "bootstrap": {
+        "person": {
+          "ap50_ci95": [
+            0.0,
+            0.24102064602064605
+          ],
+          "n_boot": 200,
+          "n_clusters": 3,
+          "n_images": 15,
+          "resampling": "cluster (sequence) bootstrap; frames without a known group are their own cluster"
+        }
+      },
+      "by_source": {
+        "flir": {
+          "n_images": 15,
+          "person_ap50": 0.18437593984962405,
+          "person_n_gt": 6
+        }
+      },
+      "classes": {
+        "car": {
+          "ap50": 0.7421152559806048,
+          "ap50_95": 0.5748744291151513,
+          "n_gt": 78,
+          "precision": 0.7534246575342466,
+          "recall": 0.7051282051282052
+        },
+        "cart": {
+          "ap50": null,
+          "ap50_95": null,
+          "n_gt": 0,
+          "precision": null,
+          "recall": null
+        },
+        "person": {
+          "ap50": 0.18437593984962405,
+          "ap50_95": 0.07289887218045113,
+          "n_gt": 6,
+          "precision": 0.5,
+          "recall": 0.16666666666666666
+        },
+        "truck": {
+          "ap50": 0.665,
+          "ap50_95": 0.4655,
+          "n_gt": 3,
+          "precision": 1.0,
+          "recall": 0.6666666666666666
+        },
+        "two_wheeler": {
+          "ap50": null,
+          "ap50_95": null,
+          "n_gt": 0,
+          "precision": null,
+          "recall": null
+        }
+      },
+      "mean_over_present_classes": {
+        "ap50": 0.530497065276743,
+        "ap50_95": 0.3710911004318675,
+        "precision": 0.7511415525114155,
+        "recall": 0.5128205128205128
+      },
+      "modality": "visible",
+      "n_images": 15,
+      "operating_conf": 0.124,
+      "operating_conf_rule": "argmax of F1 averaged over the classes present in this slice",
+      "size_buckets": {
+        "person": [
+          {
+            "ap50": null,
+            "ap50_95": null,
+            "bucket_px": 77,
+            "conf": 0.35000000000000003,
+            "n_gt": 0,
+            "precision": null,
+            "recall": null
+          },
+          {
+            "ap50": null,
+            "ap50_95": null,
+            "bucket_px": 54,
+            "conf": 0.35000000000000003,
+            "n_gt": 0,
+            "precision": null,
+            "recall": null
+          },
+          {
+            "ap50": null,
+            "ap50_95": null,
+            "bucket_px": 38,
+            "conf": 0.35000000000000003,
+            "n_gt": 0,
+            "precision": null,
+            "recall": null
+          },
+          {
+            "ap50": null,
+            "ap50_95": null,
+            "bucket_px": 27,
+            "conf": 0.35000000000000003,
+            "n_gt": 0,
+            "precision": null,
+            "recall": null
+          },
+          {
+            "ap50": null,
+            "ap50_95": null,
+            "bucket_px": 19,
+            "conf": 0.35000000000000003,
+            "n_gt": 0,
+            "precision": null,
+            "recall": null
+          },
+          {
+            "ap50": 0.30211206896551723,
+            "ap50_95": 0.1198919540229885,
+            "bucket_px": 14,
+            "conf": 0.35000000000000003,
+            "n_gt": 4,
+            "precision": null,
+            "recall": 0.0
+          },
+          {
+            "ap50": 0.005051020408163265,
+            "ap50_95": 0.0010102040816326531,
+            "bucket_px": 9,
+            "conf": 0.35000000000000003,
+            "n_gt": 2,
+            "precision": null,
+            "recall": 0.0
+          }
+        ]
+      }
+    },
+    "ir": {
+      "at_report_conf": {
+        "classes": {
+          "car": {
+            "precision": 0.8749249249249249,
+            "recall": 0.7538163001293661
+          },
+          "cart": {
+            "precision": null,
+            "recall": null
+          },
+          "person": {
+            "precision": 0.8676462047737964,
+            "recall": 0.7570690179385832
+          },
+          "truck": {
+            "precision": 0.7668711656441718,
+            "recall": 0.5555555555555556
+          },
+          "two_wheeler": {
+            "precision": 0.7551369863013698,
+            "recall": 0.6082758620689656
+          }
+        },
+        "conf": 0.35000000000000003
+      },
+      "bootstrap": {
+        "person": {
+          "ap50_ci95": [
+            0.7693212160796996,
+            0.8728693980276547
+          ],
+          "n_boot": 200,
+          "n_clusters": 430,
+          "n_images": 6482,
+          "resampling": "cluster (sequence) bootstrap; frames without a known group are their own cluster"
+        }
+      },
+      "by_source": {
+        "aaupdt": {
+          "n_images": 386,
+          "person_ap50": 0.7945459980666871,
+          "person_n_gt": 1016
+        },
+        "birdsai": {
+          "n_images": 1225,
+          "person_ap50": 0.11430616509600569,
+          "person_n_gt": 513
+        },
+        "flir": {
+          "n_images": 1144,
+          "person_ap50": 0.7524035509317695,
+          "person_n_gt": 4453
+        },
+        "hituav": {
+          "n_images": 431,
+          "person_ap50": 0.840609154494584,
+          "person_n_gt": 4456
+        },
+        "llvip": {
+          "n_images": 3296,
+          "person_ap50": 0.9085551327933947,
+          "person_n_gt": 9296
+        }
+      },
+      "classes": {
+        "car": {
+          "ap50": 0.8466508893316879,
+          "ap50_95": 0.5928702248408982,
+          "n_gt": 7730,
+          "precision": 0.8943519526995488,
+          "recall": 0.7435963777490298
+        },
+        "cart": {
+          "ap50": null,
+          "ap50_95": null,
+          "n_gt": 0,
+          "precision": null,
+          "recall": null
+        },
+        "person": {
+          "ap50": 0.8362421816626568,
+          "ap50_95": 0.4337190773405908,
+          "n_gt": 19734,
+          "precision": 0.8817294448769387,
+          "recall": 0.7461234417756157
+        },
+        "truck": {
+          "ap50": 0.6295096351235341,
+          "ap50_95": 0.4389233147997693,
+          "n_gt": 225,
+          "precision": 0.779874213836478,
+          "recall": 0.5511111111111111
+        },
+        "two_wheeler": {
+          "ap50": 0.6619951162031904,
+          "ap50_95": 0.36698287535621243,
+          "n_gt": 725,
+          "precision": 0.7890909090909091,
+          "recall": 0.5986206896551725
+        }
+      },
+      "mean_over_present_classes": {
+        "ap50": 0.7435994555802672,
+        "ap50_95": 0.4581238730843677,
+        "precision": 0.8362616301259687,
+        "recall": 0.6598629050727323
+      },
+      "modality": "lwir",
+      "n_images": 6482,
+      "operating_conf": 0.375,
+      "operating_conf_rule": "argmax of F1 averaged over the classes present in this slice",
+      "size_buckets": {
+        "person": [
+          {
+            "ap50": 0.9273150190027403,
+            "ap50_95": 0.5284286980438415,
+            "bucket_px": 77,
+            "conf": 0.35000000000000003,
+            "n_gt": 9310,
+            "precision": 0.9163025210084034,
+            "recall": 0.8784103114930183
+          },
+          {
+            "ap50": 0.8528123315989361,
+            "ap50_95": 0.5102403541427071,
+            "bucket_px": 54,
+            "conf": 0.35000000000000003,
+            "n_gt": 984,
+            "precision": 0.855119825708061,
+            "recall": 0.7977642276422764
+          },
+          {
+            "ap50": 0.8125124349683315,
+            "ap50_95": 0.45587444234044083,
+            "bucket_px": 38,
+            "conf": 0.35000000000000003,
+            "n_gt": 939,
+            "precision": 0.7783842794759825,
+            "recall": 0.759318423855165
+          },
+          {
+            "ap50": 0.7211509365378832,
+            "ap50_95": 0.33376813648384507,
+            "bucket_px": 27,
+            "conf": 0.35000000000000003,
+            "n_gt": 1933,
+            "precision": 0.7317767653758542,
+            "recall": 0.6647697878944646
+          },
+          {
+            "ap50": 0.8188963662468898,
+            "ap50_95": 0.35144720331294727,
+            "bucket_px": 19,
+            "conf": 0.35000000000000003,
+            "n_gt": 4032,
+            "precision": 0.8757594167679222,
+            "recall": 0.7150297619047619
+          },
+          {
+            "ap50": 0.6622264547388151,
+            "ap50_95": 0.2606106361546369,
+            "bucket_px": 14,
+            "conf": 0.35000000000000003,
+            "n_gt": 1778,
+            "precision": 0.7947238252267106,
+            "recall": 0.5421822272215973
+          },
+          {
+            "ap50": 0.3350891099318082,
+            "ap50_95": 0.10138449860384224,
+            "bucket_px": 9,
+            "conf": 0.35000000000000003,
+            "n_gt": 758,
+            "precision": 0.6990740740740741,
+            "recall": 0.19920844327176782
+          }
+        ]
+      }
+    }
+  },
+  "split": "val",
+  "tag": "final",
+  "ultralytics": "8.4.155",
+  "weights": {
+    "path": "runs_v4/ir/weights/best.pt",
+    "sha256": "c3e5590117d45b4397a357e1f80df101ce251fa4d244d21933bbc10ec6491138"
+  }
+}

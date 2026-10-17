@@ -151,6 +151,7 @@ class SamplingRules:
     rare_repeat: int
     lwir_repeat: int
     max_repeat: int
+    visible_person_repeat: int = 1  # optional: extra copies of visible-light images that hold a person (day person emphasis)
 
 
 @dataclass(frozen=True)
@@ -244,10 +245,11 @@ def load_stage_config(path: Path, stage: str) -> StageConfig:
             rare_repeat=int(s["rare_repeat"]),
             lwir_repeat=int(s["lwir_repeat"]),
             max_repeat=int(s["max_repeat"]),
+            visible_person_repeat=int(s.get("visible_person_repeat", 1)),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise UsageError(f"{path}: `sampling:` needs rare_classes, rare_repeat, lwir_repeat and max_repeat ({exc})") from exc
-    if min(sampling.rare_repeat, sampling.lwir_repeat, sampling.max_repeat) < 1:
+    if min(sampling.rare_repeat, sampling.lwir_repeat, sampling.max_repeat, sampling.visible_person_repeat) < 1:
         raise UsageError(f"{path}: every sampling repeat must be at least 1")
 
     close_mosaic = raw.get("close_mosaic_epochs")
@@ -937,6 +939,8 @@ def repeat_count(entry: ImageEntry, rules: SamplingRules) -> int:
         copies += rules.rare_repeat - 1
     if entry.modality == "lwir":
         copies += rules.lwir_repeat - 1
+    if entry.modality == "visible" and 0 in entry.classes:
+        copies += rules.visible_person_repeat - 1
     return min(copies, rules.max_repeat)
 
 
