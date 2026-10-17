@@ -242,6 +242,21 @@ class TestFenceCrossing:
         assert one is not None and one.direction == "in"
         assert two is None
 
+    @pytest.mark.parametrize("xs,direction", [((300.0, 310.0, 320.0, 330.0, 340.0), "in"),
+                                              ((340.0, 330.0, 320.0, 310.0, 300.0), "out")])
+    def test_a_track_sampled_exactly_on_the_fence_is_still_counted(self, xs, direction):
+        # Found by tools/measure_fence_misses.py on scripted footage: with strict signs, a path whose sampled
+        # point lands exactly on x = 320 straddled the line in neither of its two segments and was missed.
+        track = SimpleTrack("on-line", CAMERA_ID, "person", [(0.1 * i, x, 500.0) for i, x in enumerate(xs)])
+        hit = fence_mod.evaluate(track, FENCE)
+        assert hit is not None and hit.direction == direction
+        assert hit.point_px[0] == pytest.approx(320.0) and hit.crossed_at_s == pytest.approx(0.3)
+
+    @pytest.mark.parametrize("x", [300.0, 340.0])
+    def test_touching_the_fence_and_stepping_back_is_not_a_crossing(self, x):
+        track = SimpleTrack("touch", CAMERA_ID, "person", [(0.0, x, 500.0), (0.1, 320.0, 500.0), (0.2, x, 500.0)])
+        assert fence_mod.evaluate(track, FENCE) is None
+
 
 class TestHomography:
     def test_residual_within_five_percent_on_a_known_square(self):

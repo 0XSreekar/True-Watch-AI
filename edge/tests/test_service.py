@@ -81,7 +81,7 @@ def test_service_loop_runs_the_pipeline_on_every_ingested_frame(tmp_path, monkey
     monkeypatch.setattr(appearance_mod.AppearanceChannel, "from_detector", classmethod(lambda cls, det, cfg=None: fake))
     monkeypatch.setattr(app_mod, "frames", lambda *a, **k: ingest_frames(scene, 90))
     monkeypatch.setenv("CALIBRATION_DIR", str(tmp_path / "cal"))
-    monkeypatch.setenv("CALIBRATION_WARMUP_FRAMES", "30")
+    monkeypatch.setenv("CALIBRATION_WARMUP_SECONDS", "1.5")
     monkeypatch.setenv("DETECTOR_STRIDE", "1")
     monkeypatch.setenv("CAMERA_ID", "CAM-T")
     cfg = Config()

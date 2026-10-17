@@ -84,6 +84,8 @@ source.py -> camera_state.py -> motion.py (every frame) -+-> tracking.py (ByteTr
 | `pipeline/demo.py` | `python -m pipeline.demo`; prints channel scores, alerts, camera-state events, a day/night weighting comparison and timings. |
 | `tools/reproduce_flow_contrast.py` | Re-runs the section 1 flow-contrast measurement on paired visible/LWIR frames. |
 | `tools/reproduce_rule_sanity.py` | Re-runs the section 2 rule-sanity table (from the table, or live on a frame folder). |
+| `tools/measure_false_alerts.py` | Alerts per camera per 24 h over event-free recordings, through the service path (see below). |
+| `tools/measure_fence_misses.py` | Fence-crossing miss rate against ground-truth crossing times, Wilson 95% interval vs the 2% target. |
 
 ### Running the demo
 
@@ -147,7 +149,8 @@ frame.
   weights 1. On `ir.mp4` the alert count does not change (1 either way) because the COCO-pretrained
   detector finds few people on LWIR (14 person boxes against 109 on visible over the section 1
   reproduction below), so few night candidates exist to be rescued.
-- **Calibration:** written to `edge/var/calibration/<camera>.<modality>.json` after 100 warm-up frames.
+- **Calibration:** written to `edge/var/calibration/<camera>.<modality>.json` after 5 s of warm-up on the
+  clip's own clock (at least 25 frames; `--warmup-seconds`, or `--warmup N` for a fixed frame count).
 - **Camera state:** a black frame raised SIGNAL_LOSS, a blurred and darkened frame LENS_TAMPER, a
   washed-out frame IR_FLOOD; 0 detection alerts inside any of those windows.
 - **Section 1 re-run** (`tools/reproduce_flow_contrast.py`, KAIST set00/V000 frames 1150-1250, not the
@@ -169,13 +172,58 @@ OpenCV, so the substitution recorded in `docs/PHASE_MINUS1_SCOPE.md` section 6 i
 a configuration change rather than a second code path. They differ in how the
 frame rate is reduced, because they have different clocks:
 
-- A **file** is decimated against its own declared rate — keep every Nth frame.
-  Dropping by wall-clock would empty a short clip on a fast machine.
+- A **file** is decimated on its own timeline: a frame is kept when its media time
+  (decoded frames / declared fps) reaches the next 1/TARGET_FPS slot, so 20 fps to
+  8 fps keeps 8 frames a second (2-3 source frames apart). Each frame carries that
+  media time, and the pipeline uses it as its clock, paced or not. Dropping by
+  wall-clock would empty a short clip on a fast machine.
 - A **live pull** drops any frame arriving inside the target interval, because on
   a live source a stale frame is worse than a missing one.
 
 Every frame and every event carries `source` (`rtsp` or `file`), so nothing
 downstream can present a replay as a live camera.
+
+## Frame rate
+
+Fusion behaves the same at any ingest rate (docs/VERIFICATION_REPORT.md section 4.1 has the measured
+table). Three things make that true:
+
+- **Flow is px per reference interval (1/20 s), not px per frame.** `pipeline/motion.py` scales each
+  pair's flow by `REFERENCE_INTERVAL_S / dt`, dt from the frame timestamps. At 20 fps the factor is 1, so
+  the section 1 numbers and the Farneback parameters are untouched; at 8 fps a walker's 7.5 px/frame
+  reads as 3 px per 1/20 s, the same as at 20 fps. A pair more than 1 s apart is a cut, not flow.
+- **Calibration warm-up is 5 s of the camera's clock** (`CALIBRATION_WARMUP_SECONDS`, floor
+  `CALIBRATION_WARMUP_MIN_FRAMES` = 25), not 100 frames (which was 12.5 s at 8 fps). Stored calibrations
+  are schema v2; a v1 file (px per frame) is ignored and the camera re-learns.
+- **The detector stride has a ceiling in seconds** (`DETECTOR_MAX_INTERVAL_S` = 0.125): below about
+  16 fps the detector runs on every frame, because boxes 0.25 s apart move further than a small box is
+  wide and the tracker cannot associate them.
+
+`TARGET_FPS` defaults to 8: on the samples it gives the same alerts as the native 20 fps for 56-61% of
+the compute per second of footage (the detector still runs 8 times a second, against 10 at 20 fps stride 2). The temporal gate stays 3 frames and the appearance
+freshness window stays `stride` frames: both are counted in frames the detector actually ran on.
+
+## Measuring the slide-5 field targets
+
+Neither target can be measured without footage; the tools are ready and proven on generated input.
+
+    # false alerts per camera per 24 h: event-free recordings, optionally CAMERA_ID=path
+    python -m tools.measure_false_alerts CAM-A=/data/a_night.mp4 CAM-A=/data/a_day.mp4 \
+        --rules-dir var/rules --json out/false_alerts.json
+    # fence miss rate: recording + JSON list of true crossing times (media seconds) + the camera's fence
+    python -m tools.measure_fence_misses --recording /data/walks.mp4 --truth /data/walks.json \
+        --rules rules/examples/RXL-01.json --json out/fence.json
+    # self-checks on generated footage with a scripted detector
+    python -m tools.measure_false_alerts --self-check
+    python -m tools.measure_fence_misses --self-check 50
+
+Both run each recording through ingest and `CameraService` exactly as the service does (TARGET_FPS,
+DETECTOR_STRIDE, calibration, fusion, rules) with the configured detector. The false-alert report states
+its extrapolation (alerts / alertable camera-hours x 24, warm-up excluded) with an exact Poisson 95%
+interval; whoever records the footage must confirm it is event-free. The fence report matches true
+crossings to `fence crossed` firings within +/-1 s (one-to-one); the 2% target is only shown when the
+Wilson upper bound is below 2%, which needs at least 189 crossings with no miss. Record each crossing as
+a separate pass: the rule fires once per track per fence.
 
 ## ANPR (Nepali Devanagari + Bhutan Latin) and face detection
 

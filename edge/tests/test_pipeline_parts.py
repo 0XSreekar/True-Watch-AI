@@ -174,7 +174,7 @@ def test_calibration_learns_a_higher_threshold_over_foliage(tmp_path):
 
     store = CalibrationStore(tmp_path)
     path = store.save(cal)
-    assert path.name == "C1.visible.json" and json.loads(path.read_text())["schema"] == "truewatch.calibration.v1"
+    assert path.name == "C1.visible.json" and json.loads(path.read_text())["schema"] == "truewatch.calibration.v2"
     again = store.load("C1", "visible", (160, 128))
     assert again is not None and np.allclose(again.tau_cells(), tau)
     assert store.load("C1", "visible", (320, 256)) is None, "a different working size re-learns"

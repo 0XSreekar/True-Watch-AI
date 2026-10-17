@@ -106,6 +106,9 @@ class CameraService:
         calibration_dir: Path = Path("var/calibration"),
         warmup_frames: int | None = None,
         source: str = "file",
+        warmup_seconds: float | None = None,
+        warmup_min_frames: int | None = None,
+        detector_max_interval_s: float | None = None,
         rules: CameraRuleConfig | ConfigStore | None = None,
         baseline: CameraBaseline | None = None,
         throttle: AlertThrottle | None = None,
@@ -120,7 +123,13 @@ class CameraService:
         kwargs = dict(camera_id=camera_id, stride=max(1, int(stride)), calibration_dir=Path(calibration_dir),
                       source=source)
         if warmup_frames is not None:
-            kwargs["warmup_frames"] = int(warmup_frames)
+            kwargs["warmup_frames"] = int(warmup_frames)        # fixed frame count (tests)
+        if warmup_seconds is not None:
+            kwargs["warmup_seconds"] = float(warmup_seconds)
+        if warmup_min_frames is not None:
+            kwargs["warmup_min_frames"] = int(warmup_min_frames)
+        if detector_max_interval_s is not None:
+            kwargs["detector_max_interval_s"] = float(detector_max_interval_s)
         self.pipeline = Pipeline(appearance, PipelineConfig(**kwargs))
         self.camera_id = camera_id
         self.post_id = post_id
@@ -162,12 +171,20 @@ class CameraService:
             {"id": self.camera_id, "name": self.camera_name, "sector": self.camera_sector}, sanctioned=windows)
 
     def to_frame(self, frame) -> Frame:
-        """Adapt a pipeline.ingest frame (monotonic + captured_at) to the pipeline's Frame."""
+        """Adapt a pipeline.ingest frame (monotonic + captured_at) to the pipeline's Frame.
+
+        The pipeline's clock is the file's media time when the frame has one (a replay, paced or not),
+        else the monotonic decode time (a live pull): flow, calibration warm-up and dwell are all per
+        second of scene time.
+        """
         if isinstance(frame, Frame):
             return frame
+        clock = getattr(frame, "media_time", None)
+        if clock is None:
+            clock = frame.monotonic
         if self._t0 is None:
-            self._t0 = frame.monotonic
-        return Frame(index=frame.index, image=frame.image, timestamp=frame.monotonic - self._t0,
+            self._t0 = clock
+        return Frame(index=frame.index, image=frame.image, timestamp=clock - self._t0,
                      captured_at=frame.captured_at, source=frame.source, camera_id=self.camera_id)
 
     # ------------------------------------------------------------------ rules

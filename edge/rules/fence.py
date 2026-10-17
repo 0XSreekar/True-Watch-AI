@@ -126,30 +126,33 @@ def evaluate(track: TrackLike, fence: FenceLine) -> FenceCrossing | None:
     if len(points) < 2:
         return None
 
-    for (t0, x0, y0), (t1, x1, y1) in zip(points, points[1:]):
-        track_seg = ((x0, y0), (x1, y1))
-        for a, b in fence.segments():
-            hit = _segments_intersect(track_seg[0], track_seg[1], a, b)
+    best: FenceCrossing | None = None
+    for a, b in fence.segments():
+        # A sampled point lying exactly ON this fence segment's line has no side. Testing it as an end of
+        # a path segment loses the crossing (x = 170, 160, 150 against a fence at x = 160: neither path
+        # segment straddles strictly), so such points are bridged: each point is compared with the next
+        # point that is off the line. Touching the line and stepping back is then no crossing at all.
+        off = [p for p in points if abs(_side(a, b, (p[1], p[2]))) > _EPS]
+        for (t0, x0, y0), (t1, x1, y1) in zip(off, off[1:]):
+            if best is not None and t1 >= best.crossed_at_s:
+                break
+            hit = _segments_intersect((x0, y0), (x1, y1), a, b)
             if hit is None:
                 continue
-            side_before = _side(a, b, track_seg[0])
-            side_after = _side(a, b, track_seg[1])
-            if side_before >= 0 and side_after < 0:
-                direction: Literal["in", "out"] = "in"
-            elif side_before <= 0 and side_after > 0:
-                direction = "out"
-            else:
-                continue  # started on the line with no net side change
+            side_before = _side(a, b, (x0, y0))
+            side_after = _side(a, b, (x1, y1))
+            direction: Literal["in", "out"] = "in" if side_before > 0 > side_after else "out"
             if fence.direction != "both" and direction != fence.direction:
                 continue
-            return FenceCrossing(
+            best = FenceCrossing(
                 fence_name=fence.name,
                 track_id=track.track_id,
                 crossed_at_s=t1,
                 point_px=hit,
                 direction=direction,
             )
-    return None
+            break
+    return best
 
 
 def evaluate_all(track: TrackLike, fences: Sequence[FenceLine]) -> list[FenceCrossing]:

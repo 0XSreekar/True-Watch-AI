@@ -17,6 +17,14 @@ The motion channel runs on EVERY frame; the appearance channel runs on every `st
   - Fusion treats an appearance score as fresh for `stride` frames (FusionConfig.appearance_max_age), so
     the temporal gate counts motion frames, and n_consecutive = 3 at stride 2 still spans two
     independent detector passes.
+  - The stride has a ceiling in SECONDS, `detector_max_interval_s` (default 0.125 s): the detector also
+    runs on any frame after which the next pass would come more than that after the last one, so at
+    under 16 fps it runs on every frame. At 20-25 fps a stride of 2 is
+    0.08-0.10 s and the ceiling never triggers; at 8 fps a stride of 2 would be 0.25 s between boxes, and
+    a walker crossing a 320 px frame in 3 s moves 25 px in that time, more than a 24 px box, so
+    ByteTrack's IoU association (unconfirmed tracks need IoU >= 0.3 with the next box) never confirms a
+    track and fusion has no candidate (measured with tools/measure_fence_misses.py on scripted footage:
+    0 of 6 crossings at 8 fps with a plain stride, 6 of 6 with the ceiling).
 When a camera-state anomaly is active the detector is not run at all: its output would not be used.
 """
 
@@ -31,7 +39,8 @@ from pathlib import Path
 import numpy as np
 
 from pipeline.appearance import AppearanceChannel
-from pipeline.calibration import DEFAULT_WARMUP_FRAMES, CalibrationStore, CameraCalibration, Calibrator
+from pipeline.calibration import (DEFAULT_WARMUP_SECONDS, MIN_WARMUP_FRAMES, CalibrationStore, CameraCalibration,
+                                  Calibrator)
 from pipeline.camera_state import CameraStateMonitor
 from pipeline.fusion import Fusion, FusionConfig, FusionFrame
 from pipeline.motion import CELL_PX, MotionChannel, MotionField
@@ -62,7 +71,10 @@ class PipelineConfig:
     camera_id: str = "CAM-01"
     modality: str = "auto"                     # 'auto' | 'visible' | 'lwir'
     stride: int = 2
-    warmup_frames: int = DEFAULT_WARMUP_FRAMES
+    detector_max_interval_s: float = 0.125     # run the detector at least this often, whatever the stride
+    warmup_seconds: float = DEFAULT_WARMUP_SECONDS   # calibration warm-up on the camera's clock
+    warmup_min_frames: int = MIN_WARMUP_FRAMES       # ... and never fewer frames than this
+    warmup_frames: int | None = None                 # fixed frame count instead (tests, reproductions)
     calibration_dir: Path = Path("var/calibration")
     recalibrate: bool = False
     source: str = "file"
@@ -105,6 +117,8 @@ class Pipeline:
         self.calibration: CameraCalibration | None = None
         self.calibrator: Calibrator | None = None
         self._stride = max(1, int(c.stride))
+        self._last_detector_ts: float | None = None
+        self._last_ts: float | None = None
         # onnxruntime and OpenCV both release the GIL, so the detector pass and the flow of the same frame
         # can overlap on separate cores; a frame with a detector pass then costs max(flow, detector)
         # rather than their sum. The two stages share nothing until tracking.
@@ -134,16 +148,20 @@ class Pipeline:
             self.camera_state.set_baseline(self.calibration.scene_brightness, self.calibration.scene_std,
                                            self.calibration.scene_detail)
         else:
-            self.calibrator = Calibrator(c.camera_id, self.modality, fcfg.threshold, c.warmup_frames)
-            log.info("camera %s: learning thresholds over %d warm-up frames", c.camera_id, c.warmup_frames)
+            self.calibrator = self._new_calibrator(fcfg.threshold)
+            log.info("camera %s: learning thresholds over %s", c.camera_id, self.calibrator.describe())
 
     def reset_calibration(self) -> None:
         """Forget this camera's thresholds and learn them again from the next frames."""
         self.store.reset(self.config.camera_id)
         self.calibration = None
         if self.modality is not None and self.fusion is not None:
-            self.calibrator = Calibrator(self.config.camera_id, self.modality, self.fusion.config.threshold,
-                                         self.config.warmup_frames)
+            self.calibrator = self._new_calibrator(self.fusion.config.threshold)
+
+    def _new_calibrator(self, threshold: float) -> Calibrator:
+        c = self.config
+        return Calibrator(c.camera_id, self.modality, threshold, c.warmup_frames,
+                          warmup_seconds=c.warmup_seconds, min_frames=c.warmup_min_frames)
 
     # ------------------------------------------------------------------ per frame
 
@@ -161,7 +179,15 @@ class Pipeline:
 
         detections = None
         future = None
-        run_detector = self.appearance is not None and not blocked and frame.index % self._stride == 0
+        # skipping this frame would put the next pass one frame interval later; if that is past the ceiling,
+        # run now (so the gap between passes never exceeds detector_max_interval_s)
+        dt = frame.timestamp - self._last_ts if self._last_ts is not None else 0.0
+        self._last_ts = frame.timestamp
+        due = (frame.index % self._stride == 0 or self._last_detector_ts is None
+               or frame.timestamp + dt - self._last_detector_ts > self.config.detector_max_interval_s + 1e-6)
+        run_detector = self.appearance is not None and not blocked and due
+        if run_detector:
+            self._last_detector_ts = frame.timestamp
         kwargs = dict(camera_id=self.config.camera_id, frame_index=frame.index, timestamp=frame.timestamp,
                       modality=self.modality)
         if run_detector and self._pool is not None:
@@ -191,15 +217,15 @@ class Pipeline:
         if self.calibration is None and self.calibrator is not None and field_ is not None and not blocked:
             boxes = [field_.to_working(b.bbox) for b in (detections or [])] + [field_.to_working(tr.bbox) for tr in tracks]
             self.calibrator.observe(field_.cell_energy, field_.mag.shape[::-1], CELL_PX, boxes,
-                                    self.camera_state.last_stats)
+                                    self.camera_state.last_stats, timestamp=frame.timestamp)
             if self.calibrator.ready:
                 self.calibration = self.calibrator.finalize()
                 saved = self.store.save(self.calibration)
                 self.camera_state.set_baseline(self.calibration.scene_brightness, self.calibration.scene_std,
                                                self.calibration.scene_detail)
                 self.calibrator = None
-                log.info("camera %s: calibration learnt from %d frames, written to %s",
-                         self.config.camera_id, self.calibration.frames, saved)
+                log.info("camera %s: calibration learnt from %d frames (%.1f s), written to %s",
+                         self.config.camera_id, self.calibration.frames, self.calibration.seconds, saved)
 
         t4 = time.perf_counter()
         status = "camera_state" if blocked else ("ok" if self.calibration is not None else "warming_up")
