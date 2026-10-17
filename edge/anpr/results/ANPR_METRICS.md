@@ -317,6 +317,61 @@ The locator removes the locating loss: end to end it now matches the recogniser'
 overall plate-read rate is therefore bound by the recogniser (section 2.3). The 85% real-data target
 remains NOT MET (best real figure above: 54.4% strict, 42.9% extended).
 
+## 4. Round G7: locator-cut real training crops (measured, not adopted)
+
+Hypothesis: G1-G6 were trained on crops cut differently (character-box line crops, hand boxes, synthetic renders)
+from what inference produces (ONNX locator box, then `rectify.prepare_lines`), so training on inference-style crops of
+REAL training photographs, with the lines the G6 reader misread repeated more, should raise real exact match.
+
+**Data.** `anpr/scripts/build_g7_lines.py` ran the locator and `prepare_lines` on 2,105 verified real training
+photographs (Roboflow train splits; hf-photo training transcriptions marked high-confidence; Kaggle `realplates`
+labelled crops) and kept a plate only if it was located, its label parses as a Nepali registration, the number of
+lines cut equals the number of label lines, and the baseline reading is not wildly off (a wrong-plate guard). Kept
+1,181 plates (1,976 lines; 405 of them misread by G6): rf_college 451, rf_sushant 523, rf_prajwal 72, hf_train 52,
+realplates 83. Dropped: no plate located 414, grammar 316, test-image match 73, line-count mismatch 57, suspected wrong
+plate 56, test-text match 6, duplicate 1, unreadable 1.
+
+**Leakage proof (counts).** Test sets: strict 57, extended 147 (strict is a subset), Roboflow held-out 114 (test plates
+whose text occurs in no Roboflow train/valid plate). New plates whose text equals a test text: 0 / 0 / 0 (6 were dropped
+for it beforehand). Byte-identical photo matches: 0 (73 photos were dropped by file hash or 4-bit dHash proximity to
+any test photo, including all 208 Roboflow test images). hf training photo ids shared with a test photo: 0. G6 replay
+lines drawn from a test photo: 0 of 1,280 hf-derived lines. Test texts equal to any single G6 replay line or new G7
+line: 0 / 0 / 0.
+
+**Training.** Kaggle T4, kernel `sreekar1206/truewatch-ocr-gpu7` (about 0.85 GPU hours of training, about 1 h for the
+session), from the G6 checkpoint, 3 epochs, LR 1.5e-4 (G6: 3e-4). Mix: every real G6 set in full plus 25% of the
+synthetic lines (29,890 replay lines) plus the new lines repeated (hf_train x8, realplates x4, Roboflow x1, and +2 for
+each line G6 misread). `latest` was exported and evaluated.
+
+**Results** (same pipeline and scoring as section 2; crop-level rows are exact match / mean CER on the supplied crop,
+end-to-end rows locate with the ONNX locator on the full photograph and count exact plate reads). n is per set; real
+and synthetic figures are never blended.
+
+| Set | n | G6 (published) | G7 |
+|---|---|---|---|
+| Real, strict, crops | 57 | 52.6% / 0.262 | 49.1% / 0.251 |
+| Real, extended, crops | 147 | 38.8% / 0.304 | 38.1% / 0.281 |
+| Roboflow held-out (clean) | 114 | 72.8% / 0.105 | 75.4% / 0.081 |
+| **Real, strict, end to end** | 57 | 31 (54.4%) | 31 (54.4%) |
+| **Real, extended, end to end** | 147 | 63 (42.9%) | 62 (42.2%) |
+| Synthetic, original | 2,076 | 88.0% / 0.052 | 86.9% / 0.056 |
+| Synthetic, one-line | 993 | 61.0% / 0.152 | 59.2% / 0.166 |
+| Synthetic, province | 795 | 40.4% / 0.223 | 40.9% / 0.229 |
+
+End to end on the extended set the two models agree on 58 plates, G6 alone reads 5, G7 alone reads 4, and 80 are read
+by neither.
+
+**Verdict: G7 is NOT adopted.** It does not beat G6 on the independent real sets end to end (strict level, extended one
+plate lower) and loses 2 plates on strict crops. Its gains are mean CER on the real sets and +2.6 points on the
+Roboflow held-out plates, whose style it was trained on; synthetic original and one-line dip about 1-2 points. The
+distribution-match hypothesis is not supported at this data size: only 52 of the 1,181 new plates come from the hf
+photo distribution the independent test sets are drawn from. The misreads that dominate the training-side photographs
+are digit drops and insertions in the serial. The 85% real-data target remains NOT MET (best real end-to-end figure:
+54.4% strict, 42.9% extended, G6 with the ONNX locator). The G7 weights are archived outside the repository and were not
+published.
+
+Summary: `results/eval_ocr_g7.json`.
+
 ## Running the measurement
 
 ```bash
