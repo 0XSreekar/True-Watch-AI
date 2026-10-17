@@ -1,0 +1,13 @@
+{
+  "id": "sreekar1206/truewatch-plate-det-train",
+  "title": "truewatch-plate-det-train",
+  "code_file": "train_plate_locator.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["sreekar1206/truewatch-plate-det"],
+  "competition_sources": [],
+  "kernel_sources": []
+}
