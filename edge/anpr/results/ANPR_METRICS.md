@@ -317,6 +317,46 @@ The locator removes the locating loss: end to end it now matches the recogniser'
 overall plate-read rate is therefore bound by the recogniser (section 2.3). The 85% real-data target
 remains NOT MET (best real figure above: 54.4% strict, 42.9% extended).
 
+### 3.3 Release evaluation (version 0.1.0, prototype)
+
+Run with `edge/anpr/scripts/eval_plate_locator.py`; full numbers in `plate_locator_release_eval.json` and
+`plate_locator_ood_review.json`. A detection counts when it overlaps a labelled plate at IoU >= 0.5.
+
+**Held-out test split** (642 images, 683 plates; same sources as training, different images):
+
+| Threshold | Recall (95% CI) | Precision (95% CI) |
+|---|---|---|
+| 0.25 (operating point, recall first) | 97.2% (95.7-98.2) | 92.6% (90.5-94.3) |
+| 0.6 (F1-optimal on the val split) | 95.6% (93.8-96.9) | 96.6% (95.0-97.7) |
+
+The threshold was chosen on the val split only; AP50 on test 0.966. The operating point stays 0.25 because a
+missed plate cannot be read later, while a false box is checked by the plate grammar.
+
+**New camera source, never trained on** (Roboflow `vehicleannotating/nepali-vehicle-annotation`, CC BY 4.0, 48 random
+street photos, no plate labels, so each photo's detections were reviewed by eye): 29 plates found,
+15 missed, 1 false box (a hospital sign). Recall **65.9%
+(95% CI 51-78%)** against 97.2% in-domain. Most misses are small or distant
+plates, but some are clear full-size plates. The in-domain figure overstates how the locator does on a new camera.
+
+**Plate-free scenes** (300 day and IR images with no vehicle, threshold 0.25): 14 false boxes on 14 images
+(4.7%), half of them whole-frame boxes on night or IR scenes; after the plate reader and its grammar, 2 phantom plate
+readings (0.7%) and 1 correct reading of a real plate the dataset had not labelled. In the live pipeline the locator
+only runs on fusion-confirmed vehicles, so most of these scenes never reach it.
+
+**Stress** (the same test images degraded; threshold 0.6):
+
+| Condition | Recall | Precision |
+|---|---|---|
+| night (gamma 2.5, dark) | 87.7% | 97.9% |
+| motion/defocus blur (9 px) | 88.4% | 97.3% |
+| half resolution | 93.4% | 97.1% |
+| quarter resolution (far range proxy) | 85.1% | 97.5% |
+| IR-like (grey, smoothed, equalised) | 82.9% | 98.4% |
+| heavy JPEG (q=15) | 91.5% | 97.2% |
+| sensor noise (sigma 20) | 65.0% | 98.2% |
+
+Precision holds under every condition; recall falls most under sensor noise, IR-like rendering and quarter resolution.
+
 ## Running the measurement
 
 ```bash
