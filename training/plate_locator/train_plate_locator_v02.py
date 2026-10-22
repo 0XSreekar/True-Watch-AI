@@ -19,17 +19,22 @@ ap.add_argument("--data", required=True)
 ap.add_argument("--work", required=True)
 ap.add_argument("--epochs", type=int, default=40)
 ap.add_argument("--batch", type=int, default=16)
+ap.add_argument("--resume", action="store_true", help="continue from <work>/runs/v02/weights/last.pt")
 ap.add_argument("--smoke", action="store_true")
 a = ap.parse_args()
 if not torch.backends.mps.is_available():
     raise SystemExit("MPS unavailable: not training on CPU")
 work = Path(a.work).resolve()
 t0 = time.time()
-model = YOLO(a.weights)
+model = None if a.resume else YOLO(a.weights)
 kw = dict(fraction=0.02, epochs=1) if a.smoke else dict(epochs=a.epochs)
-model.train(data=a.data, imgsz=640, batch=a.batch, device="mps", workers=4, patience=10, optimizer="AdamW",
-            lr0=0.0005, lrf=0.1, cos_lr=True, warmup_epochs=1, mosaic=1.0, close_mosaic=5, hsv_v=0.6, hsv_s=0.5,
-            seed=0, single_cls=True, project=str(work / "runs"), name="v02", exist_ok=True, plots=False, **kw)
+if a.resume:
+    model = YOLO(str(work / "runs" / "v02" / "weights" / "last.pt"))
+    model.train(resume=True)
+else:
+  model.train(data=a.data, imgsz=640, batch=a.batch, device="mps", workers=4, patience=10, optimizer="AdamW",
+              lr0=0.0005, lrf=0.1, cos_lr=True, warmup_epochs=1, mosaic=1.0, close_mosaic=5, hsv_v=0.6, hsv_s=0.5,
+              seed=0, single_cls=True, project=str(work / "runs"), name="v02", exist_ok=True, plots=False, **kw)
 best = work / "runs" / "v02" / "weights" / "best.pt"
 print("train minutes %.1f" % ((time.time() - t0) / 60), flush=True)
 m = YOLO(str(best)).val(data=a.data, split="test", imgsz=640, device="mps", plots=False,
