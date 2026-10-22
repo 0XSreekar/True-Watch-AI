@@ -207,13 +207,14 @@ def main() -> int:
     ap.add_argument("--ood-count", type=int, default=48)
     ap.add_argument("--sheets-dir", type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--threshold", type=float, help="fix the operating threshold instead of the val-F1 choice (for like-for-like comparison)")
     args = ap.parse_args()
 
     loc = PlateLocator(args.model, conf=min(SWEEP))     # keep low-score boxes; thresholds applied here
     val, test = load_split(args.data, "val"), load_split(args.data, "test")
     val_dets = detect_all(loc, val)
     sweep = [score(val, val_dets, t) for t in SWEEP]
-    chosen = max(sweep, key=lambda r: (r["f1"], r["threshold"]))["threshold"]
+    chosen = args.threshold or max(sweep, key=lambda r: (r["f1"], r["threshold"]))["threshold"]
     test_dets = detect_all(loc, test)
     report = {
         "iou_match": IOU_MATCH,

@@ -357,6 +357,61 @@ only runs on fusion-confirmed vehicles, so most of these scenes never reach it.
 
 Precision holds under every condition; recall falls most under sensor noise, IR-like rendering and quarter resolution.
 
+### 3.4 Version 0.2.0: night, near-IR, noise and small far plates
+
+v0.2 is v0.1 fine-tuned for 30 epochs (best checkpoint by val mAP, epoch 27) on Apple MPS (Mac, about 6 h in
+all, run in two parts after an interruption), image size 640, AdamW, same single-class YOLO11n. Training script
+`training/plate_locator/train_plate_locator_v02.py`, data builder `training/plate_locator/build_v02_data.py`; counts in
+`plate_locator_v02_data_summary.json`. The val and test splits are unchanged.
+
+Training set, 13,946 images: the 5,115 plate-box train images; 2,992 photometric copies (night 760, near-IR-like 754,
+noise 436, down-then-up 456, heavy JPEG 299, blur 287; each image gets one with p=0.6, condition drawn
+0.25/0.25/0.15/0.15/0.10/0.10) and 1,013 small-plate copies (plates 10-30 px wide); 3,432 street photos with 4,505
+pseudo-labelled plates (v0.1 run on each upscaled labelled vehicle crop of
+`vehicleannotating/nepali-vehicle-annotation`, score >= 0.6, mapped back to the frame); 1,394 plate-free negatives
+(10%, from the detector dataset train split, no vehicle label, disjoint from the evaluation negatives). **The 48
+review photos are excluded entirely** (list in the summary json); other frames of the same videos may still be in the
+pseudo-labelled set, so the new-source figure is no longer a fully independent test. The street images were
+pseudo-labelled by v0.1, so v0.2 inherits its blind spots there, and unlabelled plates in them count as background.
+
+All numbers use the same test split, stress set and negatives as 3.3 (negatives rebuilt: 300 images drawn with
+`random.Random(0)` from detector val images with no vehicle label; v0.1 reproduces its 14 false boxes at 0.25 on
+it). Stress is at threshold 0.60 for both models (v0.2's own val-F1 threshold is 0.50: recall 96.5%, precision 96.5%):
+
+| | v0.1 | v0.2 |
+|---|---|---|
+| Clean test recall / precision (0.60) | 95.6% / 96.6% | 95.9% / 97.2% |
+| night (gamma 2.5) | 87.7% | 95.0% |
+| blur (9 px) | 88.4% | 93.7% |
+| half resolution | 93.4% | 94.1% |
+| quarter resolution | 85.1% | 89.6% |
+| IR-like (grey, equalised) | 82.9% | 87.0% |
+| heavy JPEG (q=15) | 91.5% | 93.0% |
+| sensor noise (sigma 20) | 65.0% | 91.2% |
+| natural-dark subset (darkest 15% of test, 96 images, 99 plates), recall at 0.60 / 0.25 | 98.0% / 99.0% | 99.0% / 100% |
+| new camera source, 48 photos, threshold 0.25, by eye: found / missed / false | 29 / 15 / 1 | 52 / 5 / 2 |
+| plate-free, 300 images, raw boxes at 0.60 / 0.25 | 0 / 14 | 3 / 35 |
+| plate-free, boxes that are not a plate, by eye (0.25) | 11 | 4 |
+
+Reading the table honestly:
+- The gain is largest under sensor noise and darkness. The IR-like gain is modest (+4 points) and its recall is still
+  below 90%. These are synthetic proxies. Real thermal (LWIR) cameras cannot show plate characters at all, so no
+  locator can help there; the realistic target is near-IR or illuminated grey night images, and low light.
+- The natural-dark subset was already near ceiling for v0.1; it shows no regression.
+- New source: the by-eye count was redone on the same 48 photos by one reviewer. About 12 of v0.2's 52 are small far
+  plates whose box sits on a plausible plate that cannot be read; counting only clearly legible plates v0.2 still
+  finds more than v0.1's 29. The v0.1 missed figure (15) is from the earlier review, so the miss comparison is soft.
+  The two v0.2 false boxes are an edge-of-frame box and a dot-sized box.
+- Plate-free raw false boxes rose from 14 to 35 at 0.25 (0 to 3 at 0.60). Reviewing every one by eye, 30 of the 35 are
+  real plates on night cars (LLVIP scenes) that the vehicle labels missed and v0.1 did not find; boxes that are not a
+  plate fell from 11 (mostly whole-frame thermal boxes) to 4. The raw count still rose, so at 0.25 expect more boxes
+  on night scenes.
+- Clean test AP50 0.976 (v0.1 0.966).
+
+ONNX parity (onnxruntime against the PyTorch checkpoint, 8 test images): max absolute difference over the whole output
+1.7e-3 (box rows, pixel units), 3.6e-6 on the score row. File `plate_locator_v0.2.onnx`, sha256 `95dd8cf9d164bbffddbd57bc6131acbf29e51e8a1e0abc08e24f9d2be3b7cfdb`. Full report
+`plate_locator_release_eval_v0.2.json`. Not published; the manifest is marked unpublished.
+
 ## Running the measurement
 
 ```bash
