@@ -133,6 +133,8 @@ def run_recording(
                 for ev in events:
                     res.events.append({"t": round(t, 3), "kind": _kind(ev),
                                        "track_id": (ev.get("detection") or {}).get("track_id"),
+                                       "class": (ev.get("detection") or {}).get("class"),
+                                       "bbox_norm_xywh": (ev.get("detection") or {}).get("bbox"),
                                        "rules": list(((ev.get("rule") or {}).get("fired") or []))})
             offset = svc._epoch_offset or 0.0
             for track_id, fired in svc.fired_rules.items():
@@ -140,7 +142,8 @@ def run_recording(
                     if rule.rule_name == RULE_FENCE_CROSSED:
                         res.fence_crossings.append({"t": round(float(rule.evidence["crossed_at_s"]) - offset, 3),
                                                     "track_id": track_id,
-                                                    "direction": rule.evidence.get("direction")})
+                                                    "direction": rule.evidence.get("direction"),
+                                                    "point_px": rule.evidence.get("point_px")})
             res.fused_events = svc.stats.fused_events
             res.rule_suppressed = svc.stats.rule_suppressed
         finally:

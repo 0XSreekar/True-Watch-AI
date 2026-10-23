@@ -16,7 +16,7 @@ Verdicts: **PASS**, **PARTIAL**, **FAIL** (target not met), **NOT MEASURED** (po
 | 2 | Vehicle classification: truck, car, two-wheeler, cart | detector classes, `training/results/METRICS.md` | per-class eval | PARTIAL | truck/car/two-wheeler trained and evaluated; **cart has no training data and is dropped at inference** (`fabf183`) |
 | 2 | Face detection (YuNet), close range | `edge/face/detect.py`, `face/stage.py` | `tests/test_face_stage.py`, `test_face_privacy.py` | PARTIAL | wired behind `FACE_ENABLED` (default off, personal data); YuNet 1.4-2.7 ms per head crop; the sample clips contain no close-range faces, so detection quality is unit-tested only |
 | 2 | ANPR, Nepali Devanagari | `edge/anpr/` | `anpr.evaluate` on held-out real photographs | FAIL vs 85% | see section 2 |
-| 2 | Virtual fence intrusion | `edge/rules/fence.py` | `tests/test_rules.py` (segment intersection) | PASS (unit) | miss rate over scripted crossings NOT MEASURED |
+| 2 | Virtual fence intrusion | `edge/rules/fence.py` | `tests/test_rules.py` (segment intersection) | PASS (unit) | measured on MEVA, see the row below and section 5 |
 | 2 | Suspicious activity: named rules + per-camera baseline | `edge/rules/` | `python -m tools.reproduce_rule_sanity` | PASS | MEASUREMENTS.md s2 table reproduces exactly: 10 tracks, 6 alerts, 4 normal; track 6 = fence + loitering |
 | 2 | Night-time operation (IR) | detector IR eval, `pipeline/fusion.py` night weights | METRICS.md; `test_fusion.py` | PASS | IR person AP50 0.845 (target 0.75) |
 | 2 | Real-time alerts and event logging | `pipeline/service.py`, `events.py`, backend ingest + SSE | end-to-end run; `backend/tests/stream.test.js` | PASS | 10 events -> 10 alerts, 30/30 messages delivered, SSE created + reason patch tested |
@@ -41,10 +41,10 @@ Verdicts: **PASS**, **PARTIAL**, **FAIL** (target not met), **NOT MEASURED** (po
 | 4 | DORI grading per IEC 62676-4 | `edge/rules/dori.py` | `test_rules.py` | PASS | bands exactly 25/62/125/250 px/m; refuses claims beyond the detect band |
 | 5 | Person mAP@50 0.85 day | detector v2 | `training/results/METRICS.md` | **FAIL** | 0.549 (95% CI 0.495-0.610) |
 | 5 | Person mAP@50 0.75 IR | detector v2 | METRICS.md | PASS | 0.845 (95% CI 0.782-0.876) |
-| 5 | <= 5 false alerts per camera per day | throttle + fusion | `tools/measure_false_alerts.py` (self-check only) | NOT MEASURED | rate limiter proven (`test_rules.py`: 50 repeats -> within budget); harness built and proven on generated footage; no event-free footage exists yet |
+| 5 | <= 5 false alerts per camera per day | throttle + fusion | `tools/meva_measure.py` on MEVA (33 clips, 2.75 h, 11 cameras) | FAIL (measured on MEVA, not a border post) | about 250 per camera per 24 h truly false (est. 60 to 780), 5,030 alerts per camera-day of any kind; MEVA is busy US training-facility CCTV, see section 5 |
 | 5 | Detection range 150 m at 25 px/m | `rules/dori.py` | - | NOT TESTABLE HERE | needs a calibrated real camera |
 | 5 | 85% Nepali plates under 25 m | ANPR | section 2 | **FAIL** | best real result 52.6% (57 plates); no range-labelled real set |
-| 5 | < 2% missed fence crossings | fence rule | `tools/measure_fence_misses.py` (self-check only) | NOT MEASURED | harness proven on 50 generated crossings (counts 2 deliberately hidden ones as missed); needs recorded crossings with ground-truth times |
+| 5 | < 2% missed fence crossings | fence rule | `tools/meva_measure.py` on MEVA | FAIL (measured on MEVA, not a border post) | 13 of 54 annotated crossings missed = 24.1%, Wilson 95% 14.6%-37.0% (n=54); 17.4% (9.1%-30.7%, n=46) without the panning camera; see section 5 |
 
 ## 2. Plate reader (published model, round G6, HF `sreekar12/truewatch-anpr-devanagari@064b6a0`)
 
@@ -128,18 +128,42 @@ same synthetic scene at 20 and 8 fps (four fusion cases, full pipeline with cali
 
 ## 5. Open items (honest remaining work)
 
-- P1: false-alert rate per camera per 24 h and fence-crossing miss rate are still NOT MEASURED: no event-free
-  footage and no recorded crossings exist. The tools are built and proven on generated footage with a scripted
-  detector (`edge/README.md`, "Measuring the slide-5 field targets"):
-  - `python -m tools.measure_false_alerts --self-check` (8 fps): two 60 s event-free recordings (textured ground,
-    noise, swaying foliage, a parked box at 0.9) -> 0 alerts in 0.031 alertable camera-hours, reported as 0 per
-    camera per 24 h with a 95% upper bound of 2,903 (the interval shows how little 2 minutes says); a positive
-    control with 3 scripted walks -> 3 alerts.
-  - `python -m tools.measure_fence_misses --self-check 50`: 50 scripted crossings, 2 of them hidden from the
-    detector -> 48 detected, 2 missed, miss rate 4.0%, Wilson 95% 1.1%-13.5%, verdict "not demonstrated"; the same
-    at 20 fps and 8 fps, 0 fence alerts without a true crossing. Showing < 2% needs n >= 189 crossings with no miss.
-  Real numbers need someone to record event-free hours per camera and a scripted-crossing session with the times
-  written down.
+- P1, MEASURED on MEVA: the two slide-5 field targets were measured on real surveillance footage from the public
+  MEVA dataset ("Multiview Extended Video with Activities", Kitware Inc. and IARPA, CC BY 4.0,
+  https://mevadata.org/resources/MEVA-data-license.txt). This is US training-facility CCTV (outdoor campus cameras,
+  daylight, Mar 2018), NOT an Indo-Nepal border post, so it says how the pipeline behaves on real footage, not what a
+  post will see. Setup: 33 five-minute clips (2.75 h, 5.55 GB) from 11 outdoor cameras at the default 8 fps, stride 2,
+  real detector, real service path; pixel fence rule (no MEVA camera has our homography); no night footage. Tooling:
+  `edge/tools/meva_data.py` (index, download, sha256 manifest, KPF ground truth), `meva_measure.py`, `meva_sheets.py`,
+  fence lines in `edge/tools/meva_fences.json` (drawn before any pipeline result was seen), results in
+  `edge/results/meva_field_measurement.json`. Video and annotations stay outside the repository.
+  - Fence misses. Ground truth = annotated person or vehicle tracks whose bottom-centre crosses the fence (same
+    segment-intersection test as `rules/fence.py`); a firing matches within 2 s and 250 px. Persons 11 of 41 missed
+    (26.8%, Wilson 15.7%-41.9%); vehicles 2 of 13 (15.4%, 4.3%-42.2%); all 13 of 54 (24.1%, 14.6%-37.0%): the < 2%
+    target FAILS (lower bound above 2%). 61 firings had no annotated crossing (many are unannotated people and
+    vehicles). Per camera (person+vehicle missed/n): G300 0/3, G328 1/9, G336 0/5, G339 5/8, G341 0/0, G424 2/7,
+    G436 0/3, G505 0/1, G506 1/3, G638 4/13, G639 0/2. G339 is a panning camera (the view moves between frames), so a
+    fixed pixel fence is meaningless there; without it 8 of 46 missed (17.4%, 9.1%-30.7%). Showing < 2% needs
+    n >= 189 crossings with none missed; this footage has 54 crossings, so it can only refute, not demonstrate.
+  - False alerts. MEVA annotations are activity-centric: on a by-eye check of 7 clips (42 frames with ground-truth
+    boxes drawn) roughly a third of the visible moving people and vehicles had no annotation (mostly far and small).
+    Alerts with no annotated object nearby are therefore not all false: of 24 randomly chosen such alerts checked by
+    eye, 22 were real people or vehicles and 2 were doubtful. Counting honestly: 576 alerts in 2.75 h (about 5,030
+    per camera per 24 h pooled), 232 on annotated objects, 344 with none; estimating 8% of the 344 as truly false
+    (Wilson 2%-26% on 2 of 24) gives about 29 false alerts = about 250 per camera per 24 h (about 60 to 780). The
+    "annotated empty" footage (1.45 h, no annotated object within 3 s) yielded 123 alerts, but the same eye check says
+    most of those are real unannotated objects, so no hour of this footage is confirmed event-free. Verdict:
+    <= 5 per camera per day is NOT met on busy MEVA scenes; it also is not a fair test of a quiet border post. The
+    system has no notion of "uninteresting" traffic: every person and vehicle in view alerts. The target remains
+    unmeasured on genuinely empty terrain.
+  - Main failure causes seen: far or small people and vehicles (box height 60 to 130 px of 1080, often unannotated
+    in the ground truth too); a panning camera defeating the fixed fence; people crossing in groups (one firing for
+    several annotated tracks); misses where no firing at all occurred within 2 s (10 of 13: track never confirmed
+    before the fence, or lost); fence placement across paths used by few subjects. Not tied to lighting here (all
+    daylight).
+  The generated-footage self-checks remain: `python -m tools.measure_false_alerts --self-check` and
+  `python -m tools.measure_fence_misses --self-check 50`.
+
 - P2: on fusion-only events of the scripted footage the rule sentence fails its own guardrail and the Phase 4 string
   is used (`truewatch.vlm` warning "rule sentence failed its own guardrail"); seen, not investigated.
 - P2: `VITE_DEMO_MODE` (default on) opens the console on sample data when the API is unreachable; set it off for any real use.

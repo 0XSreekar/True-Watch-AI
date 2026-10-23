@@ -1,0 +1,16 @@
+{
+ "_comment": "One virtual fence per camera, in pixels of the full frame (1920 wide; G639 is portrait 1072x1920). Each line was drawn across the busiest annotated walkway or road seen in the ground-truth ground-point paths of that camera's selected clips plus one frame, BEFORE any pipeline result was looked at. direction=both. Not calibrated: MEVA cameras have no homography for the service's metre-based rules.",
+ "cameras": {
+  "G300": {"points": [[1050, 225], [1050, 750]]},
+  "G328": {"points": [[675, 900], [1650, 900]]},
+  "G336": {"points": [[540, 630], [540, 900]]},
+  "G339": {"points": [[1200, 345], [1200, 1080]]},
+  "G341": {"points": [[150, 645], [1800, 645]]},
+  "G424": {"points": [[450, 720], [450, 1080]]},
+  "G436": {"points": [[750, 225], [750, 495]]},
+  "G505": {"points": [[375, 375], [375, 720]]},
+  "G506": {"points": [[1515, 150], [1515, 420]]},
+  "G638": {"points": [[1050, 495], [1050, 780]]},
+  "G639": {"points": [[674, 1059], [1021, 1059]]}
+ }
+}
