@@ -467,6 +467,56 @@ published.
 
 Summary: `results/eval_ocr_g7.json`.
 
+## 5. Round G8: double-transcribed street plates (measured, not adopted)
+
+Hypothesis: more verified real labels in the street-photo style the independent test photographs resemble would lift
+real exact match where G7 (1,181 plates, 52 in that style) did not.
+
+**New labels.** Source: Roboflow Universe vehicleannotating/nepali-vehicle-annotation, train split (CC BY 4.0), 4,887
+street photos, none in any reader test set; the 48 locator-review photos were excluded. The published locator 0.2.0
+cut 655 plate crops of at least 40 px height (714 photos had no plate located; 5,272 located boxes were under 40 px).
+Each crop was transcribed twice in separate passes with different crop orderings and montage layouts, without model
+output in view. Pass A could read 174 of 655 crops (the rest unreadable, non-Devanagari embossed plates or not plates);
+pass B was run on those 174 only: 173 readable, 171 identical to pass A (98.8% of the 173), 2 disagreed, 0 failed
+`validate_nepal`. Caveat: both passes were made by one transcriber, so agreement measures consistency, not independent
+verification; a one-character conflict check across plates (6 texts, 8 crops) removed contradictory readings of what is
+probably the same plate, and at most two crops per text were kept. Kept: 162 crops, 155 distinct plates
+(`edge/anpr/data/street_plates_g8.json`, text and file names only). This is far below the several hundred targeted.
+
+**Overlap proof (counts).** Plate text equal to a test text: strict (57) 0, extended (147) 0, Roboflow clean (113 distinct
+texts, 114 plates) 0; also 0 against the two older hf label files (33 and 84 texts). Photograph overlap with any of the
+529 test photographs (all hf test photos and all 208 Roboflow test images): 0 by file hash, 0 by 4-bit dHash.
+
+**Training.** Kaggle T4, kernel `sreekar1206/truewatch-ocr-gpu8a` (about 1 GPU hour), from G6, 3 epochs, LR 1.5e-4. Mix:
+G6 replay (every real set in full, 25% of synthetic) + the G7 locator-cut lines with the G7 repeats + the 159 street
+plates (272 lines, cut with the same locator box and `rectify.prepare_lines` path) repeated x6, +2 for lines the G6
+reader misread (85 of 272). Serial-digit drop/insert: the rec head config has `max_text_length` 25 (plate lines are at most
+about 12 characters) and a fixed 48x320 input, so neither limits the serial; the cheap try was lighter RecAug
+(variant b, no colour inversion, tia/crop 0.1). Kernel `truewatch-ocr-gpu8b` ended in ERROR twice with an empty log
+(no training ran), so that variant is untested.
+
+**Results** (same code as section 4; crop rows exact / CER; end-to-end rows with the published locator 0.2.0, and in
+brackets the locator 0.1.0 used for the section 3.2 and 4 figures). G6 reproduces 31/57 and 63/147 with locator 0.1.0.
+
+| Set | n | G6 | G8 |
+|---|---|---|---|
+| Real, strict, crops | 57 | 52.6% / 0.262 | 49.1% / 0.263 |
+| Real, extended, crops | 147 | 38.8% / 0.304 | 34.0% / 0.327 |
+| Roboflow held-out (clean) | 114 | 72.8% / 0.105 | 79.8% / 0.074 |
+| **Real, strict, end to end** | 57 | 32 (31) | 31 (30) |
+| **Real, extended, end to end** | 147 | 62 (63) | 61 (63) |
+| Synthetic, original | 2,076 | 88.0% / 0.052 | 87.3% / 0.056 |
+| Synthetic, one-line | 993 | 61.0% / 0.152 | 60.0% / 0.162 |
+| Synthetic, province | 795 | 40.4% / 0.223 | 39.8% / 0.221 |
+
+**Verdict: G8 is NOT adopted.** It does not beat G6 end to end on either independent real set (one plate lower on
+strict, one lower or equal on extended) and loses on real crops, although it gains 7 points on the Roboflow held-out
+plates whose street style it was trained on. As with G7, gains appear only on the training-style distribution. The
+85% real-data target remains NOT MET (best real end-to-end figure: 56.1% strict (32/57), 42.9% extended (63/147), G6).
+G8 weights were not exported to the backup folder or published.
+
+Summary: `results/eval_ocr_g8.json`.
+
 ## Running the measurement
 
 ```bash
