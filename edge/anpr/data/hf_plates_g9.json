@@ -7,7 +7,7 @@
  "stats": {
   "photos_local": 1168,
   "excluded_test_or_earlier_selection": 760,
-  "candidates": 408,
+  "candidates": 412,
   "located": 412,
   "cropped_40px_or_taller": 233,
   "readable_pass_a": 70,

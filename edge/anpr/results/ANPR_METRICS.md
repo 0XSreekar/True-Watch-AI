@@ -517,6 +517,19 @@ G8 weights were not exported to the backup folder or published.
 
 Summary: `results/eval_ocr_g8.json`.
 
+## 6. Round G9 data: unused hf parking-lot photos (data only, no training yet)
+
+Source: the 1,168 locally held photographs of mukulboro/nepali-private-license-plates (CC BY 4.0) minus those in any
+test or earlier transcription selection leave 412 candidates. Locator 0.2.0 located a plate in all 412; 233 crops were at
+least 40 px tall. Pass A read 70 (the rest illegible at this resolution); pass B (different order and layout) agreed on
+61 exactly, 4 disagreed, 5 failed the grammar (bare "बा.प्रदेश" header). Overlap with test sets: 0 by file hash, 0 by
+4-bit dHash, 2 by plate text (dropped). Kept 59 crops, 58 distinct texts (21 embossed Latin, 38 Devanagari);
+`edge/anpr/data/hf_plates_g9.json`. Both passes were by one transcriber who could recall pass A, so agreement is
+consistency, not independent verification.
+
+No G9 model was trained: 38 Devanagari plates are fewer than the 159 street plates that did not move G8, and the Roboflow
+Part B sets were not available. G6 stays the best real model (32/57 strict, 62/147 extended end to end).
+
 ## Running the measurement
 
 ```bash
