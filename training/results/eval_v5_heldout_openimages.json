@@ -1,0 +1,11 @@
+{
+  "images": 99,
+  "v2 best.pt": {
+    "person_ap50": 0.4442,
+    "person_ap50_95": 0.2034
+  },
+  "v5 best.pt": {
+    "person_ap50": 0.5565,
+    "person_ap50_95": 0.271
+  }
+}

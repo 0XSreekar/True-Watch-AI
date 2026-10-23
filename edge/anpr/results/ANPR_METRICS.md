@@ -282,7 +282,7 @@ images. A single-class YOLO11n plate detector (training script `training/plate_l
 80 epochs, imgsz 640, about 1.2 GPU hours) is exported to ONNX and run with onnxruntime
 (`anpr/plate_locator.py`); the classical finder remains the fallback. All numbers are REAL photographs
 (no synthetic data in either table). Weights are not committed; the pinned manifest is
-`results/plate_locator_model.json` (sha256 `4f3a0dc2...499ee`, still marked unpublished).
+`results/plate_locator_model.json` (sha256 `4f3a0dc2...499ee`; version 0.1.0, never published, superseded by 0.2.0 in section 3.4).
 
 ### 3.1 Locating the plate, held-out test split of the plate-box dataset (never trained on)
 
@@ -316,6 +316,156 @@ recogniser alone.
 The locator removes the locating loss: end to end it now matches the recogniser's own ceiling. The
 overall plate-read rate is therefore bound by the recogniser (section 2.3). The 85% real-data target
 remains NOT MET (best real figure above: 54.4% strict, 42.9% extended).
+
+### 3.3 Release evaluation (version 0.1.0, prototype)
+
+Run with `edge/anpr/scripts/eval_plate_locator.py`; full numbers in `plate_locator_release_eval.json` and
+`plate_locator_ood_review.json`. A detection counts when it overlaps a labelled plate at IoU >= 0.5.
+
+**Held-out test split** (642 images, 683 plates; same sources as training, different images):
+
+| Threshold | Recall (95% CI) | Precision (95% CI) |
+|---|---|---|
+| 0.25 (operating point, recall first) | 97.2% (95.7-98.2) | 92.6% (90.5-94.3) |
+| 0.6 (F1-optimal on the val split) | 95.6% (93.8-96.9) | 96.6% (95.0-97.7) |
+
+The threshold was chosen on the val split only; AP50 on test 0.966. The operating point stays 0.25 because a
+missed plate cannot be read later, while a false box is checked by the plate grammar.
+
+**New camera source, never trained on** (Roboflow `vehicleannotating/nepali-vehicle-annotation`, CC BY 4.0, 48 random
+street photos, no plate labels, so each photo's detections were reviewed by eye): 29 plates found,
+15 missed, 1 false box (a hospital sign). Recall **65.9%
+(95% CI 51-78%)** against 97.2% in-domain. Most misses are small or distant
+plates, but some are clear full-size plates. The in-domain figure overstates how the locator does on a new camera.
+
+**Plate-free scenes** (300 day and IR images with no vehicle, threshold 0.25): 14 false boxes on 14 images
+(4.7%), half of them whole-frame boxes on night or IR scenes; after the plate reader and its grammar, 2 phantom plate
+readings (0.7%) and 1 correct reading of a real plate the dataset had not labelled. In the live pipeline the locator
+only runs on fusion-confirmed vehicles, so most of these scenes never reach it.
+
+**Stress** (the same test images degraded; threshold 0.6):
+
+| Condition | Recall | Precision |
+|---|---|---|
+| night (gamma 2.5, dark) | 87.7% | 97.9% |
+| motion/defocus blur (9 px) | 88.4% | 97.3% |
+| half resolution | 93.4% | 97.1% |
+| quarter resolution (far range proxy) | 85.1% | 97.5% |
+| IR-like (grey, smoothed, equalised) | 82.9% | 98.4% |
+| heavy JPEG (q=15) | 91.5% | 97.2% |
+| sensor noise (sigma 20) | 65.0% | 98.2% |
+
+Precision holds under every condition; recall falls most under sensor noise, IR-like rendering and quarter resolution.
+
+### 3.4 Version 0.2.0: night, near-IR, noise and small far plates
+
+v0.2 is v0.1 fine-tuned for 30 epochs (best checkpoint by val mAP, epoch 27) on Apple MPS (Mac, about 6 h in
+all, run in two parts after an interruption), image size 640, AdamW, same single-class YOLO11n. Training script
+`training/plate_locator/train_plate_locator_v02.py`, data builder `training/plate_locator/build_v02_data.py`; counts in
+`plate_locator_v02_data_summary.json`. The val and test splits are unchanged.
+
+Training set, 13,946 images: the 5,115 plate-box train images; 2,992 photometric copies (night 760, near-IR-like 754,
+noise 436, down-then-up 456, heavy JPEG 299, blur 287; each image gets one with p=0.6, condition drawn
+0.25/0.25/0.15/0.15/0.10/0.10) and 1,013 small-plate copies (plates 10-30 px wide); 3,432 street photos with 4,505
+pseudo-labelled plates (v0.1 run on each upscaled labelled vehicle crop of
+`vehicleannotating/nepali-vehicle-annotation`, score >= 0.6, mapped back to the frame); 1,394 plate-free negatives
+(10%, from the detector dataset train split, no vehicle label, disjoint from the evaluation negatives). **The 48
+review photos are excluded entirely** (list in the summary json); other frames of the same videos may still be in the
+pseudo-labelled set, so the new-source figure is no longer a fully independent test. The street images were
+pseudo-labelled by v0.1, so v0.2 inherits its blind spots there, and unlabelled plates in them count as background.
+
+All numbers use the same test split, stress set and negatives as 3.3 (negatives rebuilt: 300 images drawn with
+`random.Random(0)` from detector val images with no vehicle label; v0.1 reproduces its 14 false boxes at 0.25 on
+it). Stress is at threshold 0.60 for both models (v0.2's own val-F1 threshold is 0.50: recall 96.5%, precision 96.5%):
+
+| | v0.1 | v0.2 |
+|---|---|---|
+| Clean test recall / precision (0.60) | 95.6% / 96.6% | 95.9% / 97.2% |
+| night (gamma 2.5) | 87.7% | 95.0% |
+| blur (9 px) | 88.4% | 93.7% |
+| half resolution | 93.4% | 94.1% |
+| quarter resolution | 85.1% | 89.6% |
+| IR-like (grey, equalised) | 82.9% | 87.0% |
+| heavy JPEG (q=15) | 91.5% | 93.0% |
+| sensor noise (sigma 20) | 65.0% | 91.2% |
+| natural-dark subset (darkest 15% of test, 96 images, 99 plates), recall at 0.60 / 0.25 | 98.0% / 99.0% | 99.0% / 100% |
+| new camera source, 48 photos, threshold 0.25, by eye: found / missed / false | 29 / 15 / 1 | 52 / 5 / 2 |
+| plate-free, 300 images, raw boxes at 0.60 / 0.25 | 0 / 14 | 3 / 35 |
+| plate-free, boxes that are not a plate, by eye (0.25) | 11 | 4 |
+
+Reading the table honestly:
+- The gain is largest under sensor noise and darkness. The IR-like gain is modest (+4 points) and its recall is still
+  below 90%. These are synthetic proxies. Real thermal (LWIR) cameras cannot show plate characters at all, so no
+  locator can help there; the realistic target is near-IR or illuminated grey night images, and low light.
+- The natural-dark subset was already near ceiling for v0.1; it shows no regression.
+- New source: the by-eye count was redone on the same 48 photos by one reviewer. About 12 of v0.2's 52 are small far
+  plates whose box sits on a plausible plate that cannot be read; counting only clearly legible plates v0.2 still
+  finds more than v0.1's 29. The v0.1 missed figure (15) is from the earlier review, so the miss comparison is soft.
+  The two v0.2 false boxes are an edge-of-frame box and a dot-sized box.
+- Plate-free raw false boxes rose from 14 to 35 at 0.25 (0 to 3 at 0.60). Reviewing every one by eye, 30 of the 35 are
+  real plates on night cars (LLVIP scenes) that the vehicle labels missed and v0.1 did not find; boxes that are not a
+  plate fell from 11 (mostly whole-frame thermal boxes) to 4. The raw count still rose, so at 0.25 expect more boxes
+  on night scenes.
+- Clean test AP50 0.976 (v0.1 0.966).
+
+ONNX parity (onnxruntime against the PyTorch checkpoint, 8 test images): max absolute difference over the whole output
+1.7e-3 (box rows, pixel units), 3.6e-6 on the score row. File `plate_locator_v0.2.onnx`, sha256 `95dd8cf9d164bbffddbd57bc6131acbf29e51e8a1e0abc08e24f9d2be3b7cfdb`. Full report
+`plate_locator_release_eval_v0.2.json`. Published 2026-10-23 as Hugging Face `sreekar12/truewatch-plate-locator` revision `848d76b` (verified byte for byte); the manifest pins it.
+
+## 4. Round G7: locator-cut real training crops (measured, not adopted)
+
+Hypothesis: G1-G6 were trained on crops cut differently (character-box line crops, hand boxes, synthetic renders)
+from what inference produces (ONNX locator box, then `rectify.prepare_lines`), so training on inference-style crops of
+REAL training photographs, with the lines the G6 reader misread repeated more, should raise real exact match.
+
+**Data.** `anpr/scripts/build_g7_lines.py` ran the locator and `prepare_lines` on 2,105 verified real training
+photographs (Roboflow train splits; hf-photo training transcriptions marked high-confidence; Kaggle `realplates`
+labelled crops) and kept a plate only if it was located, its label parses as a Nepali registration, the number of
+lines cut equals the number of label lines, and the baseline reading is not wildly off (a wrong-plate guard). Kept
+1,181 plates (1,976 lines; 405 of them misread by G6): rf_college 451, rf_sushant 523, rf_prajwal 72, hf_train 52,
+realplates 83. Dropped: no plate located 414, grammar 316, test-image match 73, line-count mismatch 57, suspected wrong
+plate 56, test-text match 6, duplicate 1, unreadable 1.
+
+**Leakage proof (counts).** Test sets: strict 57, extended 147 (strict is a subset), Roboflow held-out 114 (test plates
+whose text occurs in no Roboflow train/valid plate). New plates whose text equals a test text: 0 / 0 / 0 (6 were dropped
+for it beforehand). Byte-identical photo matches: 0 (73 photos were dropped by file hash or 4-bit dHash proximity to
+any test photo, including all 208 Roboflow test images). hf training photo ids shared with a test photo: 0. G6 replay
+lines drawn from a test photo: 0 of 1,280 hf-derived lines. Test texts equal to any single G6 replay line or new G7
+line: 0 / 0 / 0.
+
+**Training.** Kaggle T4, kernel `sreekar1206/truewatch-ocr-gpu7` (about 0.85 GPU hours of training, about 1 h for the
+session), from the G6 checkpoint, 3 epochs, LR 1.5e-4 (G6: 3e-4). Mix: every real G6 set in full plus 25% of the
+synthetic lines (29,890 replay lines) plus the new lines repeated (hf_train x8, realplates x4, Roboflow x1, and +2 for
+each line G6 misread). `latest` was exported and evaluated.
+
+**Results** (same pipeline and scoring as section 2; crop-level rows are exact match / mean CER on the supplied crop,
+end-to-end rows locate with the ONNX locator on the full photograph and count exact plate reads). n is per set; real
+and synthetic figures are never blended.
+
+| Set | n | G6 (published) | G7 |
+|---|---|---|---|
+| Real, strict, crops | 57 | 52.6% / 0.262 | 49.1% / 0.251 |
+| Real, extended, crops | 147 | 38.8% / 0.304 | 38.1% / 0.281 |
+| Roboflow held-out (clean) | 114 | 72.8% / 0.105 | 75.4% / 0.081 |
+| **Real, strict, end to end** | 57 | 31 (54.4%) | 31 (54.4%) |
+| **Real, extended, end to end** | 147 | 63 (42.9%) | 62 (42.2%) |
+| Synthetic, original | 2,076 | 88.0% / 0.052 | 86.9% / 0.056 |
+| Synthetic, one-line | 993 | 61.0% / 0.152 | 59.2% / 0.166 |
+| Synthetic, province | 795 | 40.4% / 0.223 | 40.9% / 0.229 |
+
+End to end on the extended set the two models agree on 58 plates, G6 alone reads 5, G7 alone reads 4, and 80 are read
+by neither.
+
+**Verdict: G7 is NOT adopted.** It does not beat G6 on the independent real sets end to end (strict level, extended one
+plate lower) and loses 2 plates on strict crops. Its gains are mean CER on the real sets and +2.6 points on the
+Roboflow held-out plates, whose style it was trained on; synthetic original and one-line dip about 1-2 points. The
+distribution-match hypothesis is not supported at this data size: only 52 of the 1,181 new plates come from the hf
+photo distribution the independent test sets are drawn from. The misreads that dominate the training-side photographs
+are digit drops and insertions in the serial. The 85% real-data target remains NOT MET (best real end-to-end figure:
+54.4% strict, 42.9% extended, G6 with the ONNX locator). The G7 weights are archived outside the repository and were not
+published.
+
+Summary: `results/eval_ocr_g7.json`.
 
 ## Running the measurement
 

@@ -1,0 +1,14 @@
+{"round": "G7", "adopted": false, "kernel": "sreekar1206/truewatch-ocr-gpu7", "init": "G6 (published 064b6a0)",
+ "sets": {
+  "real_strict_crops": {"n": 57, "g6": {"exact": 0.5263, "cer": 0.2618}, "g7": {"exact": 0.4912, "cer": 0.2506}},
+  "real_extended_crops": {"n": 147, "g6": {"exact": 0.3878, "cer": 0.304}, "g7": {"exact": 0.381, "cer": 0.2809}},
+  "roboflow_heldout_clean": {"n": 114, "g6": {"exact": 0.7281, "cer": 0.1052}, "g7": {"exact": 0.7544, "cer": 0.0809}},
+  "real_strict_end_to_end": {"n": 57, "g6": {"exact_match": 31}, "g7": {"exact_match": 31}},
+  "real_extended_end_to_end": {"n": 147, "g6": {"exact_match": 63}, "g7": {"exact_match": 62}},
+  "synthetic_original": {"n": 2076, "g6": {"exact": 0.8801, "cer": 0.0517}, "g7": {"exact": 0.869, "cer": 0.0556}},
+  "synthetic_one_line": {"n": 993, "g6": {"exact": 0.6103, "cer": 0.1521}, "g7": {"exact": 0.5921, "cer": 0.1659}},
+  "synthetic_province": {"n": 795, "g6": {"exact": 0.4038, "cer": 0.2227}, "g7": {"exact": 0.4088, "cer": 0.2292}}},
+ "g7_inference_pdiparams_sha256": "361a1d1953362fca23fdff447b592a8d964d1ad1d518a92cd2d2d92e688a3e79",
+ "g7_inference_json_sha256": "30694bd1e54b80e27ad28ae37d976d39a22128cedb86c6db15214f063a9136b1",
+ "new_training_data": {"photos_considered": 2105, "plates_kept": 1181, "lines": 1976, "lines_misread_by_g6": 405,
+  "test_overlap": {"text": 0, "photo_hash": 0, "hf_photo_id": 0}}}

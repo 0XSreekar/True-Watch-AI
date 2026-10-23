@@ -127,7 +127,7 @@ LIGHTING_UNRESOLVED = "unresolved"
 # declaration 02_convert_kaist.py verifies against the frames at conversion time (OQ-1).
 SOURCE_VISIBLE_LIGHTING = {"idd": LIGHTING_DAYLIGHT, "llvip": LIGHTING_NIGHT}
 # Every source datasets/config/sources.yaml can emit (datasets/scripts 01-03 and 12_convert_extra.py).
-KNOWN_SOURCES = ("idd", "flir", "kaist", "llvip", "hituav", "aaupdt", "birdsai", "visdrone")
+KNOWN_SOURCES = ("idd", "flir", "kaist", "llvip", "hituav", "aaupdt", "birdsai", "visdrone", "openimages")
 # Lighting as written into the split index by the converters. 'unknown' is deliberately absent:
 # it stays unresolved rather than being guessed from the source.
 _INDEX_LIGHTING = {"day": LIGHTING_DAYLIGHT, "night": LIGHTING_NIGHT}
