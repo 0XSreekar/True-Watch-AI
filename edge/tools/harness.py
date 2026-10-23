@@ -82,6 +82,7 @@ class RunResult:
     fence_crossings: list[dict] = field(default_factory=list)  # {"t": media s, "track_id", "direction"}
     fused_events: int = 0
     rule_suppressed: int = 0
+    rule_fires: dict = field(default_factory=dict)      # rule -> distinct (track, rule) firings, before the throttle
 
     @property
     def alertable_s(self) -> float:
@@ -148,6 +149,7 @@ def run_recording(
                                                     "point_px": rule.evidence.get("point_px")})
             res.fused_events = svc.stats.fused_events
             res.rule_suppressed = svc.stats.rule_suppressed
+            res.rule_fires = dict(svc.stats.rule_fires)
         finally:
             svc.close()
         res.media_s = round(last_t + dt, 3) if res.frames else 0.0

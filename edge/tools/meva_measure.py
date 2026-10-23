@@ -116,7 +116,8 @@ def cmd_run(root: Path, target_fps: float | None, stride: int | None) -> None:
         out.write_text(json.dumps({"stem": c["stem"], "camera": cam, "size": [w, h], "target_fps": fps, "stride": stride,
                                    "frames": run.frames, "media_s": run.media_s, "warmup_s": run.warmup_s,
                                    "events": run.events, "fence_crossings": run.fence_crossings,
-                                   "fused_events": run.fused_events}))
+                                   "fused_events": run.fused_events, "rule_fires": run.rule_fires,
+                                   "rule_suppressed": run.rule_suppressed}))
         print(c["stem"], run.frames, "frames", len(run.events), "alerts", len(run.fence_crossings), "fence firings", flush=True)
 
 
@@ -210,6 +211,7 @@ def cmd_report(root: Path, tolerance: float, radius: float, margin: float, out_j
         rr.media_s = sum(max(0.0, b - max(a, warm)) for a, b in wins)
         empty_runs.append(rr)
         per_clip.append({"stem": c["stem"], "camera": cam, "media_s": r["media_s"], "warmup_s": r["warmup_s"],
+                         "rule_fires": r.get("rule_fires"), "rule_suppressed": r.get("rule_suppressed"),
                          "gt_person": sum(g["cls"] == "person" for g in scored), "gt_vehicle": sum(g["cls"] == "vehicle" for g in scored),
                          "fence_firings": len(det), "extra_firings": extra, "alerts": len(alerts), "alerts_supported": sup,
                          "alerts_unsupported": len(alerts) - sup, "empty_window_s": round(rr.media_s, 1),
@@ -237,12 +239,14 @@ def cmd_report(root: Path, tolerance: float, radius: float, margin: float, out_j
     lo, hi = poisson_interval(n_unsup)
     day = lambda k: round(k / cam_hours * 24.0, 2)
     ef = fa_summarise(empty_runs, 8.0)
+    policy = alert_policy_block(per_clip, all_events, cam_hours)
     out = {"dataset": "MEVA (Kitware Inc. and IARPA), CC BY 4.0", "clips": len(per_clip), "footage_hours": round(footage_s / 3600.0, 3),
            "cameras": len(cams), "fence": fence_out,
            "all_footage_alerts": {"alerts": n_alert, "supported_by_annotation": n_alert - n_unsup, "unsupported": n_unsup,
                                   "unsupported_per_camera_per_24h_pooled": day(n_unsup),
                                   "unsupported_ci95": [day(lo), day(hi)], "all_alerts_per_camera_per_24h_pooled": day(n_alert),
                                   "note": "pooled over clips: each clip counted as one camera-slot of its own length"},
+           "alert_policy": policy,
            "annotated_empty_footage": {k: ef[k] for k in ("alerts", "alerts_by_kind", "cameras", "footage_hours", "alertable_camera_hours",
                                                            "alerts_per_camera_per_24h", "ci95_per_camera_per_24h")},
            "margin_s": margin, "per_clip": per_clip}
@@ -251,6 +255,38 @@ def cmd_report(root: Path, tolerance: float, radius: float, margin: float, out_j
         out_json.parent.mkdir(parents=True, exist_ok=True)
         out_json.write_text(json.dumps(out, indent=1))
     return out
+
+
+def alert_policy_block(per_clip: list[dict], events: list[dict], cam_hours: float) -> dict:
+    """Operator alerts under ALERT_POLICY=rules (rule firings that cleared the throttle) vs the legacy 'all'
+    (every emitted event, observations included), per camera per 24 h, plus the rule firings before the
+    throttle (the load an operator would see without the 5-per-camera-per-day budget)."""
+    day = lambda k: round(k / cam_hours * 24.0, 1) if cam_hours > 0 else None
+    by_cam: dict[str, dict] = {}
+    for p in per_clip:
+        b = by_cam.setdefault(p["camera"], {"media_s": 0.0, "rules": 0, "all": 0, "firings": 0})
+        b["media_s"] += p["media_s"]
+        b["firings"] += sum((p.get("rule_fires") or {}).values())
+    for e in events:
+        b = by_cam[e["camera"]]
+        b["all"] += 1
+        b["rules"] += e.get("kind") != "observation"
+    per_cam = {cam: {k: (round(b[k] / b["media_s"] * 86400.0, 1) if b["media_s"] else None) for k in ("rules", "all", "firings")}
+               | {"alerts_rules": b["rules"], "events_all": b["all"], "rule_firings": b["firings"]}
+               for cam, b in sorted(by_cam.items())}
+    n_rules = sum(b["rules"] for b in by_cam.values())
+    n_fire = sum(b["firings"] for b in by_cam.values())
+    by_rule: dict[str, int] = {}
+    for p in per_clip:
+        for k, v in (p.get("rule_fires") or {}).items():
+            by_rule[k] = by_rule.get(k, 0) + v
+    return {"alerts_rules": n_rules, "events_all": len(events), "rule_firings_before_throttle": n_fire,
+            "rule_firings_by_rule": by_rule,
+            "per_camera_per_24h_pooled": {"rules": day(n_rules), "all": day(len(events)), "firings": day(n_fire)},
+            "per_camera": per_cam,
+            "note": ("each 5-minute clip is a fresh service, so the throttle (5 new alerts per camera per 24 h, 12 per "
+                     "shift) restarts per clip; delivered 'rules' alerts are therefore capped per clip and the "
+                     "pre-throttle firings are the honest load figure")}
 
 
 def main(argv: list[str] | None = None) -> int:
