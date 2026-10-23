@@ -1,0 +1,2750 @@
+{
+ "schema": "truewatch.street_plate_transcriptions.v1",
+ "source": "Roboflow Universe vehicleannotating/nepali-vehicle-annotation, train split",
+ "licence": "CC BY 4.0",
+ "credit": "Plate photographs: vehicleannotating, Nepali Vehicle Annotation (Roboflow Universe), CC BY 4.0. Plate crops cut with the plate locator 0.2.0; transcriptions made by the TrueWatch ANPR work. File names and text only; no images are stored here.",
+ "method": "Each crop was transcribed in two separate passes with different crop orderings and montage layouts, without model output in view; only crops where both passes give the same text and the text passes edge/anpr/postprocess.py validate_nepal are kept. Pass B was run only on crops readable in pass A. Both passes were made by the same transcriber, so agreement measures consistency, not independence. Crops whose text differs by one character from another kept plate were dropped as conflicting.",
+ "stats": {
+  "street_photos_in_source_split": 4887,
+  "excluded_locator_review_photos": 48,
+  "photos_matching_a_test_image": 0,
+  "photos_without_a_located_plate": 714,
+  "located_boxes_under_40px_tall_skipped": 5272,
+  "plate_crops_cut_40px_or_taller": 655,
+  "readable_in_pass_a": 174,
+  "pass_b_attempted": 174,
+  "both_passes_readable": 173,
+  "both_passes_identical": 171,
+  "disagree": 2,
+  "pass_b_unreadable": 1,
+  "passed_plate_grammar": 171,
+  "unique_texts": 161,
+  "texts_in_conflict_groups": 6,
+  "crops_dropped_conflict": 8,
+  "test_set_unique_texts": {
+   "test2_labels_strict.txt": 57,
+   "test2_labels_ext.txt": 147,
+   "test_labels.txt": 33,
+   "test_labels_ext.txt": 84,
+   "roboflow_clean_114": 113
+  },
+  "text_overlap_before_drop": {
+   "test2_labels_strict.txt": 0,
+   "test2_labels_ext.txt": 0,
+   "test_labels.txt": 0,
+   "test_labels_ext.txt": 0,
+   "roboflow_clean_114": 0
+  },
+  "crops_dropped_test_text": 0,
+  "image_overlap_md5": 0,
+  "image_overlap_dhash4": 0,
+  "test_photos_checked": 529,
+  "crops_dropped_over_two_per_text": 1,
+  "final_crops": 162,
+  "final_unique_plates": 155
+ },
+ "plates": [
+  {
+   "file": "SUV_129_png.rf.ea19577523ffb17c27a88b5aa0ddb22c.jpg",
+   "box": [
+    301,
+    376,
+    472,
+    426
+   ],
+   "locator_score": 0.854,
+   "pass_a": "बा१६च४०५८",
+   "pass_b": "बा१६च४०५८",
+   "text": "बा१६च४०५८",
+   "lines": [
+    "बा१६च४०५८"
+   ]
+  },
+  {
+   "file": "SUV_166_png.rf.06fb7ad35a4e83e07a510ea13c1f7d8a.jpg",
+   "box": [
+    240,
+    306,
+    399,
+    359
+   ],
+   "locator_score": 0.944,
+   "pass_a": "बागमतीप्रदेश/०१०२५च९०४८",
+   "pass_b": "बागमतीप्रदेश/०१०२५च९०४८",
+   "text": "बागमतीप्रदेश०१०२५च९०४८",
+   "lines": [
+    "बागमतीप्रदेश",
+    "०१०२५च९०४८"
+   ]
+  },
+  {
+   "file": "SUV_282_png.rf.a6f41ea607338c61583e4fc374241381.jpg",
+   "box": [
+    207,
+    343,
+    284,
+    387
+   ],
+   "locator_score": 0.947,
+   "pass_a": "बा१५च/३१०५",
+   "pass_b": "बा१५च/३१०५",
+   "text": "बा१५च३१०५",
+   "lines": [
+    "बा१५च",
+    "३१०५"
+   ]
+  },
+  {
+   "file": "SUV_295_png.rf.4b7af3993d8c1c63e27a5f5beb040748.jpg",
+   "box": [
+    369,
+    325,
+    444,
+    373
+   ],
+   "locator_score": 0.93,
+   "pass_a": "बा९च/३४८०",
+   "pass_b": "बा९च/३४८०",
+   "text": "बा९च३४८०",
+   "lines": [
+    "बा९च",
+    "३४८०"
+   ]
+  },
+  {
+   "file": "SUV_313_png.rf.f034c40770b77e51636261b2e3aa423d.jpg",
+   "box": [
+    236,
+    369,
+    330,
+    414
+   ],
+   "locator_score": 0.931,
+   "pass_a": "बा१३च/७८३६",
+   "pass_b": "बा१३च/७८३६",
+   "text": "बा१३च७८३६",
+   "lines": [
+    "बा१३च",
+    "७८३६"
+   ]
+  },
+  {
+   "file": "SUV_316_png.rf.8601872bae55625bad6777810afd91e2.jpg",
+   "box": [
+    236,
+    287,
+    324,
+    334
+   ],
+   "locator_score": 0.947,
+   "pass_a": "लु१च/५३०९",
+   "pass_b": "लु१च/५३०९",
+   "text": "लु१च५३०९",
+   "lines": [
+    "लु१च",
+    "५३०९"
+   ]
+  },
+  {
+   "file": "SUV_99_png.rf.8ffffe2cece07784202a597d402e968d.jpg",
+   "box": [
+    124,
+    427,
+    263,
+    473
+   ],
+   "locator_score": 0.942,
+   "pass_a": "बा१७च८३९८",
+   "pass_b": "बा१७च८३९८",
+   "text": "बा१७च८३९८",
+   "lines": [
+    "बा१७च८३९८"
+   ]
+  },
+  {
+   "file": "ambulance_101_jpg.rf.829ea848e6f9593bb8ac8d0cbfbe387f.jpg",
+   "box": [
+    959,
+    2515,
+    1344,
+    2634
+   ],
+   "locator_score": 0.876,
+   "pass_a": "ना२च३३४९",
+   "pass_b": "ना२च३३४९",
+   "text": "ना२च३३४९",
+   "lines": [
+    "ना२च३३४९"
+   ]
+  },
+  {
+   "file": "ambulance_149_jpg.rf.7ba5b163cb16bd7d1046de55b4c8183f.jpg",
+   "box": [
+    3993,
+    1787,
+    4146,
+    1866
+   ],
+   "locator_score": 0.882,
+   "pass_a": "बा१४च/४५८८",
+   "pass_b": "बा१४च/४५८८",
+   "text": "बा१४च४५८८",
+   "lines": [
+    "बा१४च",
+    "४५८८"
+   ]
+  },
+  {
+   "file": "ambulance_171_png.rf.88c11d655f5cae907e80eec72c26d488.jpg",
+   "box": [
+    1289,
+    742,
+    1369,
+    833
+   ],
+   "locator_score": 0.855,
+   "pass_a": "बा८च/३५४७",
+   "pass_b": "बा८च/३५४७",
+   "text": "बा८च३५४७",
+   "lines": [
+    "बा८च",
+    "३५४७"
+   ]
+  },
+  {
+   "file": "ambulance_186_png.rf.d656cfeaf60464e9826602b1641ca6db.jpg",
+   "box": [
+    231,
+    784,
+    560,
+    905
+   ],
+   "locator_score": 0.816,
+   "pass_a": "बा१०च७२८३",
+   "pass_b": "बा१०च७२८३",
+   "text": "बा१०च७२८३",
+   "lines": [
+    "बा१०च७२८३"
+   ]
+  },
+  {
+   "file": "ambulance_219_jpg.rf.ace026d0b9f633c9e41ae0f2f7e2e14e.jpg",
+   "box": [
+    3607,
+    2459,
+    4090,
+    2620
+   ],
+   "locator_score": 0.653,
+   "pass_a": "लु१च८३५०",
+   "pass_b": "लु१च८३५०",
+   "text": "लु१च८३५०",
+   "lines": [
+    "लु१च८३५०"
+   ]
+  },
+  {
+   "file": "ambulance_25_jpg.rf.fbe1425681abd9df10c16e6340827562.jpg",
+   "box": [
+    1455,
+    3269,
+    1735,
+    3345
+   ],
+   "locator_score": 0.813,
+   "pass_a": "ना४च७०८५",
+   "pass_b": "ना४च७०८५",
+   "text": "ना४च७०८५",
+   "lines": [
+    "ना४च७०८५"
+   ]
+  },
+  {
+   "file": "ambulance_267_png.rf.9d026154fa615dab614dfaf5f8d63268.jpg",
+   "box": [
+    855,
+    278,
+    995,
+    331
+   ],
+   "locator_score": 0.853,
+   "pass_a": "लु२च२३७९",
+   "pass_b": "लु२च२३७९",
+   "text": "लु२च२३७९",
+   "lines": [
+    "लु२च२३७९"
+   ]
+  },
+  {
+   "file": "ambulance_269_png.rf.cd0f9a14e4818a76b3d600f005e02841.jpg",
+   "box": [
+    525,
+    519,
+    628,
+    570
+   ],
+   "locator_score": 0.826,
+   "pass_a": "बा२झ/४२६९",
+   "pass_b": "बा२झ/४२६९",
+   "text": "बा२झ४२६९",
+   "lines": [
+    "बा२झ",
+    "४२६९"
+   ]
+  },
+  {
+   "file": "ambulance_284_png.rf.7c9332d447a47854b515a7aeefd79f8d.jpg",
+   "box": [
+    836,
+    415,
+    1007,
+    461
+   ],
+   "locator_score": 0.868,
+   "pass_a": "लु२च२३७९",
+   "pass_b": "लु२च२३७९",
+   "text": "लु२च२३७९",
+   "lines": [
+    "लु२च२३७९"
+   ]
+  },
+  {
+   "file": "ambulance_298_png.rf.8d0e9eb8c16512a6739b49020f4dfbd5.jpg",
+   "box": [
+    396,
+    392,
+    531,
+    433
+   ],
+   "locator_score": 0.855,
+   "pass_a": "बा२झ४०६२",
+   "pass_b": "बा२झ४०६२",
+   "text": "बा२झ४०६२",
+   "lines": [
+    "बा२झ४०६२"
+   ]
+  },
+  {
+   "file": "ambulance_304_jpg.rf.5336985410b224f37525bd504db6076b.jpg",
+   "box": [
+    2136,
+    2971,
+    2367,
+    3047
+   ],
+   "locator_score": 0.794,
+   "pass_a": "ना४च७०८५",
+   "pass_b": "ना४च७०८५",
+   "text": "ना४च७०८५",
+   "lines": [
+    "ना४च७०८५"
+   ]
+  },
+  {
+   "file": "ambulance_306_jpg.rf.6401e66662dd8bb44dc80d59095514b9.jpg",
+   "box": [
+    1708,
+    2459,
+    2034,
+    2521
+   ],
+   "locator_score": 0.517,
+   "pass_a": "ना१झ९७७",
+   "pass_b": "ना१झ९७७",
+   "text": "ना१झ९७७",
+   "lines": [
+    "ना१झ९७७"
+   ]
+  },
+  {
+   "file": "ambulance_307_jpg.rf.20a18ffd49e3d6fddc8fe10bd6424c88.jpg",
+   "box": [
+    1217,
+    2005,
+    1482,
+    2071
+   ],
+   "locator_score": 0.668,
+   "pass_a": "ना१झ९७७",
+   "pass_b": "ना१झ९७७",
+   "text": "ना१झ९७७",
+   "lines": [
+    "ना१झ९७७"
+   ]
+  },
+  {
+   "file": "ambulance_5_png.rf.76ddacdb38355e261e181a5d568db4e7.jpg",
+   "box": [
+    712,
+    740,
+    920,
+    790
+   ],
+   "locator_score": 0.701,
+   "pass_a": "बा१०च७२८३",
+   "pass_b": "बा१०च७२८३",
+   "text": "बा१०च७२८३",
+   "lines": [
+    "बा१०च७२८३"
+   ]
+  },
+  {
+   "file": "ambulance_65_jpg.rf.541a714cdcbf88f970304b9751f37431.jpg",
+   "box": [
+    1425,
+    1944,
+    1739,
+    2031
+   ],
+   "locator_score": 0.716,
+   "pass_a": "रा१च८५२",
+   "pass_b": "रा१च८५२",
+   "text": "रा१च८५२",
+   "lines": [
+    "रा१च८५२"
+   ]
+  },
+  {
+   "file": "ambulance_69_png.rf.7eab13ddffb55e4945bdd6a714fb1115.jpg",
+   "box": [
+    714,
+    948,
+    912,
+    1037
+   ],
+   "locator_score": 0.929,
+   "pass_a": "बा१७च/२५६२",
+   "pass_b": "बा१७च/२५६२",
+   "text": "बा१७च२५६२",
+   "lines": [
+    "बा१७च",
+    "२५६२"
+   ]
+  },
+  {
+   "file": "ambulance_9_jpg.rf.d5805014f0b9794cc4cdd36c1901d5de.jpg",
+   "box": [
+    2763,
+    2688,
+    2993,
+    2760
+   ],
+   "locator_score": 0.613,
+   "pass_a": "लु१च५४२०",
+   "pass_b": "लु१च५४२०",
+   "text": "लु१च५४२०",
+   "lines": [
+    "लु१च५४२०"
+   ]
+  },
+  {
+   "file": "ambulance_9_jpg.rf.d5805014f0b9794cc4cdd36c1901d5de.jpg",
+   "box": [
+    1188,
+    2478,
+    1354,
+    2543
+   ],
+   "locator_score": 0.484,
+   "pass_a": "लु१च८३५०",
+   "pass_b": "लु१च८३५०",
+   "text": "लु१च८३५०",
+   "lines": [
+    "लु१च८३५०"
+   ]
+  },
+  {
+   "file": "auto_rickshaw_240_png.rf.6b20de29308720e7950e382bca8e43e1.jpg",
+   "box": [
+    590,
+    476,
+    669,
+    520
+   ],
+   "locator_score": 0.901,
+   "pass_a": "लु१ह४०६८",
+   "pass_b": "लु१ह४०६८",
+   "text": "लु१ह४०६८",
+   "lines": [
+    "लु१ह४०६८"
+   ]
+  },
+  {
+   "file": "auto_rickshaw_281_png.rf.612190401aa82e9c71097359a62ec255.jpg",
+   "box": [
+    511,
+    421,
+    590,
+    469
+   ],
+   "locator_score": 0.92,
+   "pass_a": "ना१ह/७३८०",
+   "pass_b": "ना१ह/७३८०",
+   "text": "ना१ह७३८०",
+   "lines": [
+    "ना१ह",
+    "७३८०"
+   ]
+  },
+  {
+   "file": "auto_rickshaw_88_png.rf.1d78df7c29e39710a3d3e342acd57a01.jpg",
+   "box": [
+    78,
+    260,
+    142,
+    304
+   ],
+   "locator_score": 0.93,
+   "pass_a": "को२ह/१३७२",
+   "pass_b": "को२ह/१३७२",
+   "text": "को२ह१३७२",
+   "lines": [
+    "को२ह",
+    "१३७२"
+   ]
+  },
+  {
+   "file": "bikes_16_jpg.rf.34a1380bb844a0c8a00c4f5b47aadccb.jpg",
+   "box": [
+    712,
+    486,
+    885,
+    625
+   ],
+   "locator_score": 0.918,
+   "pass_a": "बा६२प/२१५३",
+   "pass_b": "बा६२प/२१५३",
+   "text": "बा६२प२१५३",
+   "lines": [
+    "बा६२प",
+    "२१५३"
+   ]
+  },
+  {
+   "file": "bikes_200_jpg.rf.bbe9ff93586b01b75a756138a8ca3be5.jpg",
+   "box": [
+    144,
+    417,
+    316,
+    505
+   ],
+   "locator_score": 0.922,
+   "pass_a": "बागमतीप्रदेश०२०३३प४७०६",
+   "pass_b": "बागमतीप्रदेश०२०३३प४७०६",
+   "text": "बागमतीप्रदेश०२०३३प४७०६",
+   "lines": [
+    "बागमतीप्रदेश०२०३३प४७०६"
+   ]
+  },
+  {
+   "file": "bikes_228_png.rf.3c84becfa9d0eb2997957927510db6c2.jpg",
+   "box": [
+    233,
+    231,
+    301,
+    275
+   ],
+   "locator_score": 0.924,
+   "pass_a": "को२प/४२०२",
+   "pass_b": "को२प/४२०२",
+   "text": "को२प४२०२",
+   "lines": [
+    "को२प",
+    "४२०२"
+   ]
+  },
+  {
+   "file": "bikes_232_jpg.rf.b822d0098194a1e547666e48d2535ff1.jpg",
+   "box": [
+    678,
+    467,
+    790,
+    531
+   ],
+   "locator_score": 0.945,
+   "pass_a": "ना६१प/४९३२",
+   "pass_b": "ना६१प/४९३२",
+   "text": "ना६१प४९३२",
+   "lines": [
+    "ना६१प",
+    "४९३२"
+   ]
+  },
+  {
+   "file": "bikes_232_jpg.rf.b822d0098194a1e547666e48d2535ff1.jpg",
+   "box": [
+    170,
+    487,
+    298,
+    560
+   ],
+   "locator_score": 0.933,
+   "pass_a": "ना१प/८७७८",
+   "pass_b": "ना१प/८७७८",
+   "text": "ना१प८७७८",
+   "lines": [
+    "ना१प",
+    "८७७८"
+   ]
+  },
+  {
+   "file": "bikes_33_jpg.rf.aff2d40806c87a1e024d073066d5b98b.jpg",
+   "box": [
+    223,
+    504,
+    414,
+    639
+   ],
+   "locator_score": 0.89,
+   "pass_a": "बागमतीप्रदेश०२०५१प१८२७",
+   "pass_b": "बागमतीप्रदेश०२०५१प१८२७",
+   "text": "बागमतीप्रदेश०२०५१प१८२७",
+   "lines": [
+    "बागमतीप्रदेश०२०५१प१८२७"
+   ]
+  },
+  {
+   "file": "bus_113_png.rf.ed5e07a417d868735a141b7a523c7fbf.jpg",
+   "box": [
+    910,
+    621,
+    1042,
+    661
+   ],
+   "locator_score": 0.869,
+   "pass_a": "मे१ख३३१०",
+   "pass_b": "मे१ख३३१०",
+   "text": "मे१ख३३१०",
+   "lines": [
+    "मे१ख३३१०"
+   ]
+  },
+  {
+   "file": "bus_118_png.rf.800f2fc46781a48ec051b4ad615b758f.jpg",
+   "box": [
+    429,
+    762,
+    607,
+    807
+   ],
+   "locator_score": 0.891,
+   "pass_a": "रा१ख२३४१",
+   "pass_b": "रा१ख२३४१",
+   "text": "रा१ख२३४१",
+   "lines": [
+    "रा१ख२३४१"
+   ]
+  },
+  {
+   "file": "bus_125_png.rf.d551e2fdaad2cb0729549b0883cf5d2a.jpg",
+   "box": [
+    93,
+    528,
+    173,
+    583
+   ],
+   "locator_score": 0.87,
+   "pass_a": "लु१ख/५६०१",
+   "pass_b": "लु१ख/५६०१",
+   "text": "लु१ख५६०१",
+   "lines": [
+    "लु१ख",
+    "५६०१"
+   ]
+  },
+  {
+   "file": "bus_131_png.rf.9314932da0b0da84f070db21b53977c2.jpg",
+   "box": [
+    226,
+    547,
+    297,
+    589
+   ],
+   "locator_score": 0.842,
+   "pass_a": "मे१ख/१९८५",
+   "pass_b": "मे१ख/१९८५",
+   "text": "मे१ख१९८५",
+   "lines": [
+    "मे१ख",
+    "१९८५"
+   ]
+  },
+  {
+   "file": "bus_179_png.rf.cbadb9f14ea451f52dd6fbbb146fbaf1.jpg",
+   "box": [
+    374,
+    710,
+    503,
+    763
+   ],
+   "locator_score": 0.92,
+   "pass_a": "कर्णालीप्रदेश०२००१ख०८४५",
+   "pass_b": "कर्णालीप्रदेश०२००१ख०८४५",
+   "text": "कर्णालीप्रदेश०२००१ख०८४५",
+   "lines": [
+    "कर्णालीप्रदेश०२००१ख०८४५"
+   ]
+  },
+  {
+   "file": "bus_196_png.rf.8804fed7a0d1753511d6f625d91807d0.jpg",
+   "box": [
+    664,
+    775,
+    847,
+    821
+   ],
+   "locator_score": 0.878,
+   "pass_a": "रा१ख२३४१",
+   "pass_b": "रा१ख२३४१",
+   "text": "रा१ख२३४१",
+   "lines": [
+    "रा१ख२३४१"
+   ]
+  },
+  {
+   "file": "bus_217_png.rf.2f3cfca0b7a25d34e7c7b79e320d3de9.jpg",
+   "box": [
+    732,
+    762,
+    886,
+    819
+   ],
+   "locator_score": 0.924,
+   "pass_a": "रा१ख३०६२",
+   "pass_b": "रा१ख३०६२",
+   "text": "रा१ख३०६२",
+   "lines": [
+    "रा१ख३०६२"
+   ]
+  },
+  {
+   "file": "bus_229_png.rf.b745f4f5cba7a7da4363a4b90a62e516.jpg",
+   "box": [
+    344,
+    680,
+    495,
+    721
+   ],
+   "locator_score": 0.876,
+   "pass_a": "लु२ख१६०४",
+   "pass_b": "लु२ख१६०४",
+   "text": "लु२ख१६०४",
+   "lines": [
+    "लु२ख१६०४"
+   ]
+  },
+  {
+   "file": "bus_271_png.rf.3353d74766a3d1a74c7213ce9f9a4eac.jpg",
+   "box": [
+    377,
+    489,
+    514,
+    530
+   ],
+   "locator_score": 0.756,
+   "pass_a": "बा३ख७२३७",
+   "pass_b": "बा३ख७२३७",
+   "text": "बा३ख७२३७",
+   "lines": [
+    "बा३ख७२३७"
+   ]
+  },
+  {
+   "file": "bus_278_png.rf.387cbebd3f798b78e0fa3e260c067ddd.jpg",
+   "box": [
+    144,
+    700,
+    309,
+    794
+   ],
+   "locator_score": 0.925,
+   "pass_a": "बागमतीप्रदेश०३००१ख२५४५",
+   "pass_b": "बागमतीप्रदेश०३००१ख२५४५",
+   "text": "बागमतीप्रदेश०३००१ख२५४५",
+   "lines": [
+    "बागमतीप्रदेश०३००१ख२५४५"
+   ]
+  },
+  {
+   "file": "bus_281_png.rf.671df7585dbffc083035ce029fb31e25.jpg",
+   "box": [
+    9,
+    698,
+    159,
+    738
+   ],
+   "locator_score": 0.893,
+   "pass_a": "प्रदेश१०२००२ख००६८",
+   "pass_b": "प्रदेश१०२००२ख००६८",
+   "text": "प्रदेश१०२००२ख००६८",
+   "lines": [
+    "प्रदेश१०२००२ख००६८"
+   ]
+  },
+  {
+   "file": "bus_281_png.rf.671df7585dbffc083035ce029fb31e25.jpg",
+   "box": [
+    992,
+    607,
+    1137,
+    652
+   ],
+   "locator_score": 0.686,
+   "pass_a": "प्रदेश१०२००२ख०१२८",
+   "pass_b": "प्रदेश१०२/००२ख०१२८",
+   "text": "प्रदेश१०२००२ख०१२८",
+   "lines": null
+  },
+  {
+   "file": "bus_37_png.rf.899ee8f27d9bb4896bfccea7a59be1e6.jpg",
+   "box": [
+    487,
+    722,
+    641,
+    776
+   ],
+   "locator_score": 0.915,
+   "pass_a": "ना६ख७४४०",
+   "pass_b": "ना६ख७४४०",
+   "text": "ना६ख७४४०",
+   "lines": [
+    "ना६ख७४४०"
+   ]
+  },
+  {
+   "file": "bus_47_png.rf.d0e13277142429d9f95d52f7198506d1.jpg",
+   "box": [
+    997,
+    641,
+    1109,
+    681
+   ],
+   "locator_score": 0.759,
+   "pass_a": "रा१ख२१४५",
+   "pass_b": "रा१ख२१४५",
+   "text": "रा१ख२१४५",
+   "lines": [
+    "रा१ख२१४५"
+   ]
+  },
+  {
+   "file": "bus_4_png.rf.dc42b130cf3a01f6063e8125721607cb.jpg",
+   "box": [
+    862,
+    499,
+    961,
+    541
+   ],
+   "locator_score": 0.887,
+   "pass_a": "रा१ख३१२४",
+   "pass_b": "रा१ख३१२४",
+   "text": "रा१ख३१२४",
+   "lines": [
+    "रा१ख३१२४"
+   ]
+  },
+  {
+   "file": "bus_93_png.rf.b875fdc959a3a744d7d5e97bc6ff7fd5.jpg",
+   "box": [
+    273,
+    501,
+    391,
+    546
+   ],
+   "locator_score": 0.919,
+   "pass_a": "सुदूरपश्चिमप्रदेश०१००१ख३०५८",
+   "pass_b": "सुदूरपश्चिमप्रदेश०१००१ख३०५८",
+   "text": "सुदूरपश्चिमप्रदेश०१००१ख३०५८",
+   "lines": [
+    "सुदूरपश्चिमप्रदेश०१००१ख३०५८"
+   ]
+  },
+  {
+   "file": "car_11_png.rf.7bfbe8c78a0ec4cd93a11518dcaaa3bd.jpg",
+   "box": [
+    271,
+    184,
+    361,
+    231
+   ],
+   "locator_score": 0.943,
+   "pass_a": "बा५च/२४५३",
+   "pass_b": "बा५च/२४५३",
+   "text": "बा५च२४५३",
+   "lines": [
+    "बा५च",
+    "२४५३"
+   ]
+  },
+  {
+   "file": "car_122_png.rf.05893ca8ab3d3b0fef28a699b0f16f63.jpg",
+   "box": [
+    447,
+    366,
+    582,
+    414
+   ],
+   "locator_score": 0.933,
+   "pass_a": "बागमतीप्रदेश/०१०२६च०८७१",
+   "pass_b": "बागमतीप्रदेश/०१०२६च०८७१",
+   "text": "बागमतीप्रदेश०१०२६च०८७१",
+   "lines": [
+    "बागमतीप्रदेश",
+    "०१०२६च०८७१"
+   ]
+  },
+  {
+   "file": "car_133_png.rf.b3120f2a70a4f1af147fa1d962dce53e.jpg",
+   "box": [
+    497,
+    377,
+    569,
+    424
+   ],
+   "locator_score": 0.952,
+   "pass_a": "बा१९च/९०९१",
+   "pass_b": "बा१९च/९०९१",
+   "text": "बा१९च९०९१",
+   "lines": [
+    "बा१९च",
+    "९०९१"
+   ]
+  },
+  {
+   "file": "car_178_png.rf.94262a2a0f73cbae3868b9f9d4e87b91.jpg",
+   "box": [
+    250,
+    323,
+    399,
+    369
+   ],
+   "locator_score": 0.893,
+   "pass_a": "बा२१च५२६८",
+   "pass_b": "बा२१च५२६८",
+   "text": "बा२१च५२६८",
+   "lines": [
+    "बा२१च५२६८"
+   ]
+  },
+  {
+   "file": "car_181_png.rf.30eb050e07de7b50db36ee0835fd44bd.jpg",
+   "box": [
+    396,
+    339,
+    526,
+    385
+   ],
+   "locator_score": 0.937,
+   "pass_a": "प्रदेश१०१००१प७९६२",
+   "pass_b": "प्रदेश१०१/००१प/७९६२",
+   "text": "प्रदेश१०१००१प७९६२",
+   "lines": null
+  },
+  {
+   "file": "car_193_png.rf.4846bd4d989a561f8818691054455c94.jpg",
+   "box": [
+    235,
+    246,
+    327,
+    287
+   ],
+   "locator_score": 0.939,
+   "pass_a": "बा१९च/९८४३",
+   "pass_b": "बा१९च/९८४३",
+   "text": "बा१९च९८४३",
+   "lines": [
+    "बा१९च",
+    "९८४३"
+   ]
+  },
+  {
+   "file": "car_194_png.rf.939d1da737f0265c14fe69f89f8f3f40.jpg",
+   "box": [
+    276,
+    345,
+    351,
+    387
+   ],
+   "locator_score": 0.946,
+   "pass_a": "बा१५च/६४२०",
+   "pass_b": "बा१५च/६४२०",
+   "text": "बा१५च६४२०",
+   "lines": [
+    "बा१५च",
+    "६४२०"
+   ]
+  },
+  {
+   "file": "car_19_png.rf.6ac5d99c6d3ab638dcfdec5219464ad7.jpg",
+   "box": [
+    297,
+    239,
+    384,
+    281
+   ],
+   "locator_score": 0.945,
+   "pass_a": "मे१च/५७५३",
+   "pass_b": "मे१च/५७५३",
+   "text": "मे१च५७५३",
+   "lines": [
+    "मे१च",
+    "५७५३"
+   ]
+  },
+  {
+   "file": "car_269_png.rf.95a8eddecfdd384b8b91a4f01a65dfda.jpg",
+   "box": [
+    206,
+    362,
+    342,
+    406
+   ],
+   "locator_score": 0.939,
+   "pass_a": "बा१७च५७२९",
+   "pass_b": "बा१७च५७२९",
+   "text": "बा१७च५७२९",
+   "lines": [
+    "बा१७च५७२९"
+   ]
+  },
+  {
+   "file": "car_26_png.rf.4bc21a4c577bdb0bcb6445a00c835558.jpg",
+   "box": [
+    295,
+    338,
+    463,
+    382
+   ],
+   "locator_score": 0.931,
+   "pass_a": "बा१९च७२२०",
+   "pass_b": "बा१९च७२२०",
+   "text": "बा१९च७२२०",
+   "lines": [
+    "बा१९च७२२०"
+   ]
+  },
+  {
+   "file": "car_271_png.rf.c0bc6a1e1958436ff3c2c9055ffaa980.jpg",
+   "box": [
+    666,
+    401,
+    792,
+    451
+   ],
+   "locator_score": 0.947,
+   "pass_a": "बागमतीप्रदेश/०१०२६च१२३७",
+   "pass_b": "बागमतीप्रदेश/०१०२६च१२३७",
+   "text": "बागमतीप्रदेश०१०२६च१२३७",
+   "lines": [
+    "बागमतीप्रदेश",
+    "०१०२६च१२३७"
+   ]
+  },
+  {
+   "file": "car_54_png.rf.a831ba06663e6891161112b0c4e74b16.jpg",
+   "box": [
+    211,
+    365,
+    317,
+    419
+   ],
+   "locator_score": 0.938,
+   "pass_a": "लु३च/६३७२",
+   "pass_b": "लु३च/६३७२",
+   "text": "लु३च६३७२",
+   "lines": [
+    "लु३च",
+    "६३७२"
+   ]
+  },
+  {
+   "file": "car_87_png.rf.9ad00e9cd69818b4aaba14dc79148b74.jpg",
+   "box": [
+    368,
+    298,
+    474,
+    351
+   ],
+   "locator_score": 0.947,
+   "pass_a": "बा१०च/७५२१",
+   "pass_b": "बा१०च/७५२१",
+   "text": "बा१०च७५२१",
+   "lines": [
+    "बा१०च",
+    "७५२१"
+   ]
+  },
+  {
+   "file": "car_88_png.rf.45c6718628cf2eee97fbd90be53885b3.jpg",
+   "box": [
+    342,
+    181,
+    500,
+    244
+   ],
+   "locator_score": 0.911,
+   "pass_a": "बा१०च१३५०",
+   "pass_b": "बा१०च१३५०",
+   "text": "बा१०च१३५०",
+   "lines": [
+    "बा१०च१३५०"
+   ]
+  },
+  {
+   "file": "e-rickshaw_195_png.rf.fca6afbe73e20e1efde8835c41f6178b.jpg",
+   "box": [
+    471,
+    445,
+    524,
+    492
+   ],
+   "locator_score": 0.916,
+   "pass_a": "ज१ह/२४२२",
+   "pass_b": "ज१ह/२४२२",
+   "text": "ज१ह२४२२",
+   "lines": [
+    "ज१ह",
+    "२४२२"
+   ]
+  },
+  {
+   "file": "e-rickshaw_206_png.rf.77b42060ad66810b4012e6192574e895.jpg",
+   "box": [
+    227,
+    289,
+    262,
+    331
+   ],
+   "locator_score": 0.892,
+   "pass_a": "को२ह/७५०६",
+   "pass_b": "को२ह/७५०६",
+   "text": "को२ह७५०६",
+   "lines": [
+    "को२ह",
+    "७५०६"
+   ]
+  },
+  {
+   "file": "e-rickshaw_224_png.rf.5abe6591943bc703810a47aa2e989933.jpg",
+   "box": [
+    309,
+    321,
+    376,
+    364
+   ],
+   "locator_score": 0.949,
+   "pass_a": "रा१ह/१२३",
+   "pass_b": "रा१ह/१२३",
+   "text": "रा१ह१२३",
+   "lines": [
+    "रा१ह",
+    "१२३"
+   ]
+  },
+  {
+   "file": "e-rickshaw_290_png.rf.d4eae7fcac1328b6cd3e22edf5ebea81.jpg",
+   "box": [
+    79,
+    392,
+    158,
+    439
+   ],
+   "locator_score": 0.921,
+   "pass_a": "को१ह/१८१८",
+   "pass_b": "को१ह/१८१८",
+   "text": "को१ह१८१८",
+   "lines": [
+    "को१ह",
+    "१८१८"
+   ]
+  },
+  {
+   "file": "micro_bus_146_png.rf.383266aba68bbbc5ad1c6abc91f2523f.jpg",
+   "box": [
+    556,
+    528,
+    633,
+    569
+   ],
+   "locator_score": 0.937,
+   "pass_a": "बा१ज/९२६२",
+   "pass_b": "बा१ज/९२६२",
+   "text": "बा१ज९२६२",
+   "lines": [
+    "बा१ज",
+    "९२६२"
+   ]
+  },
+  {
+   "file": "micro_bus_152_png.rf.e9f039bda619f014ce59e5614705092a.jpg",
+   "box": [
+    229,
+    376,
+    327,
+    423
+   ],
+   "locator_score": 0.946,
+   "pass_a": "बा१ज/८६७२",
+   "pass_b": "बा१ज/८६७२",
+   "text": "बा१ज८६७२",
+   "lines": [
+    "बा१ज",
+    "८६७२"
+   ]
+  },
+  {
+   "file": "micro_bus_167_png.rf.9d982f58fa1c2a41f5d3237ec1970e23.jpg",
+   "box": [
+    123,
+    575,
+    216,
+    630
+   ],
+   "locator_score": 0.925,
+   "pass_a": "बागमतीप्रदेश०३००१ज०७३३",
+   "pass_b": "बागमतीप्रदेश०३००१ज०७३३",
+   "text": "बागमतीप्रदेश०३००१ज०७३३",
+   "lines": [
+    "बागमतीप्रदेश०३००१ज०७३३"
+   ]
+  },
+  {
+   "file": "micro_bus_250_png.rf.e8806574f7120155187615bdf46bffe4.jpg",
+   "box": [
+    322,
+    514,
+    422,
+    569
+   ],
+   "locator_score": 0.948,
+   "pass_a": "बा२ख/१२२७",
+   "pass_b": "बा२ख/१२२७",
+   "text": "बा२ख१२२७",
+   "lines": [
+    "बा२ख",
+    "१२२७"
+   ]
+  },
+  {
+   "file": "micro_bus_273_png.rf.1dfe33ffb35c28a4ab77b1bfa88bc554.jpg",
+   "box": [
+    131,
+    426,
+    205,
+    470
+   ],
+   "locator_score": 0.942,
+   "pass_a": "बा२ख/२८२८",
+   "pass_b": "बा२ख/२८२८",
+   "text": "बा२ख२८२८",
+   "lines": [
+    "बा२ख",
+    "२८२८"
+   ]
+  },
+  {
+   "file": "micro_bus_36_png.rf.063085f808fd2faf183b6682ae6f1a9b.jpg",
+   "box": [
+    727,
+    476,
+    861,
+    536
+   ],
+   "locator_score": 0.908,
+   "pass_a": "ग१ज/४५७०",
+   "pass_b": "ग१ज/४५७०",
+   "text": "ग१ज४५७०",
+   "lines": [
+    "ग१ज",
+    "४५७०"
+   ]
+  },
+  {
+   "file": "micro_bus_46_png.rf.02d7fd1f22a3a7c736b14c89214e40e6.jpg",
+   "box": [
+    557,
+    389,
+    624,
+    429
+   ],
+   "locator_score": 0.929,
+   "pass_a": "बा२ख/६२४०",
+   "pass_b": "बा२ख/६२४०",
+   "text": "बा२ख६२४०",
+   "lines": [
+    "बा२ख",
+    "६२४०"
+   ]
+  },
+  {
+   "file": "mini_truck_163_png.rf.e22ccea0d52023d0344c97926b7f0314.jpg",
+   "box": [
+    472,
+    498,
+    538,
+    549
+   ],
+   "locator_score": 0.894,
+   "pass_a": "बा२ख/६६८०",
+   "pass_b": "बा२ख/६६८०",
+   "text": "बा२ख६६८०",
+   "lines": [
+    "बा२ख",
+    "६६८०"
+   ]
+  },
+  {
+   "file": "mini_truck_169_png.rf.93d7a81f8a8c28f4a0b16ba4e67c206b.jpg",
+   "box": [
+    462,
+    555,
+    573,
+    597
+   ],
+   "locator_score": 0.915,
+   "pass_a": "ग१ख/५२२२",
+   "pass_b": "ग१ख/५२२२",
+   "text": "ग१ख५२२२",
+   "lines": [
+    "ग१ख",
+    "५२२२"
+   ]
+  },
+  {
+   "file": "mini_truck_183_png.rf.7f0b0395c50f68691dfd9599aefca7dd.jpg",
+   "box": [
+    775,
+    542,
+    843,
+    599
+   ],
+   "locator_score": 0.914,
+   "pass_a": "बा१क/७९१८",
+   "pass_b": "बा१क/७९१८",
+   "text": "बा१क७९१८",
+   "lines": [
+    "बा१क",
+    "७९१८"
+   ]
+  },
+  {
+   "file": "mini_truck_206_png.rf.674e21e0e5b10cdd3fd095250b46b551.jpg",
+   "box": [
+    786,
+    596,
+    842,
+    636
+   ],
+   "locator_score": 0.903,
+   "pass_a": "बा३ख/१३७३",
+   "pass_b": "बा३ख/१३७३",
+   "text": "बा३ख१३७३",
+   "lines": [
+    "बा३ख",
+    "१३७३"
+   ]
+  },
+  {
+   "file": "mini_truck_221_png.rf.d30f9155eac4f0c9c7cc6bc6cc53c8bf.jpg",
+   "box": [
+    659,
+    509,
+    718,
+    551
+   ],
+   "locator_score": 0.813,
+   "pass_a": "बा४ख/४९९८",
+   "pass_b": "बा४ख/४९९८",
+   "text": "बा४ख४९९८",
+   "lines": [
+    "बा४ख",
+    "४९९८"
+   ]
+  },
+  {
+   "file": "mini_truck_244_png.rf.f97ad33fe212f260438776b5116d0797.jpg",
+   "box": [
+    260,
+    488,
+    431,
+    530
+   ],
+   "locator_score": 0.832,
+   "pass_a": "ग१ख५७३४",
+   "pass_b": "ग१ख५७३४",
+   "text": "ग१ख५७३४",
+   "lines": [
+    "ग१ख५७३४"
+   ]
+  },
+  {
+   "file": "mini_truck_249_png.rf.52ed141cda1bb6a7f667b2587d167070.jpg",
+   "box": [
+    61,
+    411,
+    130,
+    461
+   ],
+   "locator_score": 0.925,
+   "pass_a": "बा२ख/७५०५",
+   "pass_b": "बा२ख/७५०५",
+   "text": "बा२ख७५०५",
+   "lines": [
+    "बा२ख",
+    "७५०५"
+   ]
+  },
+  {
+   "file": "mini_truck_259_png.rf.7ace6d39dd99590e0a9b6c3aa2e20562.jpg",
+   "box": [
+    277,
+    494,
+    330,
+    534
+   ],
+   "locator_score": 0.771,
+   "pass_a": "बा३ख/८७४२",
+   "pass_b": "बा३ख/८७४२",
+   "text": "बा३ख८७४२",
+   "lines": [
+    "बा३ख",
+    "८७४२"
+   ]
+  },
+  {
+   "file": "mini_truck_260_png.rf.35d96a52d93d53e49f15d051b0471194.jpg",
+   "box": [
+    655,
+    466,
+    713,
+    509
+   ],
+   "locator_score": 0.913,
+   "pass_a": "बा२ख/१४०",
+   "pass_b": "बा२ख/१४०",
+   "text": "बा२ख१४०",
+   "lines": [
+    "बा२ख",
+    "१४०"
+   ]
+  },
+  {
+   "file": "mini_truck_27_png.rf.56db87af72f020c0a84c50bff6e2414c.jpg",
+   "box": [
+    396,
+    458,
+    461,
+    502
+   ],
+   "locator_score": 0.926,
+   "pass_a": "बा४ख/८०३८",
+   "pass_b": "बा४ख/८०३८",
+   "text": "बा४ख८०३८",
+   "lines": [
+    "बा४ख",
+    "८०३८"
+   ]
+  },
+  {
+   "file": "mini_truck_280_png.rf.0aca47d6cc207920aadb3e5b37ff88a8.jpg",
+   "box": [
+    503,
+    518,
+    575,
+    572
+   ],
+   "locator_score": 0.913,
+   "pass_a": "बा३ख/८७३०",
+   "pass_b": "बा३ख/८७३०",
+   "text": "बा३ख८७३०",
+   "lines": [
+    "बा३ख",
+    "८७३०"
+   ]
+  },
+  {
+   "file": "mini_truck_292_png.rf.1ae1d849e64c9172c77ea29afc767034.jpg",
+   "box": [
+    492,
+    403,
+    564,
+    459
+   ],
+   "locator_score": 0.917,
+   "pass_a": "बा४ख/१६८४",
+   "pass_b": "बा४ख/१६८४",
+   "text": "बा४ख१६८४",
+   "lines": [
+    "बा४ख",
+    "१६८४"
+   ]
+  },
+  {
+   "file": "mini_truck_298_png.rf.593e5029e459c977d7f0bffa6795bf6f.jpg",
+   "box": [
+    558,
+    513,
+    629,
+    554
+   ],
+   "locator_score": 0.852,
+   "pass_a": "बा१क/६७०७",
+   "pass_b": "बा१क/६७०७",
+   "text": "बा१क६७०७",
+   "lines": [
+    "बा१क",
+    "६७०७"
+   ]
+  },
+  {
+   "file": "mini_truck_303_png.rf.5aa59581b8f93e90247d5e4be3cd62fb.jpg",
+   "box": [
+    331,
+    585,
+    407,
+    636
+   ],
+   "locator_score": 0.92,
+   "pass_a": "बा३क/१७२१",
+   "pass_b": "बा३क/१७२१",
+   "text": "बा३क१७२१",
+   "lines": [
+    "बा३क",
+    "१७२१"
+   ]
+  },
+  {
+   "file": "mini_truck_304_png.rf.dc8f1b5cd176c62aba3f884483ff0522.jpg",
+   "box": [
+    708,
+    620,
+    819,
+    697
+   ],
+   "locator_score": 0.867,
+   "pass_a": "बा१क/८६३७",
+   "pass_b": "बा१क/८६३७",
+   "text": "बा१क८६३७",
+   "lines": [
+    "बा१क",
+    "८६३७"
+   ]
+  },
+  {
+   "file": "mini_truck_37_png.rf.e2be74b070e05e95451c4204b60c1a93.jpg",
+   "box": [
+    213,
+    377,
+    278,
+    425
+   ],
+   "locator_score": 0.839,
+   "pass_a": "प्रदेश३०१/००३क/४६१६",
+   "pass_b": "प्रदेश३०१/००३क/४६१६",
+   "text": "प्रदेश३०१००३क४६१६",
+   "lines": [
+    "प्रदेश३०१",
+    "००३क",
+    "४६१६"
+   ]
+  },
+  {
+   "file": "mini_truck_66_png.rf.f45a3ef98f1ee628ad9798dd51111836.jpg",
+   "box": [
+    132,
+    491,
+    245,
+    531
+   ],
+   "locator_score": 0.934,
+   "pass_a": "बा३ख५७८४",
+   "pass_b": "बा३ख५७८४",
+   "text": "बा३ख५७८४",
+   "lines": [
+    "बा३ख५७८४"
+   ]
+  },
+  {
+   "file": "mini_truck_73_png.rf.c8be1ab12ec3e4fca51ce6694fed1e71.jpg",
+   "box": [
+    600,
+    464,
+    659,
+    512
+   ],
+   "locator_score": 0.926,
+   "pass_a": "बा२ख/९३११",
+   "pass_b": "बा२ख/९३११",
+   "text": "बा२ख९३११",
+   "lines": [
+    "बा२ख",
+    "९३११"
+   ]
+  },
+  {
+   "file": "mini_truck_97_png.rf.e24acb8c6066061b3955e7d6a4b54918.jpg",
+   "box": [
+    298,
+    506,
+    400,
+    577
+   ],
+   "locator_score": 0.84,
+   "pass_a": "बा१क/४६०४",
+   "pass_b": "बा१क/४६०४",
+   "text": "बा१क४६०४",
+   "lines": [
+    "बा१क",
+    "४६०४"
+   ]
+  },
+  {
+   "file": "police_vehicle_61_png.rf.2cf263ab2aa3acf7451fb29cd4b3242d.jpg",
+   "box": [
+    118,
+    516,
+    232,
+    559
+   ],
+   "locator_score": 0.93,
+   "pass_a": "बा२झ१९२१",
+   "pass_b": "बा२झ१९२१",
+   "text": "बा२झ१९२१",
+   "lines": [
+    "बा२झ१९२१"
+   ]
+  },
+  {
+   "file": "school_bus_167_png.rf.0a55e15f171fef8bf16ac4c084590c3e.jpg",
+   "box": [
+    157,
+    462,
+    262,
+    512
+   ],
+   "locator_score": 0.812,
+   "pass_a": "बा१क/४९०८",
+   "pass_b": "बा१क/४९०८",
+   "text": "बा१क४९०८",
+   "lines": [
+    "बा१क",
+    "४९०८"
+   ]
+  },
+  {
+   "file": "school_bus_259_png.rf.7afe916c57f73ec752137704ecb5cc26.jpg",
+   "box": [
+    557,
+    529,
+    626,
+    569
+   ],
+   "locator_score": 0.937,
+   "pass_a": "बा२क/२८६९",
+   "pass_b": "बा२क/२८६९",
+   "text": "बा२क२८६९",
+   "lines": [
+    "बा२क",
+    "२८६९"
+   ]
+  },
+  {
+   "file": "school_bus_275_png.rf.50bd04a814e38e508767de56c96d5704.jpg",
+   "box": [
+    212,
+    505,
+    270,
+    550
+   ],
+   "locator_score": 0.925,
+   "pass_a": "बा२ख/३११५",
+   "pass_b": "बा२ख/३११५",
+   "text": "बा२ख३११५",
+   "lines": [
+    "बा२ख",
+    "३११५"
+   ]
+  },
+  {
+   "file": "school_bus_282_png.rf.5847d9131f0e11db054969d062205a04.jpg",
+   "box": [
+    536,
+    523,
+    600,
+    563
+   ],
+   "locator_score": 0.902,
+   "pass_a": "बा३क/३३८४",
+   "pass_b": "बा३क/३३८४",
+   "text": "बा३क३३८४",
+   "lines": [
+    "बा३क",
+    "३३८४"
+   ]
+  },
+  {
+   "file": "school_bus_31_png.rf.0aa2a6afe3ea8435c79b7b1db9741057.jpg",
+   "box": [
+    100,
+    509,
+    181,
+    555
+   ],
+   "locator_score": 0.934,
+   "pass_a": "बा२क/३९१६",
+   "pass_b": "बा२क/३९१६",
+   "text": "बा२क३९१६",
+   "lines": [
+    "बा२क",
+    "३९१६"
+   ]
+  },
+  {
+   "file": "school_bus_54_png.rf.9aca11c4bac6981bfaa753fb46575649.jpg",
+   "box": [
+    249,
+    382,
+    314,
+    422
+   ],
+   "locator_score": 0.927,
+   "pass_a": "बा२क/६५६८",
+   "pass_b": "बा२क/६५६८",
+   "text": "बा२क६५६८",
+   "lines": [
+    "बा२क",
+    "६५६८"
+   ]
+  },
+  {
+   "file": "school_bus_64_png.rf.457d100f6f021e9016e8a81b61ec356d.jpg",
+   "box": [
+    134,
+    513,
+    237,
+    576
+   ],
+   "locator_score": 0.945,
+   "pass_a": "बा१क/५७८१",
+   "pass_b": "बा१क/५७८१",
+   "text": "बा१क५७८१",
+   "lines": [
+    "बा१क",
+    "५७८१"
+   ]
+  },
+  {
+   "file": "school_bus_82_png.rf.cf965d4734ba619db5db243c4240e8bb.jpg",
+   "box": [
+    434,
+    519,
+    585,
+    563
+   ],
+   "locator_score": 0.756,
+   "pass_a": "बा३क३६०२",
+   "pass_b": "बा३क३६०२",
+   "text": "बा३क३६०२",
+   "lines": [
+    "बा३क३६०२"
+   ]
+  },
+  {
+   "file": "school_bus_83_png.rf.56d56e2264142495c2124b8e012a5013.jpg",
+   "box": [
+    647,
+    498,
+    716,
+    542
+   ],
+   "locator_score": 0.896,
+   "pass_a": "बा२क/२८६९",
+   "pass_b": "बा२क/२८६९",
+   "text": "बा२क२८६९",
+   "lines": [
+    "बा२क",
+    "२८६९"
+   ]
+  },
+  {
+   "file": "scooter_210_jpg.rf.35884501effe95c63dae3b59d8d1db7b.jpg",
+   "box": [
+    156,
+    610,
+    256,
+    676
+   ],
+   "locator_score": 0.919,
+   "pass_a": "बा६२प/३४०२",
+   "pass_b": "बा६२प/३४०२",
+   "text": "बा६२प३४०२",
+   "lines": [
+    "बा६२प",
+    "३४०२"
+   ]
+  },
+  {
+   "file": "scooter_4_png.rf.5ea3f393a548659b41acdccbf3bb2b73.jpg",
+   "box": [
+    188,
+    356,
+    251,
+    401
+   ],
+   "locator_score": 0.938,
+   "pass_a": "ना२३प/७५२०",
+   "pass_b": "ना२३प/७५२०",
+   "text": "ना२३प७५२०",
+   "lines": [
+    "ना२३प",
+    "७५२०"
+   ]
+  },
+  {
+   "file": "scooter_72_png.rf.319d062e6a3acf538d496ff568f7daa8.jpg",
+   "box": [
+    215,
+    400,
+    295,
+    444
+   ],
+   "locator_score": 0.954,
+   "pass_a": "ना६६प/३३१०",
+   "pass_b": "ना६६प/३३१०",
+   "text": "ना६६प३३१०",
+   "lines": [
+    "ना६६प",
+    "३३१०"
+   ]
+  },
+  {
+   "file": "taxi_158_png.rf.97778d3e3c574121ef7bcfb6ec81ebea.jpg",
+   "box": [
+    243,
+    392,
+    308,
+    432
+   ],
+   "locator_score": 0.934,
+   "pass_a": "बा१ज/७६३९",
+   "pass_b": "बा१ज/७६३९",
+   "text": "बा१ज७६३९",
+   "lines": [
+    "बा१ज",
+    "७६३९"
+   ]
+  },
+  {
+   "file": "taxi_185_png.rf.5a6d1b82b6800f00c865a76519cb624c.jpg",
+   "box": [
+    331,
+    380,
+    395,
+    422
+   ],
+   "locator_score": 0.94,
+   "pass_a": "बा२ज/४०३३",
+   "pass_b": "बा२ज/४०३३",
+   "text": "बा२ज४०३३",
+   "lines": [
+    "बा२ज",
+    "४०३३"
+   ]
+  },
+  {
+   "file": "taxi_18_png.rf.5121592b87ca14988fe617d6e0eea65d.jpg",
+   "box": [
+    209,
+    358,
+    294,
+    401
+   ],
+   "locator_score": 0.95,
+   "pass_a": "बा२ज/५८९२",
+   "pass_b": "बा२ज/५८९२",
+   "text": "बा२ज५८९२",
+   "lines": [
+    "बा२ज",
+    "५८९२"
+   ]
+  },
+  {
+   "file": "taxi_238_png.rf.f56791d4faf08d4de00b01f32484825b.jpg",
+   "box": [
+    236,
+    393,
+    342,
+    447
+   ],
+   "locator_score": 0.924,
+   "pass_a": "ग१ज/४१५८",
+   "pass_b": "ग१ज/४१५८",
+   "text": "ग१ज४१५८",
+   "lines": [
+    "ग१ज",
+    "४१५८"
+   ]
+  },
+  {
+   "file": "taxi_247_png.rf.22d739f7ff392d42987ac7e29d239d9a.jpg",
+   "box": [
+    84,
+    270,
+    238,
+    316
+   ],
+   "locator_score": 0.938,
+   "pass_a": "ग१ज२८०७",
+   "pass_b": "ग१ज२८०७",
+   "text": "ग१ज२८०७",
+   "lines": [
+    "ग१ज२८०७"
+   ]
+  },
+  {
+   "file": "taxi_255_png.rf.a28c9e2fab4ac53bb60286d8b3ee9ed1.jpg",
+   "box": [
+    397,
+    384,
+    522,
+    424
+   ],
+   "locator_score": 0.937,
+   "pass_a": "बा२ज२०९६",
+   "pass_b": "बा२ज२०९६",
+   "text": "बा२ज२०९६",
+   "lines": [
+    "बा२ज२०९६"
+   ]
+  },
+  {
+   "file": "taxi_51_png.rf.cf09b8dc25440dffccf5bf97c5a773ce.jpg",
+   "box": [
+    518,
+    429,
+    608,
+    483
+   ],
+   "locator_score": 0.951,
+   "pass_a": "बा१ज/७०९८",
+   "pass_b": "बा१ज/७०९८",
+   "text": "बा१ज७०९८",
+   "lines": [
+    "बा१ज",
+    "७०९८"
+   ]
+  },
+  {
+   "file": "taxi_57_png.rf.d1a70c4f9297469f3fc96e879c78f004.jpg",
+   "box": [
+    521,
+    436,
+    646,
+    490
+   ],
+   "locator_score": 0.951,
+   "pass_a": "ग१ज/३४४७",
+   "pass_b": "ग१ज/३४४७",
+   "text": "ग१ज३४४७",
+   "lines": [
+    "ग१ज",
+    "३४४७"
+   ]
+  },
+  {
+   "file": "taxi_7_png.rf.3d8600e630c27d30cb031c2a51550825.jpg",
+   "box": [
+    47,
+    433,
+    186,
+    480
+   ],
+   "locator_score": 0.939,
+   "pass_a": "बा२ज१३८१",
+   "pass_b": "बा२ज१३८१",
+   "text": "बा२ज१३८१",
+   "lines": [
+    "बा२ज१३८१"
+   ]
+  },
+  {
+   "file": "taxi_99_png.rf.916f7cfc461ad427b192b567d5b7a6e1.jpg",
+   "box": [
+    417,
+    421,
+    528,
+    476
+   ],
+   "locator_score": 0.946,
+   "pass_a": "प्रदेश१०१/००२ज/५८५०",
+   "pass_b": "प्रदेश१०१/००२ज/५८५०",
+   "text": "प्रदेश१०१००२ज५८५०",
+   "lines": [
+    "प्रदेश१०१",
+    "००२ज",
+    "५८५०"
+   ]
+  },
+  {
+   "file": "tempo_120_png.rf.a0cf4abb42cc530562de9764d82f10eb.jpg",
+   "box": [
+    434,
+    248,
+    495,
+    289
+   ],
+   "locator_score": 0.897,
+   "pass_a": "बा१ह/३८२७",
+   "pass_b": "बा१ह/३८२७",
+   "text": "बा१ह३८२७",
+   "lines": [
+    "बा१ह",
+    "३८२७"
+   ]
+  },
+  {
+   "file": "tempo_158_png.rf.be7697aca9a26d07564f8814e9779199.jpg",
+   "box": [
+    493,
+    272,
+    572,
+    316
+   ],
+   "locator_score": 0.909,
+   "pass_a": "बा१ह/४७६१",
+   "pass_b": "बा१ह/४७६१",
+   "text": "बा१ह४७६१",
+   "lines": [
+    "बा१ह",
+    "४७६१"
+   ]
+  },
+  {
+   "file": "tempo_181_png.rf.b677d8aecfcc0fcbbade9c7f789261e9.jpg",
+   "box": [
+    421,
+    269,
+    494,
+    319
+   ],
+   "locator_score": 0.913,
+   "pass_a": "बा१ह/४०५५",
+   "pass_b": "बा१ह/४०५५",
+   "text": "बा१ह४०५५",
+   "lines": [
+    "बा१ह",
+    "४०५५"
+   ]
+  },
+  {
+   "file": "tempo_183_png.rf.a4ae7eddc3da205a1ea90d2fca18f12a.jpg",
+   "box": [
+    466,
+    284,
+    536,
+    324
+   ],
+   "locator_score": 0.922,
+   "pass_a": "बा१ह/४१७८",
+   "pass_b": "बा१ह/४१७८",
+   "text": "बा१ह४१७८",
+   "lines": [
+    "बा१ह",
+    "४१७८"
+   ]
+  },
+  {
+   "file": "tempo_1_png.rf.1e959cf7c3ceccd73636d59a1220718a.jpg",
+   "box": [
+    702,
+    343,
+    767,
+    387
+   ],
+   "locator_score": 0.87,
+   "pass_a": "बा१ह/४८५१",
+   "pass_b": "बा१ह/४८५१",
+   "text": "बा१ह४८५१",
+   "lines": [
+    "बा१ह",
+    "४८५१"
+   ]
+  },
+  {
+   "file": "tempo_213_png.rf.067825e9e8c5d17261f1c5d2ecaf1d3f.jpg",
+   "box": [
+    849,
+    394,
+    914,
+    440
+   ],
+   "locator_score": 0.922,
+   "pass_a": "बा१ह/३७३२",
+   "pass_b": "बा१ह/३७३२",
+   "text": "बा१ह३७३२",
+   "lines": [
+    "बा१ह",
+    "३७३२"
+   ]
+  },
+  {
+   "file": "tempo_244_png.rf.542613fa1350d73e1964dd4b900c9c22.jpg",
+   "box": [
+    519,
+    317,
+    600,
+    360
+   ],
+   "locator_score": 0.594,
+   "pass_a": "बा१ह/४०९८",
+   "pass_b": "बा१ह/४०९८",
+   "text": "बा१ह४०९८",
+   "lines": [
+    "बा१ह",
+    "४०९८"
+   ]
+  },
+  {
+   "file": "tempo_272_png.rf.7c3ab4dc330484a83a182deb1c1c8690.jpg",
+   "box": [
+    433,
+    237,
+    504,
+    280
+   ],
+   "locator_score": 0.939,
+   "pass_a": "बा१ह/३८९३",
+   "pass_b": "बा१ह/३८९३",
+   "text": "बा१ह३८९३",
+   "lines": [
+    "बा१ह",
+    "३८९३"
+   ]
+  },
+  {
+   "file": "tempo_275_png.rf.259b97b3134ad853aaa882e5f555c0e1.jpg",
+   "box": [
+    656,
+    314,
+    736,
+    358
+   ],
+   "locator_score": 0.929,
+   "pass_a": "बा१ह/३९३३",
+   "pass_b": "बा१ह/३९३३",
+   "text": "बा१ह३९३३",
+   "lines": [
+    "बा१ह",
+    "३९३३"
+   ]
+  },
+  {
+   "file": "tempo_299_png.rf.29233224a6a50f07c9c83c6d48624b97.jpg",
+   "box": [
+    401,
+    450,
+    455,
+    494
+   ],
+   "locator_score": 0.809,
+   "pass_a": "बा१ह/३८५५",
+   "pass_b": "बा१ह/३८५५",
+   "text": "बा१ह३८५५",
+   "lines": [
+    "बा१ह",
+    "३८५५"
+   ]
+  },
+  {
+   "file": "tempo_57_png.rf.32163168a2955fee1512e83121546a39.jpg",
+   "box": [
+    1121,
+    445,
+    1193,
+    503
+   ],
+   "locator_score": 0.915,
+   "pass_a": "बा१ह/३७६५",
+   "pass_b": "बा१ह/३७६५",
+   "text": "बा१ह३७६५",
+   "lines": [
+    "बा१ह",
+    "३७६५"
+   ]
+  },
+  {
+   "file": "tractor_20_png.rf.2f987a749be57cbe81344145c3cc6ada.jpg",
+   "box": [
+    615,
+    546,
+    745,
+    616
+   ],
+   "locator_score": 0.835,
+   "pass_a": "लु४त/२७०८",
+   "pass_b": "लु४त/२७०८",
+   "text": "लु४त२७०८",
+   "lines": [
+    "लु४त",
+    "२७०८"
+   ]
+  },
+  {
+   "file": "tractor_28_png.rf.84102580b71010d4f5e82ee9ac36800d.jpg",
+   "box": [
+    351,
+    234,
+    453,
+    309
+   ],
+   "locator_score": 0.88,
+   "pass_a": "को२त/८३५०",
+   "pass_b": "को२त/८३५०",
+   "text": "को२त८३५०",
+   "lines": [
+    "को२त",
+    "८३५०"
+   ]
+  },
+  {
+   "file": "tractor_42_png.rf.43e0ced2f6365f3a847c32988efffbb7.jpg",
+   "box": [
+    279,
+    409,
+    349,
+    462
+   ],
+   "locator_score": 0.89,
+   "pass_a": "ना१त/८१३७",
+   "pass_b": "ना१त/८१३७",
+   "text": "ना१त८१३७",
+   "lines": [
+    "ना१त",
+    "८१३७"
+   ]
+  },
+  {
+   "file": "tractor_65_png.rf.674e7d97af83629dd2b9cb803fdeedfd.jpg",
+   "box": [
+    717,
+    469,
+    905,
+    510
+   ],
+   "locator_score": 0.798,
+   "pass_a": "ग१त४४३२",
+   "pass_b": "ग१त४४३२",
+   "text": "ग१त४४३२",
+   "lines": [
+    "ग१त४४३२"
+   ]
+  },
+  {
+   "file": "transport_vehicle_179_png.rf.a671a65967619568fcbfc2ff309070b5.jpg",
+   "box": [
+    283,
+    499,
+    410,
+    540
+   ],
+   "locator_score": 0.87,
+   "pass_a": "को१च९८५७",
+   "pass_b": "को१च९८५७",
+   "text": "को१च९८५७",
+   "lines": [
+    "को१च९८५७"
+   ]
+  },
+  {
+   "file": "transport_vehicle_187_png.rf.e9f33f7a96ecfd3f6b7bb23caa6f6df2.jpg",
+   "box": [
+    396,
+    417,
+    495,
+    458
+   ],
+   "locator_score": 0.903,
+   "pass_a": "ग७च/५९८३",
+   "pass_b": "ग७च/५९८३",
+   "text": "ग७च५९८३",
+   "lines": [
+    "ग७च",
+    "५९८३"
+   ]
+  },
+  {
+   "file": "transport_vehicle_283_png.rf.0f3354e87388648dfcddd1b136b1f04e.jpg",
+   "box": [
+    465,
+    417,
+    625,
+    462
+   ],
+   "locator_score": 0.832,
+   "pass_a": "बागमतीप्रदेश०१/०२६च५५२९",
+   "pass_b": "बागमतीप्रदेश/०१०२६च५५२९",
+   "text": "बागमतीप्रदेश०१०२६च५५२९",
+   "lines": [
+    "बागमतीप्रदेश०१",
+    "०२६च५५२९"
+   ]
+  },
+  {
+   "file": "transport_vehicle_294_png.rf.0be0d073b2d2566bff513a3d61e93064.jpg",
+   "box": [
+    307,
+    342,
+    394,
+    389
+   ],
+   "locator_score": 0.931,
+   "pass_a": "ग३च/३६१४",
+   "pass_b": "ग३च/३६१४",
+   "text": "ग३च३६१४",
+   "lines": [
+    "ग३च",
+    "३६१४"
+   ]
+  },
+  {
+   "file": "transport_vehicle_2_png.rf.977cd2588177ff2a1227d74c124e10df.jpg",
+   "box": [
+    181,
+    524,
+    369,
+    575
+   ],
+   "locator_score": 0.891,
+   "pass_a": "ग१च८३६९",
+   "pass_b": "ग१च८३६९",
+   "text": "ग१च८३६९",
+   "lines": [
+    "ग१च८३६९"
+   ]
+  },
+  {
+   "file": "transport_vehicle_31_png.rf.95f84e486e8df927df9c97cee7dd1268.jpg",
+   "box": [
+    328,
+    401,
+    459,
+    448
+   ],
+   "locator_score": 0.881,
+   "pass_a": "मे१च४५२१",
+   "pass_b": "मे१च४५२१",
+   "text": "मे१च४५२१",
+   "lines": [
+    "मे१च४५२१"
+   ]
+  },
+  {
+   "file": "transport_vehicle_73_png.rf.6f2efd27ce192a54e5089b59296c6563.jpg",
+   "box": [
+    384,
+    696,
+    485,
+    754
+   ],
+   "locator_score": 0.936,
+   "pass_a": "बा१६च/४१६०",
+   "pass_b": "बा१६च/४१६०",
+   "text": "बा१६च४१६०",
+   "lines": [
+    "बा१६च",
+    "४१६०"
+   ]
+  },
+  {
+   "file": "truck_104_png.rf.2bd16a0b859c0f6e650d4e726dc5d04b.jpg",
+   "box": [
+    214,
+    454,
+    282,
+    496
+   ],
+   "locator_score": 0.892,
+   "pass_a": "ना२ख/८६१७",
+   "pass_b": "ना२ख/८६१७",
+   "text": "ना२ख८६१७",
+   "lines": [
+    "ना२ख",
+    "८६१७"
+   ]
+  },
+  {
+   "file": "truck_125_png.rf.18b967df3dd4b583d203fec1363e2205.jpg",
+   "box": [
+    325,
+    483,
+    403,
+    525
+   ],
+   "locator_score": 0.887,
+   "pass_a": "ग२ख/६१०",
+   "pass_b": "ग२ख/६१०",
+   "text": "ग२ख६१०",
+   "lines": [
+    "ग२ख",
+    "६१०"
+   ]
+  },
+  {
+   "file": "truck_43_png.rf.ccbe632039571d3f96a5d1bddc0ce0ce.jpg",
+   "box": [
+    510,
+    513,
+    573,
+    553
+   ],
+   "locator_score": 0.793,
+   "pass_a": "ना६ख/३०४४",
+   "pass_b": "ना६ख/३०४४",
+   "text": "ना६ख३०४४",
+   "lines": [
+    "ना६ख",
+    "३०४४"
+   ]
+  },
+  {
+   "file": "truck_62_png.rf.ac0d8d1f74ac7d59c72a5845b56ec530.jpg",
+   "box": [
+    527,
+    399,
+    607,
+    474
+   ],
+   "locator_score": 0.911,
+   "pass_a": "ज१क/१६१३",
+   "pass_b": "ज१क/१६१३",
+   "text": "ज१क१६१३",
+   "lines": [
+    "ज१क",
+    "१६१३"
+   ]
+  },
+  {
+   "file": "van_106_png.rf.e755735269fd013f90e80cdb1e2cadfe.jpg",
+   "box": [
+    184,
+    338,
+    265,
+    381
+   ],
+   "locator_score": 0.94,
+   "pass_a": "बा१ज/६०९३",
+   "pass_b": "बा१ज/६०९३",
+   "text": "बा१ज६०९३",
+   "lines": [
+    "बा१ज",
+    "६०९३"
+   ]
+  },
+  {
+   "file": "van_119_png.rf.bb4d48e3d5e0aad56016af1c8a3bb26b.jpg",
+   "box": [
+    185,
+    324,
+    269,
+    364
+   ],
+   "locator_score": 0.934,
+   "pass_a": "बा१०च/९५८२",
+   "pass_b": "बा१०च/९५८२",
+   "text": "बा१०च९५८२",
+   "lines": [
+    "बा१०च",
+    "९५८२"
+   ]
+  },
+  {
+   "file": "van_120_png.rf.f2bdd3e365eacbb9fbee2bd45921ebb4.jpg",
+   "box": [
+    342,
+    402,
+    477,
+    474
+   ],
+   "locator_score": 0.954,
+   "pass_a": "प्रदेश३०१/०२३च/१०२१",
+   "pass_b": "प्रदेश३०१/०२३च/१०२१",
+   "text": "प्रदेश३०१०२३च१०२१",
+   "lines": [
+    "प्रदेश३०१",
+    "०२३च",
+    "१०२१"
+   ]
+  },
+  {
+   "file": "van_138_png.rf.c46fd4ed38e3d6a2bd007640dd9a0f45.jpg",
+   "box": [
+    385,
+    261,
+    464,
+    303
+   ],
+   "locator_score": 0.941,
+   "pass_a": "बा२१च/२०३२",
+   "pass_b": "बा२१च/२०३२",
+   "text": "बा२१च२०३२",
+   "lines": [
+    "बा२१च",
+    "२०३२"
+   ]
+  },
+  {
+   "file": "van_166_png.rf.27516129326e6c975c6c77bf46a762d7.jpg",
+   "box": [
+    174,
+    498,
+    265,
+    540
+   ],
+   "locator_score": 0.919,
+   "pass_a": "प्रदेश१०२/००१ज४१२१",
+   "pass_b": "प्रदेश१०२/००१ज४१२१",
+   "text": "प्रदेश१०२००१ज४१२१",
+   "lines": [
+    "प्रदेश१०२",
+    "००१ज४१२१"
+   ]
+  },
+  {
+   "file": "van_169_png.rf.beef0edf0429e0c392f0289e1559a255.jpg",
+   "box": [
+    290,
+    454,
+    374,
+    503
+   ],
+   "locator_score": 0.93,
+   "pass_a": "बा२०च१८३२",
+   "pass_b": "बा२०च१८३२",
+   "text": "बा२०च१८३२",
+   "lines": [
+    "बा२०च१८३२"
+   ]
+  },
+  {
+   "file": "van_184_png.rf.85d594185929ed1206ed61dda0510c1f.jpg",
+   "box": [
+    540,
+    336,
+    592,
+    378
+   ],
+   "locator_score": 0.938,
+   "pass_a": "बा१ज/७७८४",
+   "pass_b": "बा१ज/७७८४",
+   "text": "बा१ज७७८४",
+   "lines": [
+    "बा१ज",
+    "७७८४"
+   ]
+  },
+  {
+   "file": "van_194_png.rf.76935a85ab304acd8d95f8a5dc04b0e3.jpg",
+   "box": [
+    144,
+    459,
+    200,
+    505
+   ],
+   "locator_score": 0.881,
+   "pass_a": "प्रदेश३०१/०२२च५११६",
+   "pass_b": "प्रदेश३०१/०२२च५११६",
+   "text": "प्रदेश३०१०२२च५११६",
+   "lines": [
+    "प्रदेश३०१",
+    "०२२च५११६"
+   ]
+  },
+  {
+   "file": "van_221_png.rf.a2854ce56aa4c060d52a43163ded32b3.jpg",
+   "box": [
+    609,
+    419,
+    691,
+    468
+   ],
+   "locator_score": 0.944,
+   "pass_a": "बा२१च/५३५३",
+   "pass_b": "बा२१च/५३५३",
+   "text": "बा२१च५३५३",
+   "lines": [
+    "बा२१च",
+    "५३५३"
+   ]
+  },
+  {
+   "file": "van_223_png.rf.c81e599bf9b165cc2605c0356f4fa163.jpg",
+   "box": [
+    388,
+    413,
+    499,
+    467
+   ],
+   "locator_score": 0.947,
+   "pass_a": "ग३च/३४१८",
+   "pass_b": "ग३च/३४१८",
+   "text": "ग३च३४१८",
+   "lines": [
+    "ग३च",
+    "३४१८"
+   ]
+  },
+  {
+   "file": "van_225_png.rf.1702d6b29bba2f4d81558e110d40bc36.jpg",
+   "box": [
+    703,
+    477,
+    796,
+    522
+   ],
+   "locator_score": 0.931,
+   "pass_a": "ग३च/५१८३",
+   "pass_b": "ग३च/५१८३",
+   "text": "ग३च५१८३",
+   "lines": [
+    "ग३च",
+    "५१८३"
+   ]
+  },
+  {
+   "file": "van_236_png.rf.b017722d856da4944c4fad03685d4032.jpg",
+   "box": [
+    259,
+    298,
+    334,
+    347
+   ],
+   "locator_score": 0.943,
+   "pass_a": "बा११च/८९२६",
+   "pass_b": "बा११च/८९२६",
+   "text": "बा११च८९२६",
+   "lines": [
+    "बा११च",
+    "८९२६"
+   ]
+  },
+  {
+   "file": "van_250_png.rf.7d72be22c5f49f3ff9340ef021340d3e.jpg",
+   "box": [
+    366,
+    276,
+    443,
+    316
+   ],
+   "locator_score": 0.95,
+   "pass_a": "ग२च/७१७८",
+   "pass_b": "ग२च/७१७८",
+   "text": "ग२च७१७८",
+   "lines": [
+    "ग२च",
+    "७१७८"
+   ]
+  },
+  {
+   "file": "van_287_png.rf.e15ee2209605a8d30ad1f55394763667.jpg",
+   "box": [
+    434,
+    302,
+    501,
+    343
+   ],
+   "locator_score": 0.946,
+   "pass_a": "बा१३च/४९०६",
+   "pass_b": "बा१३च/४९०६",
+   "text": "बा१३च४९०६",
+   "lines": [
+    "बा१३च",
+    "४९०६"
+   ]
+  },
+  {
+   "file": "van_288_png.rf.30984ac2e21241174b2ba9f4607e11e4.jpg",
+   "box": [
+    361,
+    338,
+    456,
+    380
+   ],
+   "locator_score": 0.942,
+   "pass_a": "ग३च/४४१३",
+   "pass_b": "ग३च/४४१३",
+   "text": "ग३च४४१३",
+   "lines": [
+    "ग३च",
+    "४४१३"
+   ]
+  },
+  {
+   "file": "van_300_png.rf.ed501f12225e177b0bf42c102be3c72c.jpg",
+   "box": [
+    556,
+    402,
+    627,
+    450
+   ],
+   "locator_score": 0.937,
+   "pass_a": "बा१२च/३३४५",
+   "pass_b": "बा१२च/३३४५",
+   "text": "बा१२च३३४५",
+   "lines": [
+    "बा१२च",
+    "३३४५"
+   ]
+  },
+  {
+   "file": "van_50_png.rf.a01a43ff53d57c0499e10dabb5b2c40e.jpg",
+   "box": [
+    603,
+    439,
+    688,
+    486
+   ],
+   "locator_score": 0.924,
+   "pass_a": "बागमतीप्रदेश०१/०२७च८६४३",
+   "pass_b": "बागमतीप्रदेश०१/०२७च८६४३",
+   "text": "बागमतीप्रदेश०१०२७च८६४३",
+   "lines": [
+    "बागमतीप्रदेश०१",
+    "०२७च८६४३"
+   ]
+  },
+  {
+   "file": "van_80_png.rf.0c8c2af502d77bf073bed6cb0a1666a0.jpg",
+   "box": [
+    391,
+    489,
+    513,
+    538
+   ],
+   "locator_score": 0.925,
+   "pass_a": "बागमतीप्रदेश०१/०२९च२६२५",
+   "pass_b": "बागमतीप्रदेश०१/०२९च२६२५",
+   "text": "बागमतीप्रदेश०१०२९च२६२५",
+   "lines": [
+    "बागमतीप्रदेश०१",
+    "०२९च२६२५"
+   ]
+  },
+  {
+   "file": "van_81_png.rf.776b19f0e9d79547583680c4f24ea831.jpg",
+   "box": [
+    279,
+    504,
+    379,
+    566
+   ],
+   "locator_score": 0.931,
+   "pass_a": "बा९च/८२११",
+   "pass_b": "बा९च/८२११",
+   "text": "बा९च८२११",
+   "lines": [
+    "बा९च",
+    "८२११"
+   ]
+  }
+ ]
+}

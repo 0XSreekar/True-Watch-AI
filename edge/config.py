@@ -98,6 +98,10 @@ class Config:
     )
     model_cache_dir: Path = field(default_factory=lambda: _path("MODEL_CACHE_DIR", "./models/cache"))
     yolo_img_size: int = field(default_factory=lambda: _int("YOLO_IMG_SIZE", 640))
+    # Tiled inference for small far-field people: off | strip | full (training/results/TILING_EVAL.md).
+    # off = one 640 px pass; full = 640 px native tiles over the whole frame plus the full frame (7 passes at
+    # 1080p); strip = the top 55% only (5 passes). Off by default: CPU cost is 5 to 12x.
+    detector_tiling: str = field(default_factory=lambda: _str("DETECTOR_TILING", "off").lower())
     onnx_provider: str = field(default_factory=lambda: _str("ONNX_PROVIDER", "CPUExecutionProvider"))
 
     # --- detection pipeline in the service loop (Phases 3-5) ---
@@ -203,6 +207,8 @@ class Config:
             raise ConfigError("CALIBRATION_WARMUP_SECONDS must be >= 0 and CALIBRATION_WARMUP_MIN_FRAMES >= 1")
         if self.detector_stride < 1:
             raise ConfigError(f"DETECTOR_STRIDE must be at least 1, got {self.detector_stride}")
+        if self.detector_tiling not in {"off", "strip", "full"}:
+            raise ConfigError(f"DETECTOR_TILING must be off, strip or full, got {self.detector_tiling!r}")
         if self.yolo_img_size < 32:
             raise ConfigError(f"YOLO_IMG_SIZE must be at least 32, got {self.yolo_img_size}")
         if self.is_production and not self.ingest_key:

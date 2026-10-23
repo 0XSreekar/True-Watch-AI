@@ -1,0 +1,112 @@
+{
+ "baseline_tuning_half": {
+  "day": {
+   "n_gt": 27977,
+   "ap50": 0.5899731389078748,
+   "precision": 0.85345633609674,
+   "recall": 0.48940200879293705
+  },
+  "ir": {
+   "n_gt": 12674,
+   "ap50": 0.859535486823884,
+   "precision": 0.8765594798805131,
+   "recall": 0.7872021461259271
+  },
+  "day/daylight": {
+   "n_gt": 21278,
+   "ap50": 0.49760306849016744,
+   "precision": 0.8293908929627439,
+   "recall": 0.39547889839270606
+  }
+ },
+ "prec_drop": 0.05,
+ "ir_drop": 0.01,
+ "chosen": {
+  "g2x2": {
+   "best_unconstrained_ir": {
+    "layout": "g2x2",
+    "tile_conf": 0.02,
+    "merge_iou": 0.4,
+    "trunc_ioa": 0.5,
+    "day_ap50": 0.6821234889096888,
+    "day_precision": 0.8136539287247746,
+    "day_recall": 0.6096078921971619,
+    "daylight_ap50": 0.6321974014442265,
+    "ir_ap50": 0.8486476861274398,
+    "ir_ok": false
+   },
+   "selected": {
+    "layout": "g2x2",
+    "tile_conf": 0.2,
+    "merge_iou": 0.4,
+    "trunc_ioa": 0.5,
+    "day_ap50": 0.6614810853333108,
+    "day_precision": 0.8121518022951288,
+    "day_recall": 0.6096436358437288,
+    "daylight_ap50": 0.6061293040891562,
+    "ir_ap50": 0.8499136821681327,
+    "ir_ok": true
+   },
+   "note": null
+  },
+  "g3x2": {
+   "best_unconstrained_ir": null,
+   "selected": null,
+   "note": "no candidate keeps IR within the allowed drop when IR is tiled too"
+  },
+  "n640": {
+   "best_unconstrained_ir": {
+    "layout": "n640",
+    "tile_conf": 0.02,
+    "merge_iou": 0.5,
+    "trunc_ioa": 0.5,
+    "day_ap50": 0.6991209590884526,
+    "day_precision": 0.8197237361398233,
+    "day_recall": 0.6236194016513564,
+    "daylight_ap50": 0.6460763169739294,
+    "ir_ap50": 0.8624106516507591,
+    "ir_ok": true
+   },
+   "selected": {
+    "layout": "n640",
+    "tile_conf": 0.02,
+    "merge_iou": 0.5,
+    "trunc_ioa": 0.5,
+    "day_ap50": 0.6991209590884526,
+    "day_precision": 0.8197237361398233,
+    "day_recall": 0.6236194016513564,
+    "daylight_ap50": 0.6460763169739294,
+    "ir_ap50": 0.8624106516507591,
+    "ir_ok": true
+   },
+   "note": null
+  },
+  "strip": {
+   "best_unconstrained_ir": {
+    "layout": "strip",
+    "tile_conf": 0.02,
+    "merge_iou": 0.5,
+    "trunc_ioa": 0.5,
+    "day_ap50": 0.6676974705619043,
+    "day_precision": 0.8084991931145777,
+    "day_recall": 0.5909497086892804,
+    "daylight_ap50": 0.6163651914130676,
+    "ir_ap50": 0.8553446366185515,
+    "ir_ok": true
+   },
+   "selected": {
+    "layout": "strip",
+    "tile_conf": 0.02,
+    "merge_iou": 0.5,
+    "trunc_ioa": 0.5,
+    "day_ap50": 0.6676974705619043,
+    "day_precision": 0.8084991931145777,
+    "day_recall": 0.5909497086892804,
+    "daylight_ap50": 0.6163651914130676,
+    "ir_ap50": 0.8553446366185515,
+    "ir_ok": true
+   },
+   "note": null
+  }
+ }
+}
