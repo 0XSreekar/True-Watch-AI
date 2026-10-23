@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.harness import RunResult, poisson_interval, quiet_reason_logs, real_appearance, run_recording, wilson_interval
-from tools.measure_fence_misses import TARGET_MISS_RATE, match
+from tools.measure_fence_misses import TARGET_MISS_RATE
 from tools.meva_data import FPS, ground_point, load_clip
 
 FENCES = Path(__file__).with_name("meva_fences.json")
