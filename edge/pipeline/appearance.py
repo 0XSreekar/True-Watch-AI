@@ -181,11 +181,10 @@ class AppearanceChannel:
     def _infer(self, crops: list[np.ndarray]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """Letterbox + run + decode each crop. Returns per crop (boxes xyxy in crop px, scores, schema ids)."""
         prepared = [letterbox(c, self.imgsz) for c in crops]
-        if self.dynamic_batch:
-            outs = [self.session.run(None, {self.input_name: to_blob([p[0] for p in prepared])})[0]]
-            preds = list(outs[0])
-        else:
-            preds = [self.session.run(None, {self.input_name: to_blob([p[0]])})[0][0] for p in prepared]
+        # One crop per call, even when the graph accepts a batch: on CPU onnxruntime a batch of 4 640x640
+        # inputs costs about 2.5x the same four calls made one after another (measured on the M-series Mac,
+        # training/results/TILING_EVAL.md), so tiles run sequentially.
+        preds = [self.session.run(None, {self.input_name: to_blob([p[0]])})[0][0] for p in prepared]
         results = []
         for (_, r, (px, py)), pred in zip(prepared, preds):
             results.append(self._decode(pred, r, px, py))
