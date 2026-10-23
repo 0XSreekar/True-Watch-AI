@@ -1,10 +1,10 @@
 {
   "schema": "truewatch.plate_locator_model.v1",
-  "published": false,
+  "published": true,
   "repo_id": "sreekar12/truewatch-plate-locator",
-  "revision": "UNPUBLISHED",
+  "revision": "848d76b6f3d974e0735c11b45fdd8ea0a345e637",
   "file": "plate_locator.onnx",
-  "resolve_url": "https://huggingface.co/sreekar12/truewatch-plate-locator/resolve/UNPUBLISHED/plate_locator.onnx",
+  "resolve_url": "https://huggingface.co/sreekar12/truewatch-plate-locator/resolve/848d76b6f3d974e0735c11b45fdd8ea0a345e637/plate_locator.onnx",
   "sha256": "95dd8cf9d164bbffddbd57bc6131acbf29e51e8a1e0abc08e24f9d2be3b7cfdb",
   "version": "0.2.0",
   "status": "prototype"
