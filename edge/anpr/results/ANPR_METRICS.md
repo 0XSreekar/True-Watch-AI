@@ -282,7 +282,7 @@ images. A single-class YOLO11n plate detector (training script `training/plate_l
 80 epochs, imgsz 640, about 1.2 GPU hours) is exported to ONNX and run with onnxruntime
 (`anpr/plate_locator.py`); the classical finder remains the fallback. All numbers are REAL photographs
 (no synthetic data in either table). Weights are not committed; the pinned manifest is
-`results/plate_locator_model.json` (sha256 `4f3a0dc2...499ee`, still marked unpublished).
+`results/plate_locator_model.json` (sha256 `4f3a0dc2...499ee`; version 0.1.0, never published, superseded by 0.2.0 in section 3.4).
 
 ### 3.1 Locating the plate, held-out test split of the plate-box dataset (never trained on)
 
@@ -410,7 +410,7 @@ Reading the table honestly:
 
 ONNX parity (onnxruntime against the PyTorch checkpoint, 8 test images): max absolute difference over the whole output
 1.7e-3 (box rows, pixel units), 3.6e-6 on the score row. File `plate_locator_v0.2.onnx`, sha256 `95dd8cf9d164bbffddbd57bc6131acbf29e51e8a1e0abc08e24f9d2be3b7cfdb`. Full report
-`plate_locator_release_eval_v0.2.json`. Not published; the manifest is marked unpublished.
+`plate_locator_release_eval_v0.2.json`. Published 2026-10-23 as Hugging Face `sreekar12/truewatch-plate-locator` revision `848d76b` (verified byte for byte); the manifest pins it.
 
 ## 4. Round G7: locator-cut real training crops (measured, not adopted)
 
