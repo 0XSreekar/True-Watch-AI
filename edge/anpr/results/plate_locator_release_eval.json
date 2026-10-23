@@ -1,0 +1,355 @@
+{
+  "iou_match": 0.5,
+  "threshold_sweep_val": [
+    {
+      "threshold": 0.05,
+      "plates": 775,
+      "tp": 761,
+      "fp": 188,
+      "recall": 0.9819,
+      "recall_ci95": [
+        0.9699,
+        0.9892
+      ],
+      "precision": 0.8019,
+      "precision_ci95": [
+        0.7753,
+        0.826
+      ],
+      "f1": 0.8828
+    },
+    {
+      "threshold": 0.1,
+      "plates": 775,
+      "tp": 758,
+      "fp": 144,
+      "recall": 0.9781,
+      "recall_ci95": [
+        0.9652,
+        0.9863
+      ],
+      "precision": 0.8404,
+      "precision_ci95": [
+        0.815,
+        0.8628
+      ],
+      "f1": 0.904
+    },
+    {
+      "threshold": 0.15,
+      "plates": 775,
+      "tp": 757,
+      "fp": 121,
+      "recall": 0.9768,
+      "recall_ci95": [
+        0.9636,
+        0.9853
+      ],
+      "precision": 0.8622,
+      "precision_ci95": [
+        0.8378,
+        0.8834
+      ],
+      "f1": 0.9159
+    },
+    {
+      "threshold": 0.2,
+      "plates": 775,
+      "tp": 755,
+      "fp": 104,
+      "recall": 0.9742,
+      "recall_ci95": [
+        0.9605,
+        0.9832
+      ],
+      "precision": 0.8789,
+      "precision_ci95": [
+        0.8554,
+        0.8991
+      ],
+      "f1": 0.9241
+    },
+    {
+      "threshold": 0.25,
+      "plates": 775,
+      "tp": 751,
+      "fp": 87,
+      "recall": 0.969,
+      "recall_ci95": [
+        0.9543,
+        0.9791
+      ],
+      "precision": 0.8962,
+      "precision_ci95": [
+        0.8737,
+        0.9151
+      ],
+      "f1": 0.9312
+    },
+    {
+      "threshold": 0.3,
+      "plates": 775,
+      "tp": 749,
+      "fp": 76,
+      "recall": 0.9665,
+      "recall_ci95": [
+        0.9513,
+        0.977
+      ],
+      "precision": 0.9079,
+      "precision_ci95": [
+        0.8862,
+        0.9258
+      ],
+      "f1": 0.9362
+    },
+    {
+      "threshold": 0.35,
+      "plates": 775,
+      "tp": 748,
+      "fp": 66,
+      "recall": 0.9652,
+      "recall_ci95": [
+        0.9498,
+        0.9759
+      ],
+      "precision": 0.9189,
+      "precision_ci95": [
+        0.8981,
+        0.9358
+      ],
+      "f1": 0.9415
+    },
+    {
+      "threshold": 0.4,
+      "plates": 775,
+      "tp": 746,
+      "fp": 57,
+      "recall": 0.9626,
+      "recall_ci95": [
+        0.9468,
+        0.9738
+      ],
+      "precision": 0.929,
+      "precision_ci95": [
+        0.9091,
+        0.9448
+      ],
+      "f1": 0.9455
+    },
+    {
+      "threshold": 0.5,
+      "plates": 775,
+      "tp": 740,
+      "fp": 46,
+      "recall": 0.9548,
+      "recall_ci95": [
+        0.9378,
+        0.9674
+      ],
+      "precision": 0.9415,
+      "precision_ci95": [
+        0.9228,
+        0.9558
+      ],
+      "f1": 0.9481
+    },
+    {
+      "threshold": 0.6,
+      "plates": 775,
+      "tp": 734,
+      "fp": 36,
+      "recall": 0.9471,
+      "recall_ci95": [
+        0.929,
+        0.9608
+      ],
+      "precision": 0.9532,
+      "precision_ci95": [
+        0.936,
+        0.966
+      ],
+      "f1": 0.9502
+    }
+  ],
+  "chosen_threshold": 0.6,
+  "test": {
+    "threshold": 0.6,
+    "plates": 683,
+    "tp": 653,
+    "fp": 23,
+    "recall": 0.9561,
+    "recall_ci95": [
+      0.938,
+      0.9691
+    ],
+    "precision": 0.966,
+    "precision_ci95": [
+      0.9495,
+      0.9772
+    ],
+    "f1": 0.961,
+    "images": 642,
+    "ap50": 0.9659
+  },
+  "test_at_0.25": {
+    "threshold": 0.25,
+    "plates": 683,
+    "tp": 664,
+    "fp": 53,
+    "recall": 0.9722,
+    "recall_ci95": [
+      0.957,
+      0.9821
+    ],
+    "precision": 0.9261,
+    "precision_ci95": [
+      0.9046,
+      0.943
+    ],
+    "f1": 0.9486
+  },
+  "stress_test": {
+    "night (gamma 2.5, dark)": {
+      "threshold": 0.6,
+      "plates": 683,
+      "tp": 599,
+      "fp": 13,
+      "recall": 0.877,
+      "recall_ci95": [
+        0.8503,
+        0.8996
+      ],
+      "precision": 0.9788,
+      "precision_ci95": [
+        0.964,
+        0.9875
+      ],
+      "f1": 0.9251
+    },
+    "motion/defocus blur (9 px)": {
+      "threshold": 0.6,
+      "plates": 683,
+      "tp": 604,
+      "fp": 17,
+      "recall": 0.8843,
+      "recall_ci95": [
+        0.8582,
+        0.9062
+      ],
+      "precision": 0.9726,
+      "precision_ci95": [
+        0.9566,
+        0.9828
+      ],
+      "f1": 0.9264
+    },
+    "half resolution": {
+      "threshold": 0.6,
+      "plates": 683,
+      "tp": 638,
+      "fp": 19,
+      "recall": 0.9341,
+      "recall_ci95": [
+        0.913,
+        0.9504
+      ],
+      "precision": 0.9711,
+      "precision_ci95": [
+        0.9553,
+        0.9814
+      ],
+      "f1": 0.9522
+    },
+    "quarter resolution (far range proxy)": {
+      "threshold": 0.6,
+      "plates": 683,
+      "tp": 581,
+      "fp": 15,
+      "recall": 0.8507,
+      "recall_ci95": [
+        0.822,
+        0.8754
+      ],
+      "precision": 0.9748,
+      "precision_ci95": [
+        0.9589,
+        0.9847
+      ],
+      "f1": 0.9085
+    },
+    "IR-like (grey, smoothed, equalised)": {
+      "threshold": 0.6,
+      "plates": 683,
+      "tp": 566,
+      "fp": 9,
+      "recall": 0.8287,
+      "recall_ci95": [
+        0.7986,
+        0.8551
+      ],
+      "precision": 0.9843,
+      "precision_ci95": [
+        0.9705,
+        0.9917
+      ],
+      "f1": 0.8998
+    },
+    "heavy JPEG (q=15)": {
+      "threshold": 0.6,
+      "plates": 683,
+      "tp": 625,
+      "fp": 18,
+      "recall": 0.9151,
+      "recall_ci95": [
+        0.8918,
+        0.9337
+      ],
+      "precision": 0.972,
+      "precision_ci95": [
+        0.9562,
+        0.9822
+      ],
+      "f1": 0.9427
+    },
+    "sensor noise (sigma 20)": {
+      "threshold": 0.6,
+      "plates": 683,
+      "tp": 444,
+      "fp": 8,
+      "recall": 0.6501,
+      "recall_ci95": [
+        0.6136,
+        0.6849
+      ],
+      "precision": 0.9823,
+      "precision_ci95": [
+        0.9655,
+        0.991
+      ],
+      "f1": 0.7824
+    }
+  },
+  "negatives": {
+    "images": 300,
+    "false_detections": 0,
+    "images_with_any": 0,
+    "images_with_any_ci95": [
+      0.0,
+      0.0126
+    ],
+    "per_image": 0.0
+  },
+  "negatives_at_0.25": {
+    "images": 300,
+    "sources": "60 each: FLIR day, FLIR IR, IDD day, LLVIP day, LLVIP IR val images with no vehicle labelled",
+    "false_boxes": 14,
+    "images_with_any": 14,
+    "accepted_as_plate_by_grammar": 3,
+    "note": "of the 3 grammar-accepted readings, 1 is a real plate on a car the dataset did not label (BZ2785), 2 are phantom readings (a stop sign, an IR scene); 7 of the 14 boxes are whole-frame boxes on night or IR scenes"
+  },
+  "operating_threshold": {
+    "value": 0.25,
+    "reason": "recall-first: a missed plate cannot be read later, a false box is checked by the plate grammar; 0.60 is the F1-optimal point on val and is reported for comparison"
+  }
+}
