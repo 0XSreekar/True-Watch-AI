@@ -1,0 +1,111 @@
+{
+ "round": "G8",
+ "adopted": false,
+ "kernel": "sreekar1206/truewatch-ocr-gpu8a",
+ "g6": {
+  "strict_crops": {
+   "n": 57,
+   "exact": 0.5263,
+   "cer": 0.2618
+  },
+  "extended_crops": {
+   "n": 147,
+   "exact": 0.3878,
+   "cer": 0.304
+  },
+  "rf_clean_crops": {
+   "n": 114,
+   "exact": 0.7281,
+   "cer": 0.1052
+  },
+  "syn_original_crops": {
+   "n": 2076,
+   "exact": 0.8801,
+   "cer": 0.0517
+  },
+  "syn_oneline_crops": {
+   "n": 993,
+   "exact": 0.6103,
+   "cer": 0.1521
+  },
+  "syn_province_crops": {
+   "n": 795,
+   "exact": 0.4038,
+   "cer": 0.2227
+  },
+  "strict_e2e": {
+   "n": 57,
+   "exact": 32,
+   "found": 57
+  },
+  "extended_e2e": {
+   "n": 147,
+   "exact": 62,
+   "found": 147
+  }
+ },
+ "g8": {
+  "strict_crops": {
+   "n": 57,
+   "exact": 0.4912,
+   "cer": 0.2626
+  },
+  "extended_crops": {
+   "n": 147,
+   "exact": 0.3401,
+   "cer": 0.3268
+  },
+  "rf_clean_crops": {
+   "n": 114,
+   "exact": 0.7982,
+   "cer": 0.0737
+  },
+  "syn_original_crops": {
+   "n": 2076,
+   "exact": 0.8733,
+   "cer": 0.0555
+  },
+  "syn_oneline_crops": {
+   "n": 993,
+   "exact": 0.6002,
+   "cer": 0.1615
+  },
+  "syn_province_crops": {
+   "n": 795,
+   "exact": 0.3975,
+   "cer": 0.221
+  },
+  "strict_e2e": {
+   "n": 57,
+   "exact": 31,
+   "found": 57
+  },
+  "extended_e2e": {
+   "n": 147,
+   "exact": 61,
+   "found": 147
+  }
+ },
+ "e2e_locator_v0.1": {
+  "g6": {
+   "strict": {
+    "n": 57,
+    "exact": 31
+   },
+   "extended": {
+    "n": 147,
+    "exact": 63
+   }
+  },
+  "g8": {
+   "strict": {
+    "n": 57,
+    "exact": 30
+   },
+   "extended": {
+    "n": 147,
+    "exact": 63
+   }
+  }
+ }
+}
