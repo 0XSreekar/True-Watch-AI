@@ -92,6 +92,8 @@ class RunResult:
 
 
 def _kind(event: dict) -> str:
+    if event.get("kind") == "observation":
+        return "observation"          # fusion-only, kept local under ALERT_POLICY=rules (never an alert)
     if (event.get("rule") or {}).get("fired"):
         return "rule"
     return "anpr" if event.get("anpr") else "detection"

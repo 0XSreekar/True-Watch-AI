@@ -117,6 +117,7 @@ class PipelineState:
             "last_error": self.last_error,
             "detection": self.service.stats.to_dict() if self.service is not None else None,
             "events_emitted": self.sink.total if self.sink is not None else 0,
+            "observations": self.sink.observations if self.sink is not None else 0,
             "reason_patches": self.sink.patches if self.sink is not None else 0,
             "delivery": self.sink.delivery.stats.to_dict() if self.sink is not None and self.sink.delivery else None,
             "explain": self.explainer.stats() if self.explainer is not None else None,
@@ -170,6 +171,7 @@ def build_service(cfg, detector, sink, explainer=None, keyframes=None, evidence=
         camera_name=cfg.camera_name,
         camera_sector=cfg.camera_sector,
         sealer=_sealer(cfg, evidence),
+        alert_policy=cfg.alert_policy,
     )
 
 
@@ -313,10 +315,12 @@ def pipeline_status() -> dict:
 def pipeline_events(limit: int = 50) -> dict:
     """The most recent truewatch.event.v1 payloads this instance emitted, oldest first.
 
-    Delivery to the backend's ingest route is Phase 8; this is the same payload it will carry.
+    Under ALERT_POLICY=rules the list mixes operator alerts (delivered to the backend) with local track
+    observations, which carry "kind": "observation" and are never delivered. `total` counts alerts only.
     """
     events = state.sink.recent(limit) if state.sink is not None else []
-    return {"count": len(events), "total": state.sink.total if state.sink is not None else 0, "events": events}
+    return {"count": len(events), "total": state.sink.total if state.sink is not None else 0,
+            "observations": state.sink.observations if state.sink is not None else 0, "events": events}
 
 
 class FeedbackRequest(BaseModel):

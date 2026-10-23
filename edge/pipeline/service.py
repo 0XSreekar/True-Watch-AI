@@ -5,6 +5,16 @@ clip for inspection; this module drives it from the service's ingest loop and tu
 on into `truewatch.event.v1` payloads (pipeline/events.py). Only fusion-agreed tracks ever produce an
 event: the contract sends no `agreed: false` events.
 
+Alert policy (ALERT_POLICY, default 'rules'): dual-channel agreement is necessary but not sufficient for an
+operator alert. An event becomes an ALERT (delivered to the backend, given a reason, sealed as evidence)
+only when at least one rule has fired on its track: a rule event, or a fusion / plate event on a track whose
+`rules_fired` is not empty. A fusion-only event ("both channels agree someone is here") is an OBSERVATION:
+it stays local (`EventSink.observe`: the in-memory ring behind GET /pipeline/events and the JSON Lines log,
+marked "kind": "observation"), is still indexed for footage search, and is never delivered, explained or
+sealed. If a rule later fires on that track, the rule event is the alert and is sealed at that moment (the
+clip ring already holds the preceding seconds). The legacy policy 'all' alerts on every fusion event; it is
+kept for comparison only and is not recommended (on MEVA it gave about 5,000 alerts per camera per day).
+
 Rules (edge/rules/) are evaluated on EVERY frame, on the current snapshot of every track fusion has
 agreed on at least once, so a fence crossed, a dwell reached or a wrong-way heading seen frames after the
 fusion event is still caught ("rules run on fused events, never raw detections", ARCHITECTURE_V2
@@ -51,6 +61,9 @@ BASELINE_EVERY_FRAMES = 100        # re-learn the direction baseline this often
 BASELINE_MIN_TRACKS = 5            # ... once at least this many confirmed tracks have been seen
 BASELINE_MAX_TRACKS = 500          # most recent tracks kept for learning
 
+ALERT_POLICIES = ("rules", "all")  # 'rules' (default): only rule firings alert; 'all': legacy, every fusion event
+OBSERVATION = "observation"        # local `kind` marker on a fusion-only event under the 'rules' policy
+
 log = logging.getLogger("truewatch.edge.service")
 
 
@@ -59,7 +72,8 @@ class ServiceStats:
     frames: int = 0
     detector_passes: int = 0
     fused_events: int = 0
-    events_emitted: int = 0
+    events_emitted: int = 0                                 # operator alerts (delivered when delivery is on)
+    observations: int = 0                                   # fusion-only events kept local (policy 'rules')
     camera_state_events: int = 0
     rule_evaluations: int = 0                               # frames on which the rule engine ran
     rule_fires: dict = field(default_factory=dict)          # rule name -> distinct (track, rule) firings
@@ -78,6 +92,7 @@ class ServiceStats:
             "detector_passes": self.detector_passes,
             "fused_events": self.fused_events,
             "events_emitted": self.events_emitted,
+            "observations": self.observations,
             "camera_state_events": self.camera_state_events,
             "rule_evaluations": self.rule_evaluations,
             "rule_fires": dict(self.rule_fires),
@@ -119,7 +134,11 @@ class CameraService:
         camera_name: str = "",
         camera_sector: str = "",
         sealer=None,
+        alert_policy: str = "rules",
     ) -> None:
+        if alert_policy not in ALERT_POLICIES:
+            raise ValueError(f"alert_policy must be one of {ALERT_POLICIES}, got {alert_policy!r}")
+        self.alert_policy = alert_policy
         kwargs = dict(camera_id=camera_id, stride=max(1, int(stride)), calibration_dir=Path(calibration_dir),
                       source=source)
         if warmup_frames is not None:
@@ -159,6 +178,23 @@ class CameraService:
         self.fired_rules: dict[int, list] = {}              # track_id -> rules.engine.FiredRule objects
         self.sealer = sealer                                # pipeline.sealing.ClipSealer or None
         self._dismissals: list[tuple[RuleTrack, str]] = []  # operator dismissals, re-applied after a relearn
+        self._warn_if_unalertable()
+
+    def _warn_if_unalertable(self) -> None:
+        """Under the 'rules' policy a camera with no rule configuration can never raise an alert: say so loudly."""
+        if self.alert_policy != "rules":
+            log.warning("camera %s: ALERT_POLICY=all (legacy): every fusion event is an operator alert; this is "
+                        "not recommended (it alerts on every person or vehicle in view)", self.camera_id)
+            return
+        cfg = self.rule_config()
+        if cfg is None:
+            log.warning("camera %s: NO RULE CONFIGURATION. With ALERT_POLICY=rules this camera can never raise an "
+                        "operator alert; detections stay local observations. Add %s.json (fence lines, sanctioned "
+                        "hours, thresholds; see edge/rules/examples/RXL-01.json) to RULES_CONFIG_DIR.",
+                        self.camera_id, self.camera_id)
+        elif not cfg.fences and cfg.hours is None:
+            log.warning("camera %s: rule configuration has no fence and no sanctioned hours; only loitering, "
+                        "wrong direction and grouping can raise an alert", self.camera_id)
 
     def close(self) -> None:
         self.pipeline.close()   # the explainer outlives one run: its owner (app.py) closes it
@@ -306,11 +342,36 @@ class CameraService:
         self._explain_ctx[event["event_id"]] = (tuple(fired), captured_at)
         return event
 
+    def is_alert(self, event: dict) -> bool:
+        """Policy 'rules': an event is an operator alert only if a rule has fired on its track."""
+        if self.alert_policy == "all":
+            return True
+        return bool((event.get("rule") or {}).get("fired"))
+
+    def observe_all(self, events: list[dict], f: Frame) -> None:
+        """Fusion-only events under policy 'rules': kept locally and indexed for search; no delivery, no
+        reason request, no seal."""
+        for event in events:
+            self._explain_ctx.pop(event["event_id"], None)
+            event["kind"] = OBSERVATION     # local marker only: an observation never reaches the backend
+            self.sink.observe(event)
+        self.stats.observations += len(events)
+        if self.keyframes is not None:
+            for event in events:
+                self.keyframes.submit(event, f.image)
+
     def emit_all(self, events: list[dict], f: Frame) -> None:
-        """Give every event its reason, emit it, THEN queue the model. The order is the contract: the event
-        is on its way at stage 'provisional' with the rule sentence before the model is even asked."""
+        """Give every alert its reason, emit it, THEN queue the model. The order is the contract: the event
+        is on its way at stage 'provisional' with the rule sentence before the model is even asked.
+        Events that are not alerts under the policy are handed to `observe_all` instead."""
         if not events:
             return
+        observations = [e for e in events if not self.is_alert(e)]
+        if observations:
+            self.observe_all(observations, f)
+            events = [e for e in events if self.is_alert(e)]
+            if not events:
+                return
         camera = self.camera_context()
         pending = []
         for event in events:
