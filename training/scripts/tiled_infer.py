@@ -128,16 +128,18 @@ def main(argv=None) -> int:
             del imgs
             tg = time.time()
             with P.no_nms_time_limit():
-                results = model.predict(source=[j[2] for j in jobs], imgsz=640, conf=WINDOW_FLOOR, iou=1.0,
-                                        max_det=P.RAW_MAX_DET, batch=a.batch, verbose=False, device=a.device, stream=True)
-                for (img_idx, win, _), r in zip(jobs, results):
-                    b = r.boxes.xyxy.cpu().numpy().astype(np.float32)
-                    cf = r.boxes.conf.cpu().numpy().astype(np.float32)
-                    cl = r.boxes.cls.cpu().numpy().astype(np.int16)
-                    b, cf, cl = reduce_pass(b, cf, cl)
-                    b[:, [0, 2]] += win[0]
-                    b[:, [1, 3]] += win[1]
-                    records.append((img_idx, win, b, cf, cl))
+                for j0 in range(0, len(jobs), a.batch):   # a list of arrays is ONE batch to Ultralytics: chunk it here
+                    sub = jobs[j0:j0 + a.batch]
+                    results = model.predict(source=[j[2] for j in sub], imgsz=640, conf=WINDOW_FLOOR, iou=1.0,
+                                            max_det=P.RAW_MAX_DET, verbose=False, device=a.device)
+                    for (img_idx, win, _), r in zip(sub, results):
+                        b = r.boxes.xyxy.cpu().numpy().astype(np.float32)
+                        cf = r.boxes.conf.cpu().numpy().astype(np.float32)
+                        cl = r.boxes.cls.cpu().numpy().astype(np.int16)
+                        b, cf, cl = reduce_pass(b, cf, cl)
+                        b[:, [0, 2]] += win[0]
+                        b[:, [1, 3]] += win[1]
+                        records.append((img_idx, win, b, cf, cl))
             gpu_s += time.time() - tg
             n_pass["window"] += len(jobs)
             del jobs
