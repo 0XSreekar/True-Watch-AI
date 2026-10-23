@@ -74,9 +74,12 @@ def manifest(root: Path) -> list[dict]:
     return json.loads((root / "manifest.json").read_text())["clips"]
 
 
+RESULTS: Path | None = None       # --results: keep one run's per-clip outputs apart from another's
+
+
 def results_dir(root: Path) -> Path:
-    d = root / "results"
-    d.mkdir(exist_ok=True)
+    d = RESULTS or root / "results"
+    d.mkdir(parents=True, exist_ok=True)
     return d
 
 
@@ -243,7 +246,7 @@ def cmd_report(root: Path, tolerance: float, radius: float, margin: float, out_j
            "annotated_empty_footage": {k: ef[k] for k in ("alerts", "alerts_by_kind", "cameras", "footage_hours", "alertable_camera_hours",
                                                            "alerts_per_camera_per_24h", "ci95_per_camera_per_24h")},
            "margin_s": margin, "per_clip": per_clip}
-    (root / "results" / "all_events.json").write_text(json.dumps(all_events))
+    (results_dir(root) / "all_events.json").write_text(json.dumps(all_events))
     if out_json:
         out_json.parent.mkdir(parents=True, exist_ok=True)
         out_json.write_text(json.dumps(out, indent=1))
@@ -260,7 +263,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--target-fps", type=float, default=None)
     ap.add_argument("--stride", type=int, default=None)
     ap.add_argument("--json", type=Path, default=None)
+    ap.add_argument("--results", type=Path, default=None, help="per-clip output directory (default ROOT/results)")
     a = ap.parse_args(argv)
+    global RESULTS
+    RESULTS = a.results
     quiet_reason_logs()
     if a.cmd == "gt":
         cmd_gt(a.root)
