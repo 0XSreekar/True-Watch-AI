@@ -10,7 +10,7 @@ tags:
 - nepal
 ---
 
-# TRUEWATCH plate locator — version 0.1.0 (prototype)
+# TRUEWATCH plate locator — version 0.2.0 (prototype)
 
 A single-class detector that finds vehicle licence plates in a photo or a vehicle crop, so that a separate
 recogniser can read them. It is the plate-finding step of the number-plate reader in the TRUEWATCH border-post
@@ -53,6 +53,21 @@ plate cannot be read later, a false box is checked by the recogniser's plate gra
 Stress on the held-out test images (threshold 0.60): recall 87.7% darkened, 88.4% blurred, 93.4% at half resolution,
 85.1% at quarter resolution, 82.9% IR-like, 91.5% heavy JPEG, 65.0% strong sensor noise; precision >= 97% in every case.
 
+## Version 0.2.0 changes
+
+Fine-tuned from 0.1.0 for low light, near-IR style grey night images, sensor noise and small far plates, using
+photometric copies of the training images, small-plate copies, pseudo-labelled street photos and plate-free
+negatives. Held-out test recall at 0.60: 95.9% (0.1.0: 95.6%). Stress recall at 0.60, 0.1.0 to 0.2.0: night
+87.7 to 95.0%, noise 65.0 to 91.2%, quarter resolution 85.1 to 89.6%, IR-like 82.9 to 87.0%, blur 88.4 to 93.7%.
+New-source photos (48, by eye): 52 found / 5 missed against 29 / 15, but other photos of that source were used for
+training, so it is no longer a fully independent test. On plate-free scenes the raw false-box count at 0.25 rose
+(14 to 35), mostly real plates on night cars the labels missed; boxes that are not plates fell from 11 to 4.
+Details: `ANPR_METRICS.md` section 3.4. File sha256 `95dd8cf9d164bbffddbd57bc6131acbf29e51e8a1e0abc08e24f9d2be3b7cfdb`. The evaluation tables above and the limitations
+below are the 0.1.0 measurements.
+
+**Physics limit.** Thermal (LWIR) cameras cannot show plate characters. The target conditions are near-IR with an
+illuminator, and low light.
+
 ## Limitations
 
 - **The in-domain figure overstates real-world performance.** On photos from a camera source it never saw, recall
@@ -83,7 +98,7 @@ Plate boxes from:
 
 Near-duplicates were removed and splits were made by source group so the same vehicle never sits in two splits. The
 new-source check uses `vehicleannotating/nepali-vehicle-annotation` (Roboflow Universe, CC BY 4.0), which was not
-used in training. Trained on a free Kaggle T4: YOLO11n, 80 epochs, image size 640.
+used in training. 0.1.0: free Kaggle T4, YOLO11n, 80 epochs, image size 640. 0.2.0: 30 more epochs on a Mac (MPS), with the street photos of the new-source set (except the 48 review photos) pseudo-labelled and added.
 
 ## Licence
 

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Release evaluation of the ONNX plate locator: the evidence its model card cites.
 
-Four checks, each written to one JSON report:
+Five checks, each written to one JSON report:
   1. held-out test split   recall / precision / AP50 with Wilson 95% intervals, at the threshold
                             chosen on the VAL split (never on test)
   2. threshold choice       val-split sweep; the operating point maximises F1
   3. stress                 the same test images darkened, blurred, downscaled, IR-like, JPEG-damaged
                             and noisy; recall/precision per condition
   4. negatives              false detections per image on scenes that contain no vehicle at all
+  5. natural dark           test images with the lowest 15% mean luminance, no synthetic degradation
 Optionally (--ood-images) it draws its detections on photos from a source it was never trained on,
 as contact sheets for a visual check, because those photos carry no plate boxes.
 
@@ -206,13 +207,14 @@ def main() -> int:
     ap.add_argument("--ood-count", type=int, default=48)
     ap.add_argument("--sheets-dir", type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--threshold", type=float, help="fix the operating threshold instead of the val-F1 choice (for like-for-like comparison)")
     args = ap.parse_args()
 
     loc = PlateLocator(args.model, conf=min(SWEEP))     # keep low-score boxes; thresholds applied here
     val, test = load_split(args.data, "val"), load_split(args.data, "test")
     val_dets = detect_all(loc, val)
     sweep = [score(val, val_dets, t) for t in SWEEP]
-    chosen = max(sweep, key=lambda r: (r["f1"], r["threshold"]))["threshold"]
+    chosen = args.threshold or max(sweep, key=lambda r: (r["f1"], r["threshold"]))["threshold"]
     test_dets = detect_all(loc, test)
     report = {
         "iou_match": IOU_MATCH,
@@ -224,13 +226,23 @@ def main() -> int:
     }
     for name, fn in STRESS.items():
         report["stress_test"][name] = score(test, detect_all(loc, test, fn), chosen)
+    # natural-dark subset: the 15% of test images with the lowest mean luminance, no synthetic degradation
+    lum = [float(cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2GRAY).mean()) for p, _ in test]
+    cut = int(len(test) * 0.15)
+    idx = sorted(range(len(test)), key=lambda i: lum[i])[:cut]
+    dark_items, dark_dets = [test[i] for i in idx], [test_dets[i] for i in idx]
+    report["natural_dark_bottom15pct"] = {"images": cut, "max_mean_luminance": round(max(lum[i] for i in idx), 1),
+                                          "at_chosen": score(dark_items, dark_dets, chosen),
+                                          "at_0.25": score(dark_items, dark_dets, 0.25)}
     if args.negatives:
         negs = sorted(p for p in args.negatives.rglob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png"))
-        counts = [sum(c >= chosen for _, c in loc.locate(cv2.imread(str(p)))) for p in negs]
-        report["negatives"] = {"images": len(negs), "false_detections": int(sum(counts)),
-                               "images_with_any": int(sum(c > 0 for c in counts)),
-                               "images_with_any_ci95": wilson(int(sum(c > 0 for c in counts)), len(negs)),
-                               "per_image": round(sum(counts) / max(len(negs), 1), 4)}
+        neg_dets = [loc.locate(cv2.imread(str(p))) for p in negs]
+        for key, thr in (("negatives", chosen), ("negatives_at_0.25", 0.25)):
+            counts = [sum(c >= thr for _, c in d) for d in neg_dets]
+            report[key] = {"threshold": thr, "images": len(negs), "false_detections": int(sum(counts)),
+                           "images_with_any": int(sum(c > 0 for c in counts)),
+                           "images_with_any_ci95": wilson(int(sum(c > 0 for c in counts)), len(negs)),
+                           "per_image": round(sum(counts) / max(len(negs), 1), 4)}
     if args.ood_images and args.sheets_dir:
         pool = sorted(p for p in args.ood_images.rglob("*.jpg"))
         random.Random(7).shuffle(pool)
@@ -244,6 +256,8 @@ def main() -> int:
         print(f"  {name:40s} recall {r['recall']:.3f} precision {r['precision']:.3f}")
     if "negatives" in report:
         print("negatives:", report["negatives"])
+        print("negatives@0.25:", report["negatives_at_0.25"])
+    print("natural dark:", report["natural_dark_bottom15pct"])
     return 0
 
 

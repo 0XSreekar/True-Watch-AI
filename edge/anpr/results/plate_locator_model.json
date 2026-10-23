@@ -5,7 +5,7 @@
   "revision": "UNPUBLISHED",
   "file": "plate_locator.onnx",
   "resolve_url": "https://huggingface.co/sreekar12/truewatch-plate-locator/resolve/UNPUBLISHED/plate_locator.onnx",
-  "sha256": "4f3a0dc2cc134a3224b011041401921cdbc5d59aa4bf463cf659dc407dd499ee",
-  "version": "0.1.0",
+  "sha256": "95dd8cf9d164bbffddbd57bc6131acbf29e51e8a1e0abc08e24f9d2be3b7cfdb",
+  "version": "0.2.0",
   "status": "prototype"
 }
