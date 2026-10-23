@@ -1,0 +1,180 @@
+{
+  "dataset": "<path>",
+  "failed": [],
+  "gates": [
+    {
+      "check": "no cross-split duplicates",
+      "detail": "6000 images hashed",
+      "id": "G1",
+      "observed": "0",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 pairs @ d<=4"
+    },
+    {
+      "check": "within-split near-duplicates",
+      "detail": "",
+      "id": "G2",
+      "observed": "0.0000%",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "< 0.5%"
+    },
+    {
+      "check": "no leaked sequences",
+      "detail": "",
+      "id": "G3",
+      "observed": "0",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 multi-split keys"
+    },
+    {
+      "check": "label values in [0,1]",
+      "detail": "",
+      "id": "G4",
+      "observed": "0",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 violations"
+    },
+    {
+      "check": "no zero-area box",
+      "detail": "",
+      "id": "G5",
+      "observed": "0",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 boxes"
+    },
+    {
+      "check": "class ids in schema",
+      "detail": "",
+      "id": "G6",
+      "observed": "0",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 out-of-schema"
+    },
+    {
+      "check": "image/label parity",
+      "detail": "",
+      "id": "G7",
+      "observed": "0 orphans, 0 unreadable, 122719 images/122719 records",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 orphans"
+    },
+    {
+      "check": "day/IR ratio per split",
+      "detail": "",
+      "id": "G8",
+      "observed": "train=0.683 val=0.630 test=0.624",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0.55-0.70 visible"
+    },
+    {
+      "check": "negative ratio in train",
+      "detail": "",
+      "id": "G9",
+      "observed": "0.0889 (7924/89103)",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0.08-0.12"
+    },
+    {
+      "check": "IR frames 3-channel, B=G=R",
+      "detail": "",
+      "id": "G10",
+      "observed": "0 of 500",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 failures"
+    },
+    {
+      "check": "class histogram, no dead class",
+      "detail": "documented exceptions: ['cart']",
+      "id": "G11",
+      "observed": "none starved",
+      "passed": true,
+      "result": "PASS",
+      "threshold": ">= 1% or documented"
+    },
+    {
+      "check": "small-object tail present",
+      "detail": "",
+      "id": "G12",
+      "observed": "36.23% of 669526",
+      "passed": true,
+      "result": "PASS",
+      "threshold": ">= 5% below 19 px"
+    },
+    {
+      "check": "far-field tiles present",
+      "detail": "",
+      "id": "G13",
+      "observed": "6000 tiles, 0 wrong size",
+      "passed": true,
+      "result": "PASS",
+      "threshold": ">= 2000, all 640x640"
+    },
+    {
+      "check": "split proportions (untiled)",
+      "detail": "",
+      "id": "G14",
+      "observed": "0.705/0.154/0.141",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "70/15/15 +/-3%"
+    },
+    {
+      "check": "hard set frozen and clean",
+      "detail": "",
+      "id": "G15",
+      "observed": "280 entries, 0 from test, 0 not in built val",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "280 val entries, 0 from test"
+    },
+    {
+      "check": "split determinism",
+      "detail": "",
+      "id": "G16",
+      "observed": "cd3617b9c60fe9cb",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "sha256 matches record"
+    },
+    {
+      "check": "plate corpus",
+      "detail": "",
+      "id": "G17",
+      "observed": "out of scope (--skip-plates)",
+      "passed": null,
+      "result": "SKIP",
+      "threshold": ">= 20000, labels match, 0 off-charset"
+    },
+    {
+      "check": "no data staged or tracked",
+      "detail": "",
+      "id": "G18",
+      "observed": "0 staged, 0 tracked",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "0 files"
+    },
+    {
+      "check": "manual 100-image spot check",
+      "detail": "write PASS or FAIL to <path>",
+      "id": "G19",
+      "observed": "PASS - 100 spot-check renders of the sev",
+      "passed": true,
+      "result": "PASS",
+      "threshold": "VERDICT.txt says PASS"
+    }
+  ],
+  "skipped": [
+    "G17"
+  ]
+}
