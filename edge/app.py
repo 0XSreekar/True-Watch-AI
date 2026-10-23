@@ -136,7 +136,11 @@ def build_service(cfg, detector, sink, explainer=None, keyframes=None, evidence=
     from anpr.stage import PlateStage
     from rules.config import ConfigStore
 
-    appearance = AppearanceChannel.from_detector(detector) if detector is not None else None
+    from pipeline.appearance import AppearanceConfig
+    from pipeline.tiling import preset as tiling_preset
+
+    appearance = (AppearanceChannel.from_detector(detector, AppearanceConfig(tiling=tiling_preset(cfg.detector_tiling)))
+                  if detector is not None else None)
     if appearance is None:
         log.warning("no detector loaded: the pipeline runs motion and camera state only, and fusion "
                     "cannot agree on anything, so no detection events will be emitted")

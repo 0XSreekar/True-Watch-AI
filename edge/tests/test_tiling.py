@@ -51,3 +51,15 @@ def test_per_scale_threshold_and_class_aware_nms():
     tile = _p((0, 0, 640, 640), [[300, 300, 340, 360]], [0.3], [0])
     b, s, c, t = merge_passes([full, tile], 1920, 1080, cfg, full_conf=0.1, iou=0.5)
     assert sorted(c.tolist()) == [0, 2] and not t.any()            # tile box is below its own floor; classes do not suppress
+
+
+def test_presets_and_config_switch():
+    import pytest
+    from config import Config, ConfigError
+    from pipeline.tiling import preset
+    assert not preset("off").enabled and preset("full").band == (0.0, 1.0) and preset("strip").band == (0.0, 0.55)
+    with pytest.raises(ValueError):
+        preset("everything")
+    assert Config().detector_tiling == "off"
+    with pytest.raises(ConfigError):
+        Config(detector_tiling="all").validate()

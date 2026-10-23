@@ -62,11 +62,13 @@ def load(cache: Path) -> list[dict]:
             })
     for shard in sorted(cache.glob("passes_*.npz")):
         z = np.load(shard)
-        off = np.concatenate(([0], np.cumsum(z["counts"])))
-        for k in range(len(z["img"])):
-            win = None if z["win"][k][0] < 0 else tuple(int(v) for v in z["win"][k])
+        img, wins, counts = z["img"], z["win"], z["counts"]
+        boxes, conf, cls = z["boxes"], z["conf"], z["cls"].astype(np.int64)   # npz members decompress on every access: once only
+        off = np.concatenate(([0], np.cumsum(counts)))
+        for k in range(len(img)):
+            win = None if wins[k][0] < 0 else tuple(int(v) for v in wins[k])
             s = slice(off[k], off[k + 1])
-            labels[int(z["img"][k])]["passes"][win] = (z["boxes"][s], z["conf"][s], z["cls"][s].astype(np.int64))
+            labels[int(img[k])]["passes"][win] = (boxes[s].copy(), conf[s].copy(), cls[s].copy())
     missing = [i for i, im in enumerate(labels) if None not in im["passes"]]
     if missing:
         raise SystemExit(f"{len(missing)} images have no full-frame pass in the cache (first: {missing[:3]})")
@@ -119,7 +121,7 @@ def ids_of(half: int | None) -> list[int]:
 
 
 def param_grid(layout):
-    for tile_conf, merge_iou, trunc in itertools.product((0.05, 0.1, 0.2, 0.3, 0.4), (0.5, 0.6, 0.7), (0.0, 0.5)):
+    for tile_conf, merge_iou, trunc in itertools.product((0.02, 0.05, 0.1, 0.2, 0.3), (0.4, 0.5, 0.6, 0.7), (0.0, 0.5)):
         yield TC.variant(layout, tile_conf=tile_conf, merge_iou=merge_iou, trunc_ioa=trunc)
 
 

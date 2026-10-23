@@ -167,4 +167,20 @@ def merge_passes(passes, width: int, height: int, cfg: TilingConfig, *, full_con
     return boxes[keep], scores[keep], classes[keep], from_win[keep]
 
 
-__all__ = ["TilingConfig", "nms", "class_nms", "tile_windows", "truncated_by_window", "merge_passes"]
+# Measured presets (training/results/TILING_EVAL.md). tile_conf 0.10 is the edge candidate floor (the detector
+# never decodes below it); the evaluator's optimum was 0.02, worth under 0.01 day person AP50.
+PRESETS: dict[str, TilingConfig] = {
+    "off": TilingConfig(),
+    "strip": TilingConfig(enabled=True, band=(0.0, 0.55), tile=640, overlap=0.2, tile_conf=0.10, merge_iou=0.5, trunc_ioa=0.5),
+    "full": TilingConfig(enabled=True, band=(0.0, 1.0), tile=640, overlap=0.0, tile_conf=0.10, merge_iou=0.5, trunc_ioa=0.5),
+}
+
+
+def preset(name: str) -> TilingConfig:
+    try:
+        return PRESETS[name.strip().lower()]
+    except KeyError:
+        raise ValueError(f"tiling must be one of {sorted(PRESETS)}, got {name!r}") from None
+
+
+__all__ = ["PRESETS", "preset", "TilingConfig","nms", "class_nms", "tile_windows", "truncated_by_window", "merge_passes"]
