@@ -51,6 +51,7 @@ from typing import Iterable, Sequence
 import cv2
 import numpy as np
 
+from pipeline.tiling import TilingConfig, class_nms, merge_passes, nms, tile_windows
 from pipeline.types import SCHEMA_CLASSES, Detection
 
 log = logging.getLogger("truewatch.edge.appearance")
@@ -73,16 +74,6 @@ LETTERBOX_FILL = 114
 
 class AppearanceError(RuntimeError):
     """The detector graph cannot be used as the appearance channel."""
-
-
-@dataclass(frozen=True)
-class TilingConfig:
-    """Far-field tiling for one camera. Fractions are of the original frame height."""
-
-    enabled: bool = False
-    band: tuple[float, float] = (0.0, 0.55)    # (top, bottom) of the far-field band
-    tile: int = 640                            # tile edge in ORIGINAL-frame pixels
-    overlap: float = 0.2
 
 
 @dataclass(frozen=True)
@@ -158,49 +149,6 @@ def to_blob(images: Sequence[np.ndarray]) -> np.ndarray:
     return np.ascontiguousarray(arr.transpose(0, 3, 1, 2), dtype=np.float32) / 255.0
 
 
-def nms(boxes: np.ndarray, scores: np.ndarray, iou: float) -> np.ndarray:
-    """Greedy NMS; indices kept, highest score first."""
-    if len(boxes) == 0:
-        return np.zeros(0, dtype=np.int64)
-    x1, y1, x2, y2 = boxes.T
-    areas = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
-    order = scores.argsort()[::-1]
-    keep = []
-    while order.size:
-        i = order[0]
-        keep.append(i)
-        rest = order[1:]
-        xx1 = np.maximum(x1[i], x1[rest]); yy1 = np.maximum(y1[i], y1[rest])
-        xx2 = np.minimum(x2[i], x2[rest]); yy2 = np.minimum(y2[i], y2[rest])
-        inter = np.maximum(0, xx2 - xx1) * np.maximum(0, yy2 - yy1)
-        ious = inter / np.maximum(areas[i] + areas[rest] - inter, 1e-9)
-        order = rest[ious <= iou]
-    return np.asarray(keep, dtype=np.int64)
-
-
-def class_nms(boxes: np.ndarray, scores: np.ndarray, classes: np.ndarray, iou: float, max_det: int) -> np.ndarray:
-    """Class-aware NMS by the coordinate-offset trick: boxes of different classes never overlap."""
-    if len(boxes) == 0:
-        return np.zeros(0, dtype=np.int64)
-    offset = classes[:, None].astype(np.float32) * (float(boxes.max()) + 1.0)
-    return nms(boxes + offset, scores, iou)[:max_det]
-
-
-def tile_windows(width: int, height: int, cfg: TilingConfig) -> list[tuple[int, int, int, int]]:
-    """Overlapping square windows (x1, y1, x2, y2) covering the far-field band."""
-    top = int(round(cfg.band[0] * height))
-    bottom = int(round(cfg.band[1] * height))
-    t = int(min(cfg.tile, width, max(bottom - top, 1)))
-    step = max(1, int(t * (1.0 - cfg.overlap)))
-    xs = list(range(0, max(width - t, 0) + 1, step))
-    if xs[-1] + t < width:
-        xs.append(width - t)
-    ys = list(range(top, max(bottom - t, top) + 1, step))
-    if ys[-1] + t < bottom:
-        ys.append(bottom - t)
-    return [(x, y, x + t, y + t) for y in ys for x in xs]
-
-
 class AppearanceChannel:
     """Run the detector on a frame and return schema-mapped `Detection`s in original-frame pixels."""
 
@@ -233,11 +181,10 @@ class AppearanceChannel:
     def _infer(self, crops: list[np.ndarray]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """Letterbox + run + decode each crop. Returns per crop (boxes xyxy in crop px, scores, schema ids)."""
         prepared = [letterbox(c, self.imgsz) for c in crops]
-        if self.dynamic_batch:
-            outs = [self.session.run(None, {self.input_name: to_blob([p[0] for p in prepared])})[0]]
-            preds = list(outs[0])
-        else:
-            preds = [self.session.run(None, {self.input_name: to_blob([p[0]])})[0][0] for p in prepared]
+        # One crop per call, even when the graph accepts a batch: on CPU onnxruntime a batch of 4 640x640
+        # inputs costs about 2.5x the same four calls made one after another (measured on the M-series Mac,
+        # training/results/TILING_EVAL.md), so tiles run sequentially.
+        preds = [self.session.run(None, {self.input_name: to_blob([p[0]])})[0][0] for p in prepared]
         results = []
         for (_, r, (px, py)), pred in zip(prepared, preds):
             results.append(self._decode(pred, r, px, py))
@@ -271,32 +218,25 @@ class AppearanceChannel:
             g = self._clahe.apply(image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
             image = cv2.merge([g, g, g])
         h, w = image.shape[:2]
-        crops, origins = [image], [(0, 0)]
+        crops, origins, windows = [image], [(0, 0)], [None]
         tiling = self.config.tiling
         if tiling.enabled:
-            for x1, y1, x2, y2 in tile_windows(w, h, tiling):
+            for win in tile_windows(w, h, tiling):
+                x1, y1, x2, y2 = win
                 crops.append(image[y1:y2, x1:x2])
                 origins.append((x1, y1))
-        all_boxes, all_scores, all_cls, all_tiled = [], [], [], []
-        for k, ((boxes, scores, cls), (ox, oy)) in enumerate(zip(self._infer(crops), origins)):
-            if len(boxes) == 0:
-                continue
+                windows.append(win)
+        passes = []
+        for (boxes, scores, cls), (ox, oy), win in zip(self._infer(crops), origins, windows):
             boxes = boxes.copy()
-            boxes[:, [0, 2]] += ox
-            boxes[:, [1, 3]] += oy
-            all_boxes.append(boxes); all_scores.append(scores); all_cls.append(cls)
-            all_tiled.append(np.full(len(boxes), k > 0))
-        if not all_boxes:
-            self.last_ms = (_time.perf_counter() - t0) * 1000
-            return []
-        boxes = np.concatenate(all_boxes); scores = np.concatenate(all_scores)
-        cls = np.concatenate(all_cls); tiled = np.concatenate(all_tiled)
-        np.clip(boxes[:, [0, 2]], 0, w, out=boxes[:, [0, 2]])
-        np.clip(boxes[:, [1, 3]], 0, h, out=boxes[:, [1, 3]])
-        valid = (boxes[:, 2] - boxes[:, 0] >= 2) & (boxes[:, 3] - boxes[:, 1] >= 2)
-        boxes, scores, cls, tiled = boxes[valid], scores[valid], cls[valid], tiled[valid]
-        keep = class_nms(boxes, scores, cls, self.config.iou, self.config.max_det)
+            if len(boxes):
+                boxes[:, [0, 2]] += ox
+                boxes[:, [1, 3]] += oy
+            passes.append((win, boxes, scores, cls))
+        boxes, scores, cls, tiled = merge_passes(passes, w, h, tiling, full_conf=self.config.conf,
+                                                 iou=self.config.iou, max_det=self.config.max_det)
         self.last_ms = (_time.perf_counter() - t0) * 1000
+        keep = range(len(boxes))
         return [
             Detection(bbox=tuple(float(v) for v in boxes[i]), class_name=self.schema[int(cls[i])],
                       score=float(scores[i]), camera_id=camera_id, frame_index=frame_index,
