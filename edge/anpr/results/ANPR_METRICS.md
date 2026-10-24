@@ -517,6 +517,46 @@ G8 weights were not exported to the backup folder or published.
 
 Summary: `results/eval_ocr_g8.json`.
 
+## 6. Round G9: hf parking-lot plates plus Roboflow character-box plates (measured, not adopted)
+
+**New labels.** (a) hf photographs (mukulboro/nepali-private-license-plates, CC BY 4.0): the 1,168 local photographs minus
+those in any test or earlier transcription selection leave 412 candidates; locator 0.2.0 located a plate in all 412, 233
+crops were 40 px or taller. Pass A read 70, pass B (different order and layout) agreed on 61 exactly, 4 disagreed, 5 failed
+the grammar (bare "बा.प्रदेश" header), 2 matched a test text (dropped): 59 kept (21 embossed Latin, not used here; 38
+Devanagari, 37 used after the locator-cut and wrong-plate guard). Both passes were by one transcriber who could recall
+pass A, so agreement is consistency, not independent verification (`data/hf_plates_g9.json`). (b) Roboflow character-box
+sets (YOLOv8 exports, CC BY 4.0): character boxes were mapped to Devanagari, sorted into lines, grammar-checked, cut with
+the locator box and `rectify.prepare_lines` (`scripts/build_g9_lines.py`, `data/roboflow_plates_g9.json`). nivkarki
+(150 images): 58 kept; crimson (47): 22 kept; xyz (842 images, mostly augmented copies of earlier sets): 0 kept (285
+matched an earlier training photo, 65 a test photo, 490 failed grammar or line grouping). The anpr-kkntv set has a single
+class and the Alish Manandhar set has no plate text, so neither was used.
+
+**Overlap proof.** Against all 529 test photographs: 0 kept images by file hash, 0 by 4-bit dHash (65 xyz images were
+dropped for it). Plate text equal to a test text: 0 kept (2 hf plates dropped). Earlier training photographs (7,812
+hashed): 285 images dropped, 0 kept.
+
+**Training.** Kaggle T4, kernel `sreekar1206/truewatch-ocr-gpu9` (about 0.63 GPU hours training, about 0.8 h session), from
+G6, 3 epochs, LR 1.5e-4. Mix: G6 replay (29,876 lines: every real set in full, 25% synthetic) plus 223 new lines
+repeated (hf x6, Roboflow x2, +2 for lines G6 misread): 960 lines, 30,836 total.
+
+| Set | n | G6 | G9 |
+|---|---|---|---|
+| Real, strict, crops | 57 | 52.6% / 0.262 | 42.1% / 0.346 |
+| Real, extended, crops | 147 | 38.8% / 0.304 | 34.0% / 0.364 |
+| Roboflow held-out (clean) | 114 | 72.8% / 0.105 | 76.3% / 0.071 |
+| **Real, strict, end to end** (locator 0.2.0) | 57 | 32 | 32 |
+| **Real, extended, end to end** (locator 0.2.0) | 147 | 62 | 58 |
+| Synthetic, original | 2,076 | 88.0% / 0.052 | 86.8% / 0.054 |
+| Synthetic, one-line | 993 | 61.0% / 0.152 | 59.8% / 0.156 |
+| Synthetic, province | 795 | 40.4% / 0.223 | 41.9% / 0.219 |
+
+G6 reproduces 32/57 and 62/147 end to end.
+
+**Verdict: G9 is NOT adopted.** It ties G6 on strict end to end and loses 4 plates on extended and about 10 points on
+strict crops, while gaining only on the Roboflow held-out plates (style of the new data). With about 220 new lines against
+about 30,000 replay lines the data is too small to move the independent hf test photographs. The 85% target remains NOT
+MET (best real end-to-end: 56.1% strict, 42.2% extended, G6 with locator 0.2.0). G9 weights are not exported.
+
 ## Running the measurement
 
 ```bash
