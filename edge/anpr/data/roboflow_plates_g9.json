@@ -1,0 +1,763 @@
+{
+ "schema": "truewatch.roboflow_char_box_plates.v1",
+ "licence": "CC BY 4.0",
+ "credit": "Roboflow Universe: nivkarki/nepali-number-plate-r1vin (v4), crimson-dhnwj/number-plate-detection-mp1ux (v1), xyz-lydy7/number-plate-det (v1); character boxes joined into line text by the TrueWatch ANPR work. File names and text only; no images.",
+ "per_set": {
+  "nivkarki": {
+   "images": 150,
+   "dropped_grammar": 59,
+   "dropped_line_count_mismatch": 16,
+   "kept": 58,
+   "dropped_augmented_or_duplicate_in_sets": 6,
+   "dropped_wrong_plate_suspected": 11
+  },
+  "crimson": {
+   "images": 47,
+   "kept": 22,
+   "dropped_grammar": 14,
+   "dropped_no_plate_located": 5,
+   "dropped_unmapped_class": 1,
+   "dropped_augmented_or_duplicate_in_sets": 3,
+   "dropped_wrong_plate_suspected": 2
+  },
+  "xyz": {
+   "images": 842,
+   "dropped_earlier_training_image_match": 285,
+   "dropped_test_image_match": 65,
+   "dropped_grammar": 490,
+   "dropped_augmented_or_duplicate_in_sets": 2
+  },
+  "hf_g9": {
+   "plates": 38,
+   "kept": 37,
+   "dropped_cut_or_guard": 1
+  }
+ },
+ "plates": [
+  {
+   "source": "nivkarki",
+   "file": "1_f320_b1_jpg.rf.0b1146f298bc8d61b0407c98d3cec833.jpg",
+   "text": "को१९प५९२९",
+   "lines": [
+    "को१९प",
+    "५९२९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f330_b1_jpg.rf.8c5743300a915c5701cd96d8400be324.jpg",
+   "text": "को१९प५९२९",
+   "lines": [
+    "को१९प",
+    "५९२९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f335_b1_jpg.rf.1ce6c8e3d46744ab195c1c2e1872910a.jpg",
+   "text": "को१९प५९२९",
+   "lines": [
+    "को१९प",
+    "५९२९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f545_b1_jpg.rf.12bde068b97bec487ddc353df05b1aa4.jpg",
+   "text": "को१५प२९७३",
+   "lines": [
+    "को१५प",
+    "२९७३"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f0_b0_jpg.rf.7942e1a2b6d66ff2a07224513de869bd.jpg",
+   "text": "को१९प८९२",
+   "lines": [
+    "को१९प",
+    "८९२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f10_b0_jpg.rf.fec1df1ee740ad23e2ea325482af1b1a.jpg",
+   "text": "को१९प८९२",
+   "lines": [
+    "को१९प",
+    "८९२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f145_b0_jpg.rf.4e03d7a9f3ba2019de8664961b6fc82a.jpg",
+   "text": "को३६प५७३",
+   "lines": [
+    "को३६प",
+    "५७३"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f15_b0_jpg.rf.864a521549a21fa9b18786d8d440750e.jpg",
+   "text": "को१९प८९२",
+   "lines": [
+    "को१९प",
+    "८९२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f180_b0_jpg.rf.64b13815f60e8c597188f648ead41741.jpg",
+   "text": "को३६प२५९३",
+   "lines": [
+    "को३६प२",
+    "५९३"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f185_b0_jpg.rf.0139ab2877fd0654ace3a325ec7bba29.jpg",
+   "text": "को३६प५९३२",
+   "lines": [
+    "को३६प",
+    "५९३२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f245_b0_jpg.rf.9b486514572efc1f80dec61093a929d5.jpg",
+   "text": "बागमतीप्रदेश०१०२६च०१८५",
+   "lines": [
+    "बागमतीप्रदेश",
+    "०१०२६च",
+    "०१८५"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f275_b0_jpg.rf.43965618a44db10f0f8d7455d9b9204c.jpg",
+   "text": "प्रदेश१०२५५९प७६७४",
+   "lines": [
+    "प्रदेश१०२",
+    "५५९प",
+    "७६७४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f285_b0_jpg.rf.4847b941690864d0ebbae3b4bc9b9dd5.jpg",
+   "text": "प्रदेश१०२०४९प७६७४",
+   "lines": [
+    "प्रदेश१०२",
+    "०४९प",
+    "७६७४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f295_b0_jpg.rf.ef986190b549b3b4fcf4a0681305998d.jpg",
+   "text": "को१९प९२९",
+   "lines": [
+    "को१९प",
+    "९२९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f300_b0_jpg.rf.c489f3b13e1f32cdf513c903546adba6.jpg",
+   "text": "को१९प९५९२",
+   "lines": [
+    "को१९प९",
+    "५९२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f310_b0_jpg.rf.4c2f0dc7e6f4a949a4e510c8dd5a9455.jpg",
+   "text": "को१९प५९२९",
+   "lines": [
+    "को१९प",
+    "५९२९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f315_b0_jpg.rf.7614b2544ca3e9e7fa904e7870c5e0a5.jpg",
+   "text": "को९९प५९२९",
+   "lines": [
+    "को९९प",
+    "५९२९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f320_b0_jpg.rf.4f5ac69f05d031b511e4d31dccc09b28.jpg",
+   "text": "को३७प४९२४",
+   "lines": [
+    "को३७प४",
+    "९२४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f325_b0_jpg.rf.bf0b2c29ca462401c5cb76b555efc5a8.jpg",
+   "text": "को३७प४९२४",
+   "lines": [
+    "को३७प४",
+    "९२४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f335_b0_jpg.rf.3a1837b116ad00f452f706871465c7d5.jpg",
+   "text": "को३७प९२४४",
+   "lines": [
+    "को३७प",
+    "९२४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f340_b0_jpg.rf.925a220189ac079e7a177e5aae50bde1.jpg",
+   "text": "को३७प९२४४",
+   "lines": [
+    "को३७प",
+    "९२४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f350_b0_jpg.rf.f79f1f73efd5c99296cefd7f7285d607.jpg",
+   "text": "को३७प९२४४",
+   "lines": [
+    "को३७प",
+    "९२४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f355_b0_jpg.rf.71bca4693146255e1c34897c5e82eaa6.jpg",
+   "text": "को३७प९२४४",
+   "lines": [
+    "को३७प",
+    "९२४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f415_b0_jpg.rf.6a47d521111127dc8df8e011d8a70bd1.jpg",
+   "text": "प्रदेश१०२०५४प८५४१",
+   "lines": [
+    "प्रदेश१",
+    "०२०५४प",
+    "८५४१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f425_b0_jpg.rf.71c949cd24283be2527233079baf70bb.jpg",
+   "text": "प्रदेश१०२०५४प८५४१",
+   "lines": [
+    "प्रदेश१",
+    "०२०५४प",
+    "८५४१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f435_b0_jpg.rf.e8e0ec362a2ba94b180d0679ae404918.jpg",
+   "text": "प्रदेश१०२०५४प८५४१",
+   "lines": [
+    "प्रदेश१",
+    "०२०५४प",
+    "८५४१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f440_b0_jpg.rf.bf25240f4e8f127ff10d4593e048116d.jpg",
+   "text": "प्रदेश१०२०५४प८५४१",
+   "lines": [
+    "प्रदेश१",
+    "०२०५४प",
+    "८५४१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f445_b0_jpg.rf.8ef7e432c2dca2173773ba19307b6818.jpg",
+   "text": "प्रदेश१०२०५४प८५४१",
+   "lines": [
+    "प्रदेश१",
+    "०२०५४प",
+    "८५४१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f450_b0_jpg.rf.cd0b4550ff7a8059ec329cdf7c1024b1.jpg",
+   "text": "को२६प१४५९",
+   "lines": [
+    "को२६प",
+    "१४५९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f455_b0_jpg.rf.f6a6a3d7bb2e096a2779f7f8d5418c0c.jpg",
+   "text": "को२६प१४५९",
+   "lines": [
+    "को२६प",
+    "१४५९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f475_b0_jpg.rf.9accc763a512cd43ca7bc54d1cd5a1c0.jpg",
+   "text": "को२६प१४५९",
+   "lines": [
+    "को२६प",
+    "१४५९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f480_b0_jpg.rf.2844e9423393414b2f4026529f858aad.jpg",
+   "text": "को२६प१४५९",
+   "lines": [
+    "को२६प",
+    "१४५९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f490_b0_jpg.rf.c2d5135471fde3337efa8a8d0a60f576.jpg",
+   "text": "को२६प१४५९",
+   "lines": [
+    "को२६प",
+    "१४५९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f495_b0_jpg.rf.a7083a0cdd29c85854c7385b587f2ccb.jpg",
+   "text": "को२६प१४५९",
+   "lines": [
+    "को२६प",
+    "१४५९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f500_b0_jpg.rf.80b35f581a996248f08fc0584e2ac236.jpg",
+   "text": "प्रदेश१०२००२च४७४०",
+   "lines": [
+    "प्रदेश१०२",
+    "००२च",
+    "४७४०"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f505_b0_jpg.rf.cf7db3f687f2c23c34f7f85b9d04aa8b.jpg",
+   "text": "प्रदेश१०२००२च४७४०",
+   "lines": [
+    "प्रदेश१०२",
+    "००२च",
+    "४७४०"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f50_b0_jpg.rf.3dd8ba0a51113fd9c63502b5f456126c.jpg",
+   "text": "प्रदेश१०२०५२प४५४२",
+   "lines": [
+    "प्रदेश१०२",
+    "०५२प",
+    "४५४२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f525_b0_jpg.rf.dac9c3c7ae6aa062cc8a6ad86a64faea.jpg",
+   "text": "प्रदेश१०१००२च४७४०",
+   "lines": [
+    "प्रदेश१०१",
+    "००२च",
+    "४७४०"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f545_b0_jpg.rf.1361bf85c64cd06ad5ed18b83356f7b0.jpg",
+   "text": "को७प७१४४",
+   "lines": [
+    "को७प",
+    "७१४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f560_b0_jpg.rf.c47b05ef2980e72f039be1591a2d2935.jpg",
+   "text": "को७४प४७१",
+   "lines": [
+    "को७४प४",
+    "७१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f590_b1_jpg.rf.3d0c13d2d3c3c8ca89105ff3e51c0fb4.jpg",
+   "text": "को२७प८८१५",
+   "lines": [
+    "को२७प८",
+    "८१५"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f600_b0_jpg.rf.f8b95b73ecfcf4f8472eadda383d3d98.jpg",
+   "text": "को१९प५६५२",
+   "lines": [
+    "को१९प५",
+    "६५२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f605_b0_jpg.rf.62e9cf057d5384b1dc1c7139a44196e4.jpg",
+   "text": "को१९प५६५२",
+   "lines": [
+    "को१९प५",
+    "६५२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f65_b0_jpg.rf.04f95cb6243c105507b5dee5d968279e.jpg",
+   "text": "प्रदेश१०२०५२प४९४२",
+   "lines": [
+    "प्रदेश१०२",
+    "०५२प",
+    "४९४२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f25_b0_jpg.rf.506c5e151c0a7cf2f432daad43a2a12f.jpg",
+   "text": "को१९प८९२",
+   "lines": [
+    "को१९प",
+    "८९२"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f270_b0_jpg.rf.236b5639f7e9ba7597b48499eb74ca2b.jpg",
+   "text": "प्रदेश१०२०४९प७६७४",
+   "lines": [
+    "प्रदेश१०२",
+    "०४९प",
+    "७६७४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f280_b0_jpg.rf.0f7f289772907ff6255a24ba3a2d39fb.jpg",
+   "text": "प्रदेश१०२०४४प७६७४",
+   "lines": [
+    "प्रदेश१०२",
+    "०४४प",
+    "७६७४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f325_b1_jpg.rf.7843b93cf4290804c308415568e3aa52.jpg",
+   "text": "को१९प५९२९",
+   "lines": [
+    "को१९प",
+    "५९२९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f345_b0_jpg.rf.e42f55cbc2465afb332344850f3183f0.jpg",
+   "text": "को३७प९२४४",
+   "lines": [
+    "को३७प",
+    "९२४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f420_b0_jpg.rf.ca62052670b925d35e6af1c7ab774c1e.jpg",
+   "text": "प्रदेश१०२०५४प८५४१",
+   "lines": [
+    "प्रदेश१",
+    "०२०५४प",
+    "८५४१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f430_b0_jpg.rf.95a06c06146a03376484b26cac0a87ca.jpg",
+   "text": "प्रदेश१०२०५४प८५४१",
+   "lines": [
+    "प्रदेश१",
+    "०२०५४प",
+    "८५४१"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f485_b0_jpg.rf.0e82302fbdbbdb731d4c6451e8a6f0a3.jpg",
+   "text": "को२६प१४५९",
+   "lines": [
+    "को२६प",
+    "१४५९"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f510_b0_jpg.rf.8919af7e66a2421dcc4a4c27ae5a0bf1.jpg",
+   "text": "प्रदेश१०२००२च४७४०",
+   "lines": [
+    "प्रदेश१०२",
+    "००२च",
+    "४७४०"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f540_b0_jpg.rf.5c7a47ee30dbe1a862b9007d1006dfa7.jpg",
+   "text": "को७प७१४४",
+   "lines": [
+    "को७प",
+    "७१४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f550_b1_jpg.rf.3a1263924c45af20ad6635eff24b020a.jpg",
+   "text": "को१५प२९७३",
+   "lines": [
+    "को१५प",
+    "२९७३"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f555_b0_jpg.rf.b625fdfbd29230691333f81fee49ce92.jpg",
+   "text": "को७प७१४४",
+   "lines": [
+    "को७प",
+    "७१४४"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f585_b1_jpg.rf.1595dd60887e0179af178fd1f50d6c85.jpg",
+   "text": "को२७प८८१५",
+   "lines": [
+    "को२७प८",
+    "८१५"
+   ]
+  },
+  {
+   "source": "nivkarki",
+   "file": "1_f5_b0_jpg.rf.492de2e5b9788f65e1c0d73e2042e872.jpg",
+   "text": "को१९प८९२",
+   "lines": [
+    "को१९प",
+    "८९२"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408111153_001_letterboxed_jpg.rf.f45f6e94ef6d622bb4f9a1b690ede7e0.jpg",
+   "text": "ना६ख२४७८",
+   "lines": [
+    "ना६ख२४७८"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408111113_001_letterboxed_jpg.rf.f96fcd988bf4f1d514f70fc26be0d088.jpg",
+   "text": "बागमतीप्रदेश०३००१ख२८११",
+   "lines": [
+    "बागमतीप्रदेश०३",
+    "००१ख२८११"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408113900_001_letterboxed_jpg.rf.1d428f51ee5fdbfac9ea4b654fc2c3ca.jpg",
+   "text": "ना७ख९४४५",
+   "lines": [
+    "ना७ख",
+    "९४४५"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408114611_0012_letterboxed_jpg.rf.b4f6c6ef222fd9d1a3a9bed2d33a913f.jpg",
+   "text": "लु२ख६५३३",
+   "lines": [
+    "लु२ख६५३३"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408114635_001_letterboxed_jpg.rf.13cc160561609f43a54d71051bc13bd6.jpg",
+   "text": "ना५ख७४८५",
+   "lines": [
+    "ना५ख७४८५"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408114732_001_letterboxed_jpg.rf.6396d1812a03a7ecb9b604ec3156df61.jpg",
+   "text": "रा१ख२५०४",
+   "lines": [
+    "रा१ख",
+    "२५०४"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408114802_001_letterboxed_jpg.rf.55a1eeb946f5a0c078da4ce808328eed.jpg",
+   "text": "ना७ख२५७",
+   "lines": [
+    "ना७ख२५७"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408120011_letterboxed_jpg.rf.c2dad296ce3b3df2e485c26f44f4da53.jpg",
+   "text": "बा१३च१८३९",
+   "lines": [
+    "बा१३च१८३९"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408120633_001_letterboxed_jpg.rf.4b0b9659d5c2913fb3889a72a39dc858.jpg",
+   "text": "बा६ख९१२१",
+   "lines": [
+    "बा६ख९१२१"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408120654_001_letterboxed_jpg.rf.0acffe81d5e6b29f200eae2fca8e9ac4.jpg",
+   "text": "ना७ख७३५१",
+   "lines": [
+    "ना७ख",
+    "७३५१"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408120853_001_letterboxed_jpg.rf.084fcce5734b91e48d4fea46d0da229a.jpg",
+   "text": "बा१३च८०८६",
+   "lines": [
+    "बा१३च८",
+    "०८६"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408121124_001_letterboxed_jpg.rf.4c9068de366926ca3e829e0dfac537f5.jpg",
+   "text": "बा२ग३२७०",
+   "lines": [
+    "बा२ग",
+    "३२७०"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408121405_001_letterboxed_jpg.rf.d21b31f770bc8e68941a53be6a5e94d3.jpg",
+   "text": "ना५ख७६९०",
+   "lines": [
+    "ना५ख७६९०"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408122517_letterboxed_jpg.rf.49994af05f3875ad4bbbdcef6b4656d0.jpg",
+   "text": "लु२ख६९०९",
+   "lines": [
+    "लु२ख",
+    "६९०९"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408124919_letterboxed_jpg.rf.02c0650d6a16dad7c2744730db975bce.jpg",
+   "text": "लु२ख६४१४",
+   "lines": [
+    "लु२ख६४१४"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408132808_letterboxed_jpg.rf.0cd5fb7fc0fc6d5b89a61aad73beb438.jpg",
+   "text": "लु२ख६४५९",
+   "lines": [
+    "लु२ख६४५९"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408111338_letterboxed_jpg.rf.5b6eb865b1ad4c70f66468113a674098.jpg",
+   "text": "ना७ख१०५३",
+   "lines": [
+    "ना७ख",
+    "१०५३"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408114416_001_letterboxed_jpg.rf.8abc3b2ebef6eb765ec8a78b414bc58f.jpg",
+   "text": "बा२१च२९८५",
+   "lines": [
+    "बा२१च२९८५"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408114936_001_letterboxed_jpg.rf.b7245dd25537511786cc5be7e043c420.jpg",
+   "text": "बा५ख४४१७",
+   "lines": [
+    "बा५ख४",
+    "४१७"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408115848_letterboxed_jpg.rf.5d837ca60d5a138f5da0ec5d5a58b63f.jpg",
+   "text": "रा१ख३०६३",
+   "lines": [
+    "रा१ख३०६३"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408123508_letterboxed_jpg.rf.2d3927757e2baaaa4bb410278e3db6cb.jpg",
+   "text": "बा१६च७७२०",
+   "lines": [
+    "बा१६च७७२०"
+   ]
+  },
+  {
+   "source": "crimson",
+   "file": "ch13_20240408133538_letterboxed_jpg.rf.8ae441fef328902a3ae85c45bb650f22.jpg",
+   "text": "बा५ख३९७",
+   "lines": [
+    "बा५ख३९७"
+   ]
+  }
+ ]
+}
