@@ -338,7 +338,8 @@ class EventSink:
         self._lock = threading.Lock()
         self.log_path = Path(log_path) if log_path else None
         self.delivery = delivery
-        self.total = 0
+        self.total = 0                # alerts emitted (delivered when delivery is attached)
+        self.observations = 0         # local observations (never delivered)
         self.patches = 0
         if self.log_path is not None:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -361,6 +362,13 @@ class EventSink:
                 self.delivery.enqueue(build_reason_patch(event, explanation))
             else:
                 self.delivery.enqueue(event)
+
+    def observe(self, event: dict) -> None:
+        """A local track observation (fusion-only under ALERT_POLICY=rules): ring and log, never delivered."""
+        with self._lock:
+            self._events.append(event)
+            self.observations += 1
+            self._append_log(event)
 
     def emit_patch(self, event: dict, explanation: dict) -> dict:
         """Replace a created event's reason: update the ring copy (if it is still there), log it, deliver it.
@@ -402,6 +410,7 @@ class EventSink:
         with self._lock:
             self._events.clear()
             self.total = 0
+            self.observations = 0
             self.patches = 0
 
     def close(self) -> None:

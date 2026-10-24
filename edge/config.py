@@ -118,8 +118,12 @@ class Config:
     calibration_warmup_seconds: float = field(default_factory=lambda: _float("CALIBRATION_WARMUP_SECONDS", 5.0))
     calibration_warmup_min_frames: int = field(default_factory=lambda: _int("CALIBRATION_WARMUP_MIN_FRAMES", 25))
     # Per-camera rule files <camera_id>.json (rules/config.py format; rules/examples/ has a sample).
-    # No file for a camera = its rules are off (logged), detection events still flow.
+    # No file for a camera = its rules are off (logged loudly): under ALERT_POLICY=rules it can never alert.
     rules_config_dir: Path = field(default_factory=lambda: _path("RULES_CONFIG_DIR", "./var/rules"))
+    # Which events become operator alerts (pipeline/service.py). 'rules' (default): only a fired rule (fence,
+    # loitering, wrong direction, out of hours, grouping) alerts; dual-channel agreement alone is a local
+    # observation. 'all': legacy, every fusion-agreed detection alerts. Not recommended.
+    alert_policy: str = field(default_factory=lambda: _str("ALERT_POLICY", "rules").lower())
     # Read plates on fusion-agreed vehicle tracks (anpr/stage.py). Needs paddleocr for recognition;
     # without it plates are still located and counted.
     anpr_enabled: bool = field(default_factory=lambda: _bool("ANPR_ENABLED", True))
@@ -209,6 +213,8 @@ class Config:
             raise ConfigError(f"DETECTOR_STRIDE must be at least 1, got {self.detector_stride}")
         if self.detector_tiling not in {"off", "strip", "full"}:
             raise ConfigError(f"DETECTOR_TILING must be off, strip or full, got {self.detector_tiling!r}")
+        if self.alert_policy not in {"rules", "all"}:
+            raise ConfigError(f"ALERT_POLICY must be rules or all, got {self.alert_policy!r}")
         if self.yolo_img_size < 32:
             raise ConfigError(f"YOLO_IMG_SIZE must be at least 32, got {self.yolo_img_size}")
         if self.is_production and not self.ingest_key:

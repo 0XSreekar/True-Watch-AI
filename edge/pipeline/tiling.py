@@ -152,8 +152,10 @@ def merge_passes(passes, width: int, height: int, cfg: TilingConfig, *, full_con
     classes = np.concatenate(cs).astype(np.int64)
     from_win = np.concatenate(ts)
     trunc = np.concatenate(tr)
-    np.clip(boxes[:, [0, 2]], 0, width, out=boxes[:, [0, 2]])
-    np.clip(boxes[:, [1, 3]], 0, height, out=boxes[:, [1, 3]])
+    # assign back: `out=boxes[:, [0, 2]]` would write into a fancy-index copy and leave the boxes unclipped
+    # (ground points below the frame's last row then slipped past fences drawn to the frame edge)
+    boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, width)
+    boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, height)
     valid = (boxes[:, 2] - boxes[:, 0] >= 2) & (boxes[:, 3] - boxes[:, 1] >= 2)
     boxes, scores, classes, from_win, trunc = boxes[valid], scores[valid], classes[valid], from_win[valid], trunc[valid]
     if cfg.trunc_ioa > 0 and trunc.any() and (~trunc).any():

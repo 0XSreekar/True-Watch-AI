@@ -77,7 +77,7 @@ def test_service_attaches_the_plate_to_the_tracks_event(tmp_path):
     sink = EventSink()
     svc = CameraService(FakeAppearance(scene, class_name="car"), camera_id="CAM-T", post_id="RXL", sink=sink,
                         stride=1, calibration_dir=tmp_path / "cal", warmup_frames=30,
-                        anpr=PlateStage(reader=lambda crop: FakeReading(PLATE_TEXT)))
+                        anpr=PlateStage(reader=lambda crop: FakeReading(PLATE_TEXT)), alert_policy="all")
     for f in ingest_frames(scene, 90):
         svc.process(f)
     svc.close()

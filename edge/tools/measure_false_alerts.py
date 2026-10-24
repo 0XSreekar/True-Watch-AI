@@ -39,11 +39,14 @@ def summarise(runs: list[RunResult], target_fps: float) -> dict:
     cameras = sorted({r.camera_id for r in runs})
     footage_s = sum(r.media_s for r in runs)
     alertable_s = sum(r.alertable_s for r in runs)
-    alerts = sum(len(r.events) for r in runs)
+    # local observations (fusion-only under ALERT_POLICY=rules) are never operator alerts
+    alerts = sum(e.get("kind") != "observation" for r in runs for e in r.events)
+    observations = sum(e.get("kind") == "observation" for r in runs for e in r.events)
     by_kind: dict[str, int] = {}
     for r in runs:
         for e in r.events:
-            by_kind[e["kind"]] = by_kind.get(e["kind"], 0) + 1
+            if e.get("kind") != "observation":
+                by_kind[e["kind"]] = by_kind.get(e["kind"], 0) + 1
     cam_hours = alertable_s / 3600.0
     lo, hi = poisson_interval(alerts)
     per_day = (lambda k: k / cam_hours * 24.0) if cam_hours > 0 else (lambda k: float("nan"))
@@ -51,6 +54,7 @@ def summarise(runs: list[RunResult], target_fps: float) -> dict:
         "metric": "false alerts per camera per 24 h",
         "alerts": alerts,
         "alerts_by_kind": by_kind,
+        "observations": observations,
         "cameras": len(cameras),
         "camera_ids": cameras,
         "recordings": len(runs),
@@ -65,7 +69,7 @@ def summarise(runs: list[RunResult], target_fps: float) -> dict:
                           f"event-free and representative of the camera's day"),
         "per_recording": [{"recording": r.recording, "camera_id": r.camera_id, "frames": r.frames,
                            "media_s": r.media_s, "warmup_s": r.warmup_s, "alertable_s": round(r.alertable_s, 3),
-                           "alerts": len(r.events), "fused_events": r.fused_events, "events": r.events}
+                           "alerts": sum(e.get("kind") != "observation" for e in r.events), "fused_events": r.fused_events, "events": r.events}
                           for r in runs],
     }
 

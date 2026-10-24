@@ -132,7 +132,9 @@ def test_the_service_hands_each_event_frame_to_the_indexer(tmp_path):
     for f in ingest_frames(scene, 90):
         svc.process(f)
     svc.close()
-    assert idx.flush(10) and idx.submitted == sink.total >= 1 and len(index) >= 1
+    # under ALERT_POLICY=rules a fusion-only event is an observation, but it is still indexed for search
+    assert sink.total == 0 and sink.observations >= 1
+    assert idx.flush(10) and idx.submitted == sink.observations and len(index) >= 1
     idx.close()
 
 

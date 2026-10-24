@@ -21,7 +21,7 @@ Verdicts: **PASS**, **PARTIAL**, **FAIL** (target not met), **NOT MEASURED** (po
 | 2 | Night-time operation (IR) | detector IR eval, `pipeline/fusion.py` night weights | METRICS.md; `test_fusion.py` | PASS | IR person AP50 0.845 (target 0.75) |
 | 2 | Real-time alerts and event logging | `pipeline/service.py`, `events.py`, backend ingest + SSE | end-to-end run; `backend/tests/stream.test.js` | PASS | 10 events -> 10 alerts, 30/30 messages delivered, SSE created + reason patch tested |
 | 2 | (a) Devanagari plates read where Latin ANPR reads nothing | `edge/anpr/compare_latin.py` | `tests/test_anpr.py::test_measurements_section_4_reproduces` | PASS | Devanagari head reads the synthetic plate; the Latin head does not (0.00% on the 2,076 synthetic val plates) |
-| 2 | (b) Two channels on different principles, alert only when both agree | `edge/pipeline/fusion.py` | `tests/test_fusion.py` | PASS | appearance-only, motion-only and below-temporal-gate cases do not alert; agreement does |
+| 2 | (b) Two channels on different principles, alert only when both agree (and, by default, a rule fires) | `edge/pipeline/fusion.py` | `tests/test_fusion.py` | PASS | appearance-only, motion-only and below-temporal-gate cases do not alert; agreement does |
 | 2 | (c) A written reason on every alert | `pipeline/explain.py`, `edge/vlm/` | `tests/test_live_explain.py`; end-to-end run | PASS | every alert arrived with the rule sentence; model sentences patch it later; reason never empty in any failure path tested (22 cases) |
 | 2 | (d) Evidence chained and signed as it is recorded | `edge/evidence/`, `pipeline/sealing.py` | `tests/test_evidence.py` (31), `test_sealing.py`; end-to-end run | PASS | 10 clips sealed at capture in the live run; verify 10/10 intact; one flipped byte in block 3 -> blocks 3-10 invalid, verify exit 1 |
 | 3 | Seven-step flow camera -> channels -> agreement -> alert -> reason -> seal -> log | edge + backend | end-to-end run | PASS | section 3 |
@@ -41,10 +41,10 @@ Verdicts: **PASS**, **PARTIAL**, **FAIL** (target not met), **NOT MEASURED** (po
 | 4 | DORI grading per IEC 62676-4 | `edge/rules/dori.py` | `test_rules.py` | PASS | bands exactly 25/62/125/250 px/m; refuses claims beyond the detect band |
 | 5 | Person mAP@50 0.85 day | detector v2 | `training/results/METRICS.md` | **FAIL** | 0.549 (95% CI 0.495-0.610) |
 | 5 | Person mAP@50 0.75 IR | detector v2 | METRICS.md | PASS | 0.845 (95% CI 0.782-0.876) |
-| 5 | <= 5 false alerts per camera per day | throttle + fusion | `tools/meva_measure.py` on MEVA (33 clips, 2.75 h, 11 cameras) | FAIL (measured on MEVA, not a border post) | about 250 per camera per 24 h truly false (est. 60 to 780), 5,030 alerts per camera-day of any kind; MEVA is busy US training-facility CCTV, see section 5 |
+| 5 | <= 5 false alerts per camera per day | `ALERT_POLICY=rules` (default) + throttle | `tools/meva_measure.py` on MEVA (33 clips, 2.75 h, 11 cameras) | NOT DEMONSTRATED (MEVA is not event-free) | operator alerts now fire only on a rule: pre-throttle rule firings about 3,550 per camera per 24 h (fence 104, wrong direction 217, loitering 82, group 4 in 2.75 h) vs 5,030 events under the legacy policy; 24 of 24 sampled alerts were on real people or vehicles, none on an empty scene. The target is about spurious alerts and still needs event-free border footage; see section 5 |
 | 5 | Detection range 150 m at 25 px/m | `rules/dori.py` | - | NOT TESTABLE HERE | needs a calibrated real camera |
 | 5 | 85% Nepali plates under 25 m | ANPR | section 2 | **FAIL** | best real result 52.6% (57 plates); no range-labelled real set |
-| 5 | < 2% missed fence crossings | fence rule | `tools/meva_measure.py` on MEVA | FAIL (measured on MEVA, not a border post) | 13 of 54 annotated crossings missed = 24.1%, Wilson 95% 14.6%-37.0% (n=54); 17.4% (9.1%-30.7%, n=46) without the panning camera; see section 5 |
+| 5 | < 2% missed fence crossings | fence rule | `tools/meva_measure.py` on MEVA | FAIL (measured on MEVA, not a border post) | after the box-clipping fix 12 of 54 missed = 22.2%, Wilson 95% 13.2%-34.9% (was 13, 24.1%); 15.2% (7.6%-28.2%, n=46) without the panning camera (was 17.4%); extra firings 62 (was 61); see section 5 |
 
 ## 2. Plate reader (published model, round G6, HF `sreekar12/truewatch-anpr-devanagari@064b6a0`)
 
@@ -153,14 +153,48 @@ same synthetic scene at 20 and 8 fps (four fusion cases, full pipeline with cali
     (Wilson 2%-26% on 2 of 24) gives about 29 false alerts = about 250 per camera per 24 h (about 60 to 780). The
     "annotated empty" footage (1.45 h, no annotated object within 3 s) yielded 123 alerts, but the same eye check says
     most of those are real unannotated objects, so no hour of this footage is confirmed event-free. Verdict:
-    <= 5 per camera per day is NOT met on busy MEVA scenes; it also is not a fair test of a quiet border post. The
-    system has no notion of "uninteresting" traffic: every person and vehicle in view alerts. The target remains
+    <= 5 per camera per day is NOT met on busy MEVA scenes; it also is not a fair test of a quiet border post. At the
+    time every person and vehicle in view alerted; the rule-gated policy below changes that. The target remains
     unmeasured on genuinely empty terrain.
   - Main failure causes seen: far or small people and vehicles (box height 60 to 130 px of 1080, often unannotated
     in the ground truth too); a panning camera defeating the fixed fence; people crossing in groups (one firing for
     several annotated tracks); misses where no firing at all occurred within 2 s (10 of 13: track never confirmed
     before the fence, or lost); fence placement across paths used by few subjects. Not tied to lighting here (all
     daylight).
+- P1, RULE-GATED ALERTS (re-measured on the same MEVA clips, fences and matching; `edge/results/meva_rule_gated_alerts.json`).
+  Owner decision: an operator alert fires only when a rule fires (fence, loitering, wrong direction, out of hours,
+  grouping). `ALERT_POLICY=rules` is the default; dual-channel agreement alone is a local observation (kept in the event
+  log and `GET /pipeline/events` as `"kind": "observation"`, indexed for search, never delivered, explained or sealed).
+  `ALERT_POLICY=all` keeps the old behaviour and is documented as not recommended. Out of hours is not on by default:
+  sanctioned windows are per post, and a guessed window either hides real crossings or alerts on every night-time
+  passer-by (edge/README.md). Method: "before" is a fresh run of main that reproduces the 2026-09-29 numbers exactly;
+  its per-frame detector output was cached and replayed through the new code ("after").
+  - Alerts per camera per 24 h (pooled): legacy 5,030 (576 events); rules policy: 407 rule firings before the throttle
+    = about 3,550, of which 157 were delivered because the throttle (5 new alerts per camera per 24 h, 12 per shift)
+    restarts with each 5-minute clip (about 1,370 per 24 h; on a real 24 h stream the throttle would cap delivery at 5
+    and drop the rest, which is not a fix). Firings: wrong direction 217, fence 104, loitering 82, group 4. Per camera
+    pre-throttle: G300 2,399, G328 2,975, G336 4,605, G339 3,454, G341 288, G424 5,852, G436 2,496, G505 2,686,
+    G506 2,975, G638 8,159, G639 3,203.
+  - By eye, 24 random delivered alerts: 24 on real people or vehicles, none on an empty scene; 8 fence (7 consistent
+    with the line, 1 on the panning G339), 6 loitering (mostly cars stopped or creeping on campus roads), 10 wrong
+    direction (two-way campus paths against a majority learnt from 5 minutes). So with rules gated, MEVA alerts are
+    real rule firings, but loitering and wrong direction with default pixel thresholds fire on ordinary busy two-way
+    traffic; a post must set its own thresholds. MEVA is a busy US training facility in daylight: this does not show
+    the slide-5 target (spurious alerts) either way, which still needs event-free border footage.
+  - Fence misses: 13 -> 12 of 54 (24.1% -> 22.2%, Wilson 13.2%-34.9%), without G339 8 -> 7 of 46 (17.4% -> 15.2%,
+    7.6%-28.2%); extra firings 61 -> 62. Per camera after (missed/n): G300 0/3, G328 1/9, G336 0/5, G339 5/8,
+    G341 0/0, G424 1/7, G436 0/3, G505 0/1, G506 1/3, G638 4/13, G639 0/2. Diagnosis of the 13: G339 panning 5;
+    groups 4 (one firing for two or three people walking together; the earlier "no firing within 2 s" reading was
+    mostly this: the firing exists and was matched to the other person); a track fragmented across the fence behind
+    an occlusion on G638 3; a box below the last image row on G424 1. No miss depended on a tentative track (the
+    tracker's history already starts at the birth frame and the fence reads the whole history once fusion agrees),
+    and the detector already runs on every frame at 8 fps. Fixes measured: merged boxes were never clipped to the
+    frame (`np.clip(..., out=boxes[:, idx])` writes into a copy) -> fixed, recovers the G424 miss (adopted); lost-track
+    buffer 1.5 -> 3 s: 8 -> 8 misses on the 6 affected clips (rejected); `DETECTOR_TILING=strip` on G506/G638: 4 -> 4,
+    about 5x CPU (rejected); bridging a fragmented track across the fence (<= 3 s, <= 300 px): -1 miss, +1 extra
+    (rejected); firing on tracks fusion never agreed on: 0 misses recovered, +17 extra (rejected). The remaining
+    misses need per-person separation in groups and re-identification through occlusion, not a rule change.
+
   The generated-footage self-checks remain: `python -m tools.measure_false_alerts --self-check` and
   `python -m tools.measure_fence_misses --self-check 50`.
 

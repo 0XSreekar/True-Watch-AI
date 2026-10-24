@@ -53,6 +53,15 @@ def test_per_scale_threshold_and_class_aware_nms():
     assert sorted(c.tolist()) == [0, 2] and not t.any()            # tile box is below its own floor; classes do not suppress
 
 
+def test_merged_boxes_are_clipped_to_the_frame():
+    # a box past the bottom-right corner (a person leaving the view) is clipped, so its ground point stays
+    # on the image and a fence drawn to the image border can still be crossed
+    full = _p(None, [[1900, 1000, 1935, 1083.5], [-6, -4, 40, 90]], [0.9, 0.8], [0, 0])
+    b, _, _, _ = merge_passes([full], 1920, 1080, TilingConfig(), full_conf=0.1, iou=0.5)
+    assert b.min() >= 0 and b[:, [0, 2]].max() <= 1920 and b[:, [1, 3]].max() <= 1080
+    assert sorted(b[:, 3].tolist()) == [90.0, 1080.0]
+
+
 def test_presets_and_config_switch():
     import pytest
     from config import Config, ConfigError
