@@ -458,6 +458,45 @@ keep working. It is:
   endpoint is baked in, so opting in without also configuring a real
   endpoint simply raises `VlmUnavailable`.
 
+## Alert policy: only a fired rule alerts (ALERT_POLICY)
+
+Dual-channel agreement (appearance and motion agree on a track) is necessary but not sufficient for an
+operator alert. With `ALERT_POLICY=rules` (the default) an event is delivered to the backend
+(`POST /api/ingest/event`), given a reason request and sealed as evidence only when at least one rule has
+fired on its track: fence crossed, loitering, wrong direction, out of hours or grouping (a rule event, or a
+fusion or plate event on a track whose `rules_fired` is not empty). One alert per (track, rule), under the
+same throttle as before. A fusion-only event ("someone is here") is a local observation:
+
+- it stays in the in-memory ring behind `GET /pipeline/events` and in `EVENTS_LOG_PATH`, marked
+  `"kind": "observation"` (`total` counts alerts, `observations` counts these);
+- it is still indexed for footage search (`SEARCH_ENABLED`);
+- it is never delivered, never given a model reason request and never sealed. If a rule later fires on the
+  same track, that rule event is the alert and is sealed at that moment; the clip ring (`EVIDENCE_CLIP_SECONDS`)
+  already holds the preceding seconds.
+
+`ALERT_POLICY=all` is the legacy behaviour (every fusion event alerts). It is kept for comparison only and
+is not recommended: on MEVA it gave about 5,000 alerts per camera per day (docs/VERIFICATION_REPORT.md
+section 5). The backend's alert shape is unchanged; observations never reach it.
+
+### Configuring rules for a camera
+
+Under the rules policy a camera with no rule file can never alert, and the service logs a loud
+`NO RULE CONFIGURATION` warning at start. Put one JSON file per camera, named `<CAMERA_ID>.json`, in
+`RULES_CONFIG_DIR` (default `./var/rules`); the file is hot-reloaded on change. Start from
+`rules/examples/RXL-01.json`:
+
+- `fences`: polylines in the pixels of the full frame (`direction` in / out / both);
+- `sanctioned_hours`: the post's sanctioned crossing windows (local time); outside them any agreed track
+  fires `out of hours`. Omit the key to switch the rule off;
+- `loitering`, `direction`, `grouping`: thresholds (metres when a `homography` is given, pixels otherwise).
+  Loitering, wrong direction and grouping are on for every configured camera with their defaults.
+
+Out of hours is NOT on by default for border cameras. Sanctioned windows differ per post and per crossing,
+and a guessed window either silences real crossings (too wide) or turns every night-time passer-by into
+an alert, which is the "everything alerts" behaviour this policy removes (too narrow). The operator sets
+the post's real windows in its rule file; a camera with neither fences nor sanctioned hours gets a start-up
+warning that only loitering, wrong direction and grouping can alert there.
+
 ## Delivery to the backend (pipeline/events.py)
 
 `EventSink` hands every created event and every reason patch to

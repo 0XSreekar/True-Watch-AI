@@ -45,11 +45,13 @@ class GatedRuntime:
         return text
 
 
-def run_service(tmp_path, explainer, sink, *, rules=None, n=130):
+def run_service(tmp_path, explainer, sink, *, rules=None, n=130, alert_policy="all"):
+    # The reason mechanics are tested on every event the legacy 'all' policy alerts on (fusion AND rule
+    # events); test_only_rule_alerts_are_explained_under_the_rules_policy covers the default policy.
     scene = Scene(speed=1.5, start=(20.0, 110.0))
     svc = CameraService(FakeAppearance(scene), camera_id="CAM-T", post_id="RXL", sink=sink, stride=1,
                         calibration_dir=tmp_path / "cal", warmup_frames=30, rules=rules, explainer=explainer,
-                        camera_name="BOP Raxaul", camera_sector="Raxaul")
+                        camera_name="BOP Raxaul", camera_sector="Raxaul", alert_policy=alert_policy)
     t0 = time.perf_counter()
     for f in ingest_frames(scene, n):
         svc.process(f)
@@ -104,6 +106,25 @@ def test_events_are_emitted_with_a_reason_before_the_model_finishes(tmp_path):
             seen.add(msg["event_id"])
     assert updates == len(events)
     assert svc.stats.explain["submitted"] == len(events)
+
+
+def test_only_rule_alerts_are_explained_under_the_rules_policy(tmp_path):
+    sink = EventSink()
+    calls = []
+
+    def fn(images, prompt, max_tokens, timeout_s):
+        calls.append(prompt)
+        return "unused"
+
+    explainer = EventExplainer(ExplanationQueue(CallableRuntime(fn, "stub-vlm"), maxsize=64))
+    svc, _ = run_service(tmp_path, explainer, sink, rules=fence_rules(), alert_policy="rules")
+    assert explainer.queue.join(10)
+    alerts = [e for e in sink.recent(1000) if e.get("kind") != "observation"]
+    observations = [e for e in sink.recent(1000) if e.get("kind") == "observation"]
+    assert observations, "the fusion event before the fence is a local observation"
+    assert all(e["explanation"] is None for e in observations)
+    assert len(alerts) == 1 and alerts[0]["rule"]["fired"] == ["fence crossed"]
+    assert svc.stats.explain["submitted"] == 1 and len(calls) == 1, "the model is asked for the alert only"
 
 
 def test_the_pipeline_never_blocks_on_a_model_that_never_answers(tmp_path):

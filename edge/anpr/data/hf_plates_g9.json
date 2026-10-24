@@ -1,0 +1,671 @@
+{
+ "schema": "truewatch.hf_plate_transcriptions.v1",
+ "source": "HF dataset mukulboro/nepali-private-license-plates (Kathmandu University parking-lot photos), original photos only",
+ "licence": "CC BY 4.0",
+ "credit": "Plate photographs: mukulboro, Nepali Private License Plates (Hugging Face), CC BY 4.0. Plate crops cut with plate locator 0.2.0; transcriptions made by the TrueWatch ANPR work. File names and text only; no images.",
+ "method": "Candidates are source photos in no test set and no earlier transcription selection. Crops 40 px or taller were transcribed in two passes (second pass on a different order and sheet layout) and kept only on exact agreement plus plate grammar. Both passes were by the same transcriber who could recall pass 1, so agreement measures consistency, not independent verification.",
+ "stats": {
+  "photos_local": 1168,
+  "excluded_test_or_earlier_selection": 760,
+  "candidates": 412,
+  "located": 412,
+  "cropped_40px_or_taller": 233,
+  "readable_pass_a": 70,
+  "pass_b_agree": 61,
+  "pass_b_disagree": 4,
+  "grammar_fail_bare_ba_pradesh_header": 5,
+  "dropped_test_text_match": 2,
+  "kept": 59
+ },
+ "plates": [
+  {
+   "file": "0166.jpg",
+   "box": [
+    197,
+    314,
+    338,
+    403
+   ],
+   "text": "बागमतीप्रदेश०२०३२प८८९२",
+   "script": "devanagari"
+  },
+  {
+   "file": "0170.jpg",
+   "box": [
+    156,
+    313,
+    404,
+    371
+   ],
+   "text": "बागमतीप्रदेश०२०३८प८६२९",
+   "script": "devanagari"
+  },
+  {
+   "file": "0171.jpg",
+   "box": [
+    167,
+    281,
+    368,
+    383
+   ],
+   "text": "बागमतीप्रदेश०२०३८प८१२५",
+   "script": "devanagari"
+  },
+  {
+   "file": "0172.jpg",
+   "box": [
+    179,
+    236,
+    365,
+    297
+   ],
+   "text": "बागमतीप्रदेश०२०४२प८८७३",
+   "script": "devanagari"
+  },
+  {
+   "file": "0180.jpg",
+   "box": [
+    163,
+    228,
+    381,
+    312
+   ],
+   "text": "बागमतीप्रदेश०२०३७प२८७६",
+   "script": "devanagari"
+  },
+  {
+   "file": "0191.jpg",
+   "box": [
+    180,
+    150,
+    410,
+    287
+   ],
+   "text": "प्रदेश३०२०११प१०५७",
+   "script": "devanagari"
+  },
+  {
+   "file": "0223.jpg",
+   "box": [
+    135,
+    328,
+    312,
+    405
+   ],
+   "text": "बा१३च७५१४",
+   "script": "devanagari"
+  },
+  {
+   "file": "0347.jpg",
+   "box": [
+    172,
+    170,
+    302,
+    212
+   ],
+   "text": "बा१३च४५६८",
+   "script": "devanagari"
+  },
+  {
+   "file": "0355.jpg",
+   "box": [
+    131,
+    232,
+    282,
+    319
+   ],
+   "text": "बा२१च३९८९",
+   "script": "devanagari"
+  },
+  {
+   "file": "0254.jpg",
+   "box": [
+    254,
+    259,
+    354,
+    324
+   ],
+   "text": "BAD6028",
+   "script": "latin"
+  },
+  {
+   "file": "0299.jpg",
+   "box": [
+    111,
+    194,
+    225,
+    253
+   ],
+   "text": "BAC4325",
+   "script": "latin"
+  },
+  {
+   "file": "0329.jpg",
+   "box": [
+    184,
+    241,
+    369,
+    293
+   ],
+   "text": "BAB4236",
+   "script": "latin"
+  },
+  {
+   "file": "0372.jpg",
+   "box": [
+    139,
+    259,
+    305,
+    356
+   ],
+   "text": "BAA8099",
+   "script": "latin"
+  },
+  {
+   "file": "0373.jpg",
+   "box": [
+    125,
+    215,
+    282,
+    317
+   ],
+   "text": "BAB4882",
+   "script": "latin"
+  },
+  {
+   "file": "0429.jpg",
+   "box": [
+    141,
+    230,
+    318,
+    322
+   ],
+   "text": "बागमतीप्रदेश०१०२८च३५५८",
+   "script": "devanagari"
+  },
+  {
+   "file": "0502.jpg",
+   "box": [
+    110,
+    234,
+    272,
+    352
+   ],
+   "text": "बा९३प५१३८",
+   "script": "devanagari"
+  },
+  {
+   "file": "0512.jpg",
+   "box": [
+    154,
+    214,
+    369,
+    298
+   ],
+   "text": "बागमतीप्रदेश०२०३९प२५६०",
+   "script": "devanagari"
+  },
+  {
+   "file": "0526.jpg",
+   "box": [
+    157,
+    236,
+    374,
+    285
+   ],
+   "text": "प्रदेश३०२००५प५६३२",
+   "script": "devanagari"
+  },
+  {
+   "file": "0529.jpg",
+   "box": [
+    100,
+    163,
+    358,
+    219
+   ],
+   "text": "बा९३प८३५०",
+   "script": "devanagari"
+  },
+  {
+   "file": "0445.jpg",
+   "box": [
+    160,
+    225,
+    367,
+    317
+   ],
+   "text": "BAA4965",
+   "script": "latin"
+  },
+  {
+   "file": "0468.jpg",
+   "box": [
+    253,
+    226,
+    353,
+    286
+   ],
+   "text": "BAB1885",
+   "script": "latin"
+  },
+  {
+   "file": "0471.jpg",
+   "box": [
+    249,
+    259,
+    385,
+    331
+   ],
+   "text": "BAB3483",
+   "script": "latin"
+  },
+  {
+   "file": "0566.jpg",
+   "box": [
+    196,
+    253,
+    378,
+    293
+   ],
+   "text": "BAB5511",
+   "script": "latin"
+  },
+  {
+   "file": "0572.jpg",
+   "box": [
+    179,
+    304,
+    406,
+    354
+   ],
+   "text": "BAD0676",
+   "script": "latin"
+  },
+  {
+   "file": "0576.jpg",
+   "box": [
+    116,
+    234,
+    346,
+    372
+   ],
+   "text": "BAB6347",
+   "script": "latin"
+  },
+  {
+   "file": "0583.jpg",
+   "box": [
+    172,
+    305,
+    410,
+    347
+   ],
+   "text": "BAB4835",
+   "script": "latin"
+  },
+  {
+   "file": "0587.jpg",
+   "box": [
+    168,
+    253,
+    363,
+    293
+   ],
+   "text": "BAB8751",
+   "script": "latin"
+  },
+  {
+   "file": "0591.jpg",
+   "box": [
+    158,
+    227,
+    374,
+    344
+   ],
+   "text": "BAA5252",
+   "script": "latin"
+  },
+  {
+   "file": "0646.jpg",
+   "box": [
+    83,
+    251,
+    239,
+    312
+   ],
+   "text": "BAC3290",
+   "script": "latin"
+  },
+  {
+   "file": "0752.jpg",
+   "box": [
+    66,
+    219,
+    405,
+    360
+   ],
+   "text": "BAD0200",
+   "script": "latin"
+  },
+  {
+   "file": "0578.jpg",
+   "box": [
+    100,
+    226,
+    467,
+    365
+   ],
+   "text": "प्रदेश३०१०२२च१४९६",
+   "script": "devanagari"
+  },
+  {
+   "file": "0594.jpg",
+   "box": [
+    166,
+    290,
+    412,
+    336
+   ],
+   "text": "प्रदेश३०१०२२च१३८३",
+   "script": "devanagari"
+  },
+  {
+   "file": "0653.jpg",
+   "box": [
+    76,
+    230,
+    287,
+    342
+   ],
+   "text": "बा१३च२८२",
+   "script": "devanagari"
+  },
+  {
+   "file": "0691.jpg",
+   "box": [
+    107,
+    243,
+    234,
+    325
+   ],
+   "text": "बागमतीप्रदेश०१०२८च३४१३",
+   "script": "devanagari"
+  },
+  {
+   "file": "0692.jpg",
+   "box": [
+    127,
+    268,
+    274,
+    366
+   ],
+   "text": "बागमतीप्रदेश०१०२८च३४१३",
+   "script": "devanagari"
+  },
+  {
+   "file": "0718.jpg",
+   "box": [
+    242,
+    204,
+    368,
+    258
+   ],
+   "text": "बागमतीप्रदेश०२०४७प१६०८",
+   "script": "devanagari"
+  },
+  {
+   "file": "0737.jpg",
+   "box": [
+    133,
+    245,
+    364,
+    416
+   ],
+   "text": "बा५१प५०३",
+   "script": "devanagari"
+  },
+  {
+   "file": "0740.jpg",
+   "box": [
+    51,
+    144,
+    419,
+    295
+   ],
+   "text": "बागमतीप्रदेश०२०३४प२३००",
+   "script": "devanagari"
+  },
+  {
+   "file": "0747.jpg",
+   "box": [
+    126,
+    148,
+    442,
+    363
+   ],
+   "text": "प्रदेश३०२००८प९९९८",
+   "script": "devanagari"
+  },
+  {
+   "file": "0760.jpg",
+   "box": [
+    117,
+    209,
+    435,
+    319
+   ],
+   "text": "बागमतीप्रदेश०१०२९च७०२५",
+   "script": "devanagari"
+  },
+  {
+   "file": "0777.jpg",
+   "box": [
+    184,
+    190,
+    432,
+    291
+   ],
+   "text": "BAD7913",
+   "script": "latin"
+  },
+  {
+   "file": "0784.jpg",
+   "box": [
+    121,
+    329,
+    363,
+    371
+   ],
+   "text": "BAD6184",
+   "script": "latin"
+  },
+  {
+   "file": "0923.jpg",
+   "box": [
+    66,
+    219,
+    287,
+    300
+   ],
+   "text": "BAC9093",
+   "script": "latin"
+  },
+  {
+   "file": "0804.jpg",
+   "box": [
+    120,
+    211,
+    275,
+    301
+   ],
+   "text": "बागमतीप्रदेश०१०२९च६०२२",
+   "script": "devanagari"
+  },
+  {
+   "file": "0816.jpg",
+   "box": [
+    104,
+    213,
+    330,
+    290
+   ],
+   "text": "बा६७प९४९५",
+   "script": "devanagari"
+  },
+  {
+   "file": "0819.jpg",
+   "box": [
+    125,
+    186,
+    379,
+    249
+   ],
+   "text": "बा७५प२८९३",
+   "script": "devanagari"
+  },
+  {
+   "file": "0820.jpg",
+   "box": [
+    124,
+    262,
+    360,
+    363
+   ],
+   "text": "बा७६प८४२",
+   "script": "devanagari"
+  },
+  {
+   "file": "0862.jpg",
+   "box": [
+    163,
+    320,
+    311,
+    368
+   ],
+   "text": "बागमतीप्रदेश०१०२९च५२००",
+   "script": "devanagari"
+  },
+  {
+   "file": "0871.jpg",
+   "box": [
+    27,
+    238,
+    277,
+    326
+   ],
+   "text": "प्रदेश३०२००४प९७५४",
+   "script": "devanagari"
+  },
+  {
+   "file": "0874.jpg",
+   "box": [
+    261,
+    232,
+    421,
+    273
+   ],
+   "text": "प्रदेश३०२००१प५१२६",
+   "script": "devanagari"
+  },
+  {
+   "file": "0901.jpg",
+   "box": [
+    133,
+    121,
+    361,
+    192
+   ],
+   "text": "बा५४प१३८०",
+   "script": "devanagari"
+  },
+  {
+   "file": "0968.jpg",
+   "box": [
+    72,
+    243,
+    358,
+    284
+   ],
+   "text": "बा४३प४२७२",
+   "script": "devanagari"
+  },
+  {
+   "file": "0993.jpg",
+   "box": [
+    122,
+    94,
+    290,
+    161
+   ],
+   "text": "बा८५प२२४२",
+   "script": "devanagari"
+  },
+  {
+   "file": "1025.jpg",
+   "box": [
+    171,
+    146,
+    289,
+    226
+   ],
+   "text": "बा२१च१७४२",
+   "script": "devanagari"
+  },
+  {
+   "file": "1039.jpg",
+   "box": [
+    145,
+    188,
+    337,
+    234
+   ],
+   "text": "बा७३प५०२५",
+   "script": "devanagari"
+  },
+  {
+   "file": "1086.jpg",
+   "box": [
+    120,
+    310,
+    301,
+    351
+   ],
+   "text": "बागमतीप्रदेश०२०२१प२२४७",
+   "script": "devanagari"
+  },
+  {
+   "file": "1118.jpg",
+   "box": [
+    127,
+    200,
+    342,
+    246
+   ],
+   "text": "बागमतीप्रदेश०२०२२प३०५५",
+   "script": "devanagari"
+  },
+  {
+   "file": "1153.jpg",
+   "box": [
+    147,
+    34,
+    332,
+    91
+   ],
+   "text": "BAD8348",
+   "script": "latin"
+  },
+  {
+   "file": "1158.jpg",
+   "box": [
+    201,
+    168,
+    312,
+    266
+   ],
+   "text": "AAB1682",
+   "script": "latin"
+  }
+ ]
+}

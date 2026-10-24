@@ -1,0 +1,402 @@
+{
+ "dataset": "MEVA (Kitware Inc. and IARPA), CC BY 4.0",
+ "clips": 33,
+ "footage_hours": 2.748,
+ "cameras": 11,
+ "fences": "edge/tools/meva_fences.json, unchanged; matching unchanged (2.0 s, 250 px, one-to-one)",
+ "before": {
+  "code": "main d7b061e (ALERT_POLICY did not exist: every fusion event alerted)",
+  "fence": {
+   "all": {
+    "n": 54,
+    "detected": 41,
+    "missed": 13,
+    "miss_rate": 0.2407,
+    "wilson95": [
+     0.1464,
+     0.3695
+    ],
+    "verdict": "fails <2% (lower bound at/above 2%)"
+   },
+   "person": {
+    "n": 41,
+    "detected": 30,
+    "missed": 11,
+    "miss_rate": 0.2683,
+    "wilson95": [
+     0.1569,
+     0.4193
+    ],
+    "verdict": "fails <2% (lower bound at/above 2%)"
+   },
+   "vehicle": {
+    "n": 13,
+    "detected": 11,
+    "missed": 2,
+    "miss_rate": 0.1538,
+    "wilson95": [
+     0.0433,
+     0.4223
+    ],
+    "verdict": "fails <2% (lower bound at/above 2%)"
+   },
+   "extra_firings": 61,
+   "per_camera": {
+    "G300": {
+     "missed": 0,
+     "n": 3,
+     "extra_firings": 8
+    },
+    "G328": {
+     "missed": 1,
+     "n": 9,
+     "extra_firings": 2
+    },
+    "G336": {
+     "missed": 0,
+     "n": 5,
+     "extra_firings": 9
+    },
+    "G339": {
+     "missed": 5,
+     "n": 8,
+     "extra_firings": 4
+    },
+    "G341": {
+     "missed": 0,
+     "n": 0,
+     "extra_firings": 0
+    },
+    "G424": {
+     "missed": 2,
+     "n": 7,
+     "extra_firings": 6
+    },
+    "G436": {
+     "missed": 0,
+     "n": 3,
+     "extra_firings": 3
+    },
+    "G505": {
+     "missed": 0,
+     "n": 1,
+     "extra_firings": 1
+    },
+    "G506": {
+     "missed": 1,
+     "n": 3,
+     "extra_firings": 7
+    },
+    "G638": {
+     "missed": 4,
+     "n": 13,
+     "extra_firings": 20
+    },
+    "G639": {
+     "missed": 0,
+     "n": 2,
+     "extra_firings": 1
+    }
+   }
+  },
+  "fence_without_G339": {
+   "missed": 8,
+   "n": 46,
+   "miss_rate": 0.1739,
+   "wilson95": [
+    0.0908,
+    0.3071
+   ]
+  },
+  "alerts_per_camera_per_24h_pooled": 5029.9,
+  "events": 576
+ },
+ "after": {
+  "code": "feat/rule-gated-alerts: ALERT_POLICY=rules + merged-box clipping fix",
+  "fence": {
+   "all": {
+    "n": 54,
+    "detected": 42,
+    "missed": 12,
+    "miss_rate": 0.2222,
+    "wilson95": [
+     0.132,
+     0.3494
+    ],
+    "verdict": "fails <2% (lower bound at/above 2%)"
+   },
+   "person": {
+    "n": 41,
+    "detected": 30,
+    "missed": 11,
+    "miss_rate": 0.2683,
+    "wilson95": [
+     0.1569,
+     0.4193
+    ],
+    "verdict": "fails <2% (lower bound at/above 2%)"
+   },
+   "vehicle": {
+    "n": 13,
+    "detected": 12,
+    "missed": 1,
+    "miss_rate": 0.0769,
+    "wilson95": [
+     0.0137,
+     0.3331
+    ],
+    "verdict": "not demonstrated (interval straddles 2%)"
+   },
+   "extra_firings": 62,
+   "per_camera": {
+    "G300": {
+     "missed": 0,
+     "n": 3,
+     "extra_firings": 8
+    },
+    "G328": {
+     "missed": 1,
+     "n": 9,
+     "extra_firings": 2
+    },
+    "G336": {
+     "missed": 0,
+     "n": 5,
+     "extra_firings": 9
+    },
+    "G339": {
+     "missed": 5,
+     "n": 8,
+     "extra_firings": 4
+    },
+    "G341": {
+     "missed": 0,
+     "n": 0,
+     "extra_firings": 0
+    },
+    "G424": {
+     "missed": 1,
+     "n": 7,
+     "extra_firings": 7
+    },
+    "G436": {
+     "missed": 0,
+     "n": 3,
+     "extra_firings": 3
+    },
+    "G505": {
+     "missed": 0,
+     "n": 1,
+     "extra_firings": 1
+    },
+    "G506": {
+     "missed": 1,
+     "n": 3,
+     "extra_firings": 7
+    },
+    "G638": {
+     "missed": 4,
+     "n": 13,
+     "extra_firings": 20
+    },
+    "G639": {
+     "missed": 0,
+     "n": 2,
+     "extra_firings": 1
+    }
+   }
+  },
+  "fence_without_G339": {
+   "missed": 7,
+   "n": 46,
+   "miss_rate": 0.1522,
+   "wilson95": [
+    0.0757,
+    0.2822
+   ]
+  },
+  "alert_policy": {
+   "alerts_rules": 157,
+   "events_all": 576,
+   "rule_firings_before_throttle": 407,
+   "rule_firings_by_rule": {
+    "loitering": 82,
+    "wrong direction": 217,
+    "fence crossed": 104,
+    "group formed": 4
+   },
+   "per_camera_per_24h_pooled": {
+    "rules": 1371.0,
+    "all": 5029.9,
+    "firings": 3554.1
+   },
+   "per_camera": {
+    "G300": {
+     "rules": 1055.3,
+     "all": 3166.0,
+     "firings": 2398.5,
+     "alerts_rules": 11,
+     "events_all": 33,
+     "rule_firings": 25
+    },
+    "G328": {
+     "rules": 1439.5,
+     "all": 4414.5,
+     "firings": 2975.0,
+     "alerts_rules": 15,
+     "events_all": 46,
+     "rule_firings": 31
+    },
+    "G336": {
+     "rules": 1726.9,
+     "all": 6140.1,
+     "firings": 4605.1,
+     "alerts_rules": 18,
+     "events_all": 64,
+     "rule_firings": 48
+    },
+    "G339": {
+     "rules": 1055.3,
+     "all": 4221.3,
+     "firings": 3453.8,
+     "alerts_rules": 11,
+     "events_all": 44,
+     "rule_firings": 36
+    },
+    "G341": {
+     "rules": 288.0,
+     "all": 1055.9,
+     "firings": 288.0,
+     "alerts_rules": 3,
+     "events_all": 11,
+     "rule_firings": 3
+    },
+    "G424": {
+     "rules": 2302.4,
+     "all": 7482.7,
+     "firings": 5851.9,
+     "alerts_rules": 24,
+     "events_all": 78,
+     "rule_firings": 61
+    },
+    "G436": {
+     "rules": 959.9,
+     "all": 4031.6,
+     "firings": 2495.7,
+     "alerts_rules": 10,
+     "events_all": 42,
+     "rule_firings": 26
+    },
+    "G505": {
+     "rules": 1247.2,
+     "all": 6331.8,
+     "firings": 2686.2,
+     "alerts_rules": 13,
+     "events_all": 66,
+     "rule_firings": 28
+    },
+    "G506": {
+     "rules": 1439.6,
+     "all": 3647.1,
+     "firings": 2975.2,
+     "alerts_rules": 15,
+     "events_all": 38,
+     "rule_firings": 31
+    },
+    "G638": {
+     "rules": 1919.6,
+     "all": 9022.3,
+     "firings": 8158.5,
+     "alerts_rules": 20,
+     "events_all": 94,
+     "rule_firings": 85
+    },
+    "G639": {
+     "rules": 1649.9,
+     "all": 5823.2,
+     "firings": 3202.8,
+     "alerts_rules": 17,
+     "events_all": 60,
+     "rule_firings": 33
+    }
+   },
+   "note": "each 5-minute clip is a fresh service, so the throttle (5 new alerts per camera per 24 h, 12 per shift) restarts per clip; delivered 'rules' alerts are therefore capped per clip and the pre-throttle firings are the honest load figure"
+  }
+ },
+ "method_note": "before = a fresh run of main on this machine (reproduces edge/results/meva_field_measurement.json exactly: 13/54 missed, 61 extra, 576 events); the detector output of that run was cached per frame and the after run replays it through the new service code with the fixed box clipping applied (the detector already ran on every frame: 8 fps with DETECTOR_MAX_INTERVAL_S 0.125 s). Rule config per camera = the MEVA fence only; loitering, wrong direction and grouping run with their defaults (pixel thresholds), no sanctioned hours.",
+ "miss_diagnosis_before": {
+  "G339_panning_camera": 5,
+  "groups_one_firing_for_two_or_more_annotated_people": 4,
+  "track_fragmented_across_the_fence_occlusion_G638": 3,
+  "fence_ends_at_the_frame_edge_unclipped_box_G424": 1,
+  "note": "the 2026-09-29 reading 'no firing within 2 s' was mostly groups: the firing exists but was matched to the other person of the pair. No miss was caused by a tentative track: the tracker's history already starts at the birth frame and the fence is evaluated on the whole history once fusion agrees."
+ },
+ "fence_fixes_measured": [
+  {
+   "fix": "clip merged detector boxes to the frame (np.clip out= on a fancy-index copy was a no-op)",
+   "scope": "33 clips",
+   "missed": "13 -> 12",
+   "extra_firings": "61 -> 62",
+   "adopted": true
+  },
+  {
+   "fix": "tracker lost-track buffer 1.5 s -> 3.0 s",
+   "scope": "the 6 non-G339 clips with misses",
+   "missed": "8 -> 8",
+   "extra_firings": "16 -> 16",
+   "adopted": false
+  },
+  {
+   "fix": "DETECTOR_TILING=strip",
+   "scope": "G506 2018-03-05, G638 2018-03-15",
+   "missed": "4 -> 4",
+   "extra_firings": "10 -> 10",
+   "cpu": "about 5x per clip",
+   "adopted": false
+  },
+  {
+   "fix": "bridge a fragmented track (A ended <= 3 s before B was born, <= 300 px away) across the fence",
+   "scope": "33 clips, offline on dumped tracks",
+   "missed": "13 -> 12",
+   "extra_firings": "61 -> 62",
+   "adopted": false,
+   "why": "one recovered miss for one extra firing; no net evidence of benefit"
+  },
+  {
+   "fix": "fire the fence on confirmed tracks fusion never agreed on (all of them)",
+   "scope": "33 clips, offline",
+   "missed": "13 -> 13",
+   "extra_firings": "61 -> 78",
+   "adopted": false
+  },
+  {
+   "fix": "evaluate the fence on history from the first (tentative) detection",
+   "adopted": false,
+   "why": "already the behaviour: no miss depends on it"
+  },
+  {
+   "fix": "shorter detector interval",
+   "adopted": false,
+   "why": "the detector already runs on every frame at 8 fps"
+  }
+ ],
+ "eye_check_after": {
+  "sample": "24 of the 157 delivered rule alerts, random (seed 7), frame with box and fence drawn",
+  "real_person_or_vehicle": 24,
+  "fence_crossed": {
+   "n": 8,
+   "consistent_with_the_line": 7,
+   "doubtful": 1,
+   "doubtful_note": "G339 panning camera"
+  },
+  "loitering": {
+   "n": 6,
+   "note": "4 are cars stopped or creeping on campus roads, 2 people standing: true by the rule's definition, operationally uninteresting"
+  },
+  "wrong_direction": {
+   "n": 10,
+   "note": "people and cars on two-way campus paths and roads against a majority heading learnt from 5 minutes: true by definition, not threats"
+  },
+  "summary": "no alert was on an empty scene or a phantom object; fence firings are real crossings; the remaining load is loitering and wrong-direction firing on ordinary two-way traffic with default pixel thresholds"
+ }
+}

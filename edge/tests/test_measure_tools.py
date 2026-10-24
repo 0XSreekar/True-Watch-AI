@@ -68,7 +68,9 @@ def test_false_alert_harness_counts_nothing_on_quiet_footage_and_every_scripted_
     q = run_recording(quiet.path, quiet.appearance(), camera_id="Q", target_fps=8.0)
     c = run_recording(control.path, control.appearance(), camera_id="C", target_fps=8.0)
     assert q.events == [] and q.warmup_s == pytest.approx(5.0, abs=0.3)
-    assert [e["kind"] for e in c.events] == ["detection"]
+    # no rules on these runs: the walk is a fusion-only observation, which is never an operator alert
+    assert [e["kind"] for e in c.events] == ["observation"]
+    assert alert_summary([c], 8.0)["alerts"] == 0 and alert_summary([c], 8.0)["observations"] == 1
     s = alert_summary([q], 8.0)
     assert s["alerts"] == 0 and s["cameras"] == 1
     assert s["alertable_camera_hours"] == pytest.approx(q.alertable_s / 3600, abs=1e-4)

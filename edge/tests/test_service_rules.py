@@ -57,7 +57,8 @@ def test_rules_come_from_the_hot_reloaded_store_and_missing_file_turns_them_off(
     store_dir = tmp_path / "rules"
     store_dir.mkdir()
     svc, sink, _ = run_service(tmp_path, ConfigStore(directory=store_dir), n=60)
-    assert svc.stats.rule_evaluations == 0 and sink.total >= 1, "no rule file: detections still flow, rules off"
+    assert svc.stats.rule_evaluations == 0 and sink.observations >= 1, "no rule file: detections still observed"
+    assert sink.total == 0, "no rule file: under ALERT_POLICY=rules the camera cannot alert"
     (store_dir / "CAM-T.json").write_text(json.dumps(fence_config()))
     svc, sink, _ = run_service(tmp_path, ConfigStore(directory=store_dir))
     assert svc.stats.rule_fires.get("fence crossed") == 1
