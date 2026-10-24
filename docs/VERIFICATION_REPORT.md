@@ -25,8 +25,8 @@ Verdicts: **PASS**, **PARTIAL**, **FAIL** (target not met), **NOT MEASURED** (po
 | 2 | (c) A written reason on every alert | `pipeline/explain.py`, `edge/vlm/` | `tests/test_live_explain.py`; end-to-end run | PASS | every alert arrived with the rule sentence; model sentences patch it later; reason never empty in any failure path tested (22 cases) |
 | 2 | (d) Evidence chained and signed as it is recorded | `edge/evidence/`, `pipeline/sealing.py` | `tests/test_evidence.py` (31), `test_sealing.py`; end-to-end run | PASS | 10 clips sealed at capture in the live run; verify 10/10 intact; one flipped byte in block 3 -> blocks 3-10 invalid, verify exit 1 |
 | 3 | Seven-step flow camera -> channels -> agreement -> alert -> reason -> seal -> log | edge + backend | end-to-end run | PASS | section 3 |
-| 3 | ~30 ms detector inference (YOLO11-s INT8, 640 px) | - | - | NOT TESTABLE HERE | Jetson Orin Nano target; CPU numbers in METRICS.md are not comparable |
-| 3 | VLM reason ~3 s, asynchronous | `edge/vlm/`, `pipeline/explain.py` | `vlm/latency.py`; `test_live_explain.py` | PARTIAL | async ordering proven; Mac Apple GPU (MPS) p50 2.93 s / p95 4.11 s (n=24); Mac CPU p50 272.8 s / p95 309.9 s (n=6); Jetson not measured. Guardrails accepted 7 of 24 model sentences; the rest kept the rule sentence |
+| 3 | ~30 ms detector inference (YOLO11-s INT8, 640 px) | - | - | NOT MEASURED | design target, not measured on hardware. The measurement kit is ready (`docs/JETSON.md`, `edge/tools/jetson/`; parsers and scoring unit-tested, never run on a board); CPU numbers in METRICS.md are not comparable |
+| 3 | VLM reason ~3 s, asynchronous | `edge/vlm/`, `pipeline/explain.py` | `vlm/latency.py`; `test_live_explain.py` | PARTIAL | async ordering proven; Mac Apple GPU (MPS) p50 2.93 s / p95 4.11 s (n=24); Mac CPU p50 272.8 s / p95 309.9 s (n=6); Jetson not measured (kit ready: `docs/JETSON.md`). Guardrails accepted 7 of 24 model sentences; the rest kept the rule sentence |
 | 3 | Verifiable with one command | `python -m evidence.verify` | CLI run | PASS | exit 0 clean, exit 1 after tamper |
 | 3 | SHA-256 per clip, chained, daily Merkle root, signed, mirrored to HQ | `edge/evidence/` | `tests/test_evidence.py` | PASS | Ed25519 key 0600; HQ mirror is a second local directory; no network import in `edge/evidence/` |
 | 4 | Existing IP cameras (RTSP/ONVIF) | `edge/pipeline/source.py`, `ingest.py` | file replay only | PARTIAL | RTSP path implemented; only recorded files were used as sources |
@@ -203,7 +203,7 @@ same synthetic scene at 20 and 8 fps (four fusion cases, full pipeline with cali
 - P2: `VITE_DEMO_MODE` (default on) opens the console on sample data when the API is unreachable; set it off for any real use.
 - P2: backend's local fallback Merkle root duplicates an odd leaf; the authoritative edge root promotes it.
 - Not built: trained plate locator (classical locator found 3 of 13 real plates earlier), cart class, SAHI accuracy on far field.
-- Not testable here: Jetson latency, 150 m range, field false-alert rate.
+- Not testable here (kit ready, see `docs/JETSON.md`): Jetson latency, 150 m range, field false-alert rate.
 - Deployment: out of scope by the owner's decision; the system runs locally.
 
 ## 6. Test suites
