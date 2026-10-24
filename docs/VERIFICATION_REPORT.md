@@ -217,3 +217,18 @@ same synthetic scene at 20 and 8 fps (four fusion cases, full pipeline with cali
 | Training | 288 passed, 56 skipped |
 | Watermark scan (`scripts/watermark-scan.sh`) | clean |
 | Lint (ruff, pyflakes rules) | 0 undefined names; 18 unused imports / empty f-strings removed; style-rule findings (`zip` strictness, `raise from`) left as P2 |
+
+## 7. External references (published by others, NOT measured by this project)
+
+These figures come from other people's hardware and models. They show what is plausible on the target
+hardware; they are not results for TrueWatch's weights and must never be quoted as TrueWatch measurements.
+The project's own Jetson numbers stay NOT MEASURED until `docs/JETSON.md` is run on a board.
+
+| Claim (slide 3) | Published reference | What it covers | What it does not cover |
+|---|---|---|---|
+| ~30 ms YOLO11-s INT8 at 640 px on a Jetson Orin Nano | AgriJetsonBench, arXiv 2608.00927v1, Table 8 and section 3.7: YOLO11s INT8, 640x640, batch 1, Jetson Orin Nano Super at 15 W: median 6.990 ms, p95 7.018 ms, 145.82 FPS over 2.76 M inferences | Same architecture and precision on the target board; TensorRT engine-only timing (image loading, pre/post-processing and NMS excluded) | Our fine-tuned weights, our INT8 calibration, end-to-end pipeline latency, tiling (7 passes per frame with `DETECTOR_TILING=full`), the original (non-Super) Orin Nano |
+| VLM explanation ~3 s on the device | No published Moondream 2 figure on Orin Nano was found. Nearest proxy: a 2B vision-language model on Orin Nano 8 GB (MAXN_SUPER, JetPack 6.2.2) at about 38 tokens/s with llama.cpp and about 60 tokens/s with TensorRT Edge-LLM (github.com/hokwangchoi/jetson-orin-nano-benchmarks) | Order of magnitude for a 2B VLM decode rate on the board | Moondream 2 itself, image-encoder time, our prompt and guardrails |
+
+Reading of the detector reference: if our engine behaves like the published one, the single-pass detector uses
+roughly a quarter of the 30 ms budget, which leaves room for motion, tracking and fusion; full-frame tiling
+(about 7 passes) would not fit the 30 ms budget. This is an expectation to be confirmed on hardware, not a result.
